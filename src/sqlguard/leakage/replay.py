@@ -146,6 +146,7 @@ class Replayer:
         # tables whose history starts after the pinned time (read as empty), by (time, history)
         self._late: dict[tuple[datetime, bool], dict[str, str]] = {}
         self._reads: dict[tuple[str, int | None], pa.Table] = {}
+        self._predates: dict[tuple[str, datetime], bool] = {}
         self._schema: dict | None = None
         self._bound: dict[int, set[tuple[str, ...]]] = defaultdict(set)  # views made per connection
 
@@ -180,6 +181,56 @@ class Replayer:
                 return self._current_data(table)  # no history to check the declaration against
             late[table] = self._starts_after(table)
         return self._read(table, snapshot)
+
+    def _predates_history(self, table: str, ts: datetime) -> bool:
+        """Does `ts` come before the first snapshot of `table` that a replay may rely on?"""
+        if (
+            table == self.spec.label_table
+            or table in self.spec.outcome_tables
+            or table in self.spec.static_tables
+        ):
+            return False  # empty-before-it-exists, read as it is now, or the label spine
+        key = (table, ts)
+        if key not in self._predates:
+            inclusive = self.spec.boundary == "inclusive"
+            before = naive_utc(ts) - (timedelta(0) if inclusive else _STRICT)
+            try:
+                snapshot = self.catalog.snapshot_as_of(table, before, strict_history=True)
+            except HistoryGap:
+                self._predates[key] = False  # expired history: sampling it reports the gap
+            else:
+                late = snapshot is None and self.catalog.table(table).current_snapshot() is not None
+                self._predates[key] = late
+        return self._predates[key]
+
+    def _within_history(self, read: set[str], usable: Counter) -> tuple[Counter, int, str]:
+        """Keep the prediction times that every table the query reads has history for.
+
+        Times before a table's first snapshot cannot be reconstructed. Sampling from only the
+        times that can be replayed, rather than sampling all of them and dropping the unlucky,
+        puts the evidence budget where there is evidence to gather. Returns the kept times, how
+        many were left out, and why.
+        """
+        stamps = sorted(usable)
+        start, why = 0, ""
+        if not stamps:
+            return usable, 0, ""
+        for table in sorted(read):
+            if not self._predates_history(table, stamps[0]):
+                continue  # the history reaches back past the first prediction time: all covered
+            # being before the start of history is monotone in time: find the first covered time
+            lo, hi = 0, len(stamps)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if self._predates_history(table, stamps[mid]):
+                    lo = mid + 1
+                else:
+                    hi = mid
+            if lo > start:
+                start, why = lo, self._starts_after(table)
+        if not start:
+            return usable, 0, ""
+        return Counter({ts: usable[ts] for ts in stamps[start:]}), start, why
 
     def _starts_after(self, table: str) -> str:
         first = min(self.catalog.snapshots(table), key=lambda s: s.visible_at)
@@ -378,6 +429,9 @@ class Replayer:
             {ts: sum(len(r) for r in rows.values()) for ts, rows in full_by_ts.items()}
         )
         usable = Counter({ts: n for ts, n in produced.items() if ts in self._label_stamps})
+        usable, excluded, excluded_why = self._within_history(read, usable)
+        if excluded and not usable:
+            return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=excluded_why)
         points = [
             self._label_stamps[ts] for ts in sample_points(usable, self.max_points, self.seed)
         ]
@@ -428,9 +482,14 @@ class Replayer:
 
         if len(skipped) == len(points):
             return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=skipped[0])
-        note = (
-            f"; {len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}" if skipped else ""
-        )
+        notes = []
+        if skipped:
+            notes.append(f"{len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}")
+        if excluded:
+            notes.append(
+                f"{excluded} prediction time(s) before the start of history left out, "
+                f"{len(points)} sampled from the rest: {excluded_why}"
+            )
 
         def result(
             status: ReplayStatus, reason: str = "", insufficient: bool | None = None
@@ -441,7 +500,7 @@ class Replayer:
                 compared,
                 mismatched,
                 dict(columns),
-                reason + note if reason or skipped else "",
+                "; ".join(filter(None, [reason, *notes])),
                 timestamps,
                 insufficient_evidence=(
                     status is ReplayStatus.UNVERIFIABLE if insufficient is None else insufficient
@@ -457,6 +516,6 @@ class Replayer:
                 f"needs at least {self.min_rows} rows at {self.min_points} times",
                 # Points left out for lack of history make this a gap in coverage, not just a
                 # small sample: it must keep blocking, as a table with expired history does.
-                insufficient=not skipped,
+                insufficient=not (skipped or excluded),
             )
         return result(ReplayStatus.PASS)

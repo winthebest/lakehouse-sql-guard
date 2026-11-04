@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -17,7 +18,32 @@ def _sql_files(target: Path) -> list[Path]:
     return [target]
 
 
+def _print_fixes(path: Path, fixes: list) -> None:
+    """The fixes as a list of what each does, then one unified diff of the whole repair."""
+    for fix in fixes:
+        print(
+            f"    fix {fix.rule:3} [{fix.verification.value}; semantics {fix.semantics.value}] "
+            f"{fix.location}: {fix.explanation}"
+        )
+        for caveat in fix.caveats:
+            print(f"        caveat: {caveat}")
+    rewrites = [f for f in fixes if f.rewrites]
+    if not rewrites:
+        return
+    diff = difflib.unified_diff(
+        rewrites[0].before_sql.splitlines(),
+        rewrites[-1].after_sql.splitlines(),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path} (suggested)",
+        lineterm="",
+    )
+    print("    suggested change (formatting normalized; the file is not modified):")
+    for line in diff:
+        print(line)
+
+
 def leakage_check(args: argparse.Namespace) -> int:
+    from sqlguard.leakage.fixes import suggest_fix
     from sqlguard.leakage.replay import Replayer
     from sqlguard.leakage.spec import LeakageSpec
     from sqlguard.leakage.validator import Weights, validate
@@ -55,7 +81,21 @@ def leakage_check(args: argparse.Namespace) -> int:
             replay=replay,
             weights=weights,
         )
-        results.append({"file": str(path), **report.to_dict()})
+        sql = path.read_text(encoding="utf-8")
+        entry = {"file": str(path), **report.to_dict()}
+        fixes = []
+        if args.suggest_fix:
+            fixes = suggest_fix(
+                sql,
+                spec,
+                report,
+                schema=schema,
+                catalog=catalog,
+                replay=replay,
+                weights=weights,
+            )
+            entry["fixes"] = [fix.to_dict() for fix in fixes]
+        results.append(entry)
         failing = report.verdict == "leaky" or (
             report.verdict == "unverifiable" and not args.allow_unverifiable
         )
@@ -65,6 +105,7 @@ def leakage_check(args: argparse.Namespace) -> int:
             for finding in report.findings:
                 where = f" [{finding.location}]" if finding.location else ""
                 print(f"    {finding.rule_id:12} {finding.message}{where}")
+            _print_fixes(path, fixes)
     if args.json:
         print(json.dumps(results, indent=2, default=str))
     return worst
@@ -87,6 +128,12 @@ def add_parser(subparsers) -> argparse.ArgumentParser:
         "--allow-unverifiable",
         action="store_true",
         help="exit 0 for queries the guard could not fully check (default: fail closed)",
+    )
+    check.add_argument(
+        "--suggest-fix",
+        action="store_true",
+        help="print a point-in-time rewrite for each leak (a unified diff; files are never "
+        "modified). Add --replay with a warehouse to have the rewrite replayed.",
     )
     check.add_argument("--json", action="store_true")
     return leakage

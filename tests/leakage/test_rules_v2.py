@@ -140,6 +140,16 @@ CLEAN = {
         f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
         f"AND ev.ingested_at < l.label_ts {GROUP}"
     ),
+    "approx_count_distinct of a spine column beside a filtered aggregate": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, approx_count_distinct(l.user_id) d {LEFT} {GROUP}"
+    ),
+    "union by name with a nested positional union named by its first leg": (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
+        "(SELECT amount, user_id, ingested_at AS t FROM events "
+        "UNION ALL SELECT amount, user_id, ingested_at AS x FROM events)) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.t < l.label_ts {GROUP}"
+    ),
     "union of feature rows bounded after the union": (
         "WITH ev AS (SELECT user_id, ingested_at, amount FROM events WHERE amount > 0 "
         "UNION ALL SELECT user_id, ingested_at, amount FROM events WHERE amount <= 0) "
@@ -471,6 +481,19 @@ LEAKY = {
     "union by name with the bounded column in another position": (
         "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
         "SELECT user_id, ingested_at AS x, amount, ingested_at - INTERVAL 30 DAY AS t FROM events) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.t < l.label_ts {GROUP}",
+        "L1",
+    ),
+    "approx_count_distinct of the table's own column beside a filtered aggregate": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, approx_count_distinct(e.event_id) d {LEFT} {GROUP}",
+        "L3",
+    ),
+    # a nested positional leg is read by position, so its own names say nothing about the bound
+    "union by name with a nested positional leg that is not bounded": (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
+        "(SELECT amount, user_id, ingested_at AS t FROM events "
+        "UNION ALL SELECT amount, user_id, ingested_at - INTERVAL 30 DAY AS x FROM events)) "
         f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
         f"AND ev.t < l.label_ts {GROUP}",
         "L1",
@@ -837,6 +860,17 @@ def test_history_from_a_separate_label_reference_is_still_matured():
 def test_relations_keys_are_qualified_names():
     with pytest.raises(SpecError, match="bare name"):
         LeakageSpec.from_dict({**SPEC, "relations": {"events": "events"}})
+
+
+def test_union_by_name_over_a_nested_union_with_another_column_count_is_refused():
+    sql = (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
+        "(SELECT user_id, ingested_at AS t, amount FROM events "
+        "UNION ALL SELECT user_id, ingested_at FROM events)) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id {GROUP}"
+    )
+    verdict, rules = check(sql)
+    assert verdict == "unverifiable" and rules == {"PARSE"}
 
 
 def test_union_by_name_over_an_unnamed_column_is_refused_not_guessed():

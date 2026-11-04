@@ -163,6 +163,8 @@ class TimeBound:
     inclusive: bool = False  # the spec lets facts stamped exactly at prediction_ts through
     # written in QUALIFY: window functions of the same query already saw the unfiltered rows
     post_window: bool = False
+    # the predicate (a node of the qualified tree), for callers that rewrite the query
+    node: exp.Expression | None = field(default=None, compare=False, repr=False)
 
     @property
     def is_upper(self) -> bool:
@@ -281,6 +283,7 @@ class WindowIssue:
     ref: TableRef
     kind: str  # lookahead | whole_partition
     sql: str
+    node: exp.Window | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -306,6 +309,8 @@ class QueryAnalysis:
     # ids of the scopes whose rows are the output rows: the output scope(s) and every scope on the
     # chain from the output prediction_ts down to the spine label table
     seed_scopes: set[int] = field(default_factory=set)
+    # name resolution over the qualified tree, for callers that rewrite the query
+    resolver: _Resolver | None = field(default=None, repr=False)
 
     @property
     def temporal_refs(self) -> list[TableRef]:
@@ -385,7 +390,10 @@ def _conjunctive_filter(node: exp.Expression) -> _Filter | None:
         return _Filter(kind="having")
     if isinstance(parent, exp.Qualify):
         return _Filter(kind="qualify")
-    if isinstance(parent, exp.Join) and parent.args.get("on") is child:
+    if isinstance(parent, exp.Join) and child in (
+        parent.args.get("on"),
+        parent.args.get("match_condition"),  # Snowflake ASOF: the inequality sits beside ON
+    ):
         return _Filter(parent, "on")
     return None
 
@@ -792,7 +800,9 @@ def _positional(tree: exp.Expression) -> exp.Expression:
     Columns are lined up by name (the first branch's order, then new names as they appear), and
     a branch without a name supplies NULL for it, exactly as the engine does. Every later stage
     (scopes, bounds, lineage, label uses) then reads the same columns in the same positions.
-    Branches whose columns cannot be named are refused (fail closed).
+    An operand that is itself a positional union is named by its first leg, as the engine does,
+    and its other legs are lined up by position. Branches whose columns cannot be named are
+    refused (fail closed).
     """
     ops = [op for op in tree.find_all(exp.SetOperation) if op.args.get("by_name")]
     for op in reversed(ops):  # innermost first
@@ -805,24 +815,27 @@ def _positional(tree: exp.Expression) -> exp.Expression:
                 canonical.append(name)
                 known.add(name.lower())
         for operand in (left, right):
-            own = [n.lower() for n in _output_names(operand)]
+            own = _output_names(operand)
             leaves = [operand]
             while leaves:
                 leaf = leaves.pop().unnest()
                 if isinstance(leaf, exp.SetOperation):
                     leaves += [leaf.left, leaf.right]
                     continue
-                if [n.lower() for n in _output_names(leaf)] != own:
-                    raise ValueError("UNION BY NAME over a nested union with different columns")
-                _align(leaf, canonical)
+                _align(leaf, canonical, own)
         op.set("by_name", False)
     return tree
 
 
-def _align(select: exp.Expression, canonical: list[str]) -> None:
+def _align(select: exp.Expression, canonical: list[str], names: list[str]) -> None:
+    """Rewrite `select` to produce `canonical`; its own columns are called `names` by position."""
     if not isinstance(select, exp.Select):
         raise ValueError("UNION BY NAME over an operand that is not a SELECT")
-    by_name = {p.alias_or_name.lower(): p for p in select.selects}
+    if len(select.selects) != len(names) or any(
+        isinstance(p.unalias(), exp.Star) for p in select.selects
+    ):
+        raise ValueError("UNION BY NAME over a nested union with a different number of columns")
+    by_name = {n.lower(): p for n, p in zip(names, select.selects, strict=True)}
     columns = []
     for name in canonical:
         projection = by_name.get(name.lower())
@@ -929,10 +942,16 @@ def _live_scopes(scopes: list[Scope]) -> set[int]:
 
 def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     """Qualify `sql` and attach normalized time bounds to every table reference."""
+    return analyze_tree(parse_single(sql, spec.dialect), spec, schema)
+
+
+def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
+    """`analyze` for a parsed statement. The tree is not modified; the analysis works on a copy
+    whose nodes carry the same `meta` as the originals, so a caller can map them back."""
     schema = {t.lower(): {c.lower(): ty for c, ty in cols.items()} for t, cols in schema.items()}
-    qualified = qualify_statement(
-        _positional(parse_single(sql, spec.dialect)), schema, spec.dialect
-    )
+    if any(op.args.get("by_name") for op in tree.find_all(exp.SetOperation)):
+        tree = tree.copy()  # the BY NAME rewrite works in place
+    qualified = qualify_statement(_positional(tree), schema, spec.dialect)
     every_scope = list(traverse_scope(qualified))
     live = _live_scopes(every_scope)
     scopes = [s for s in every_scope if id(s) in live]
@@ -946,7 +965,7 @@ def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
 
     dead = {id(s) for s in every_scope} - live
     resolver = _Resolver(every_scope, refs, spec, paths, dead)
-    analysis = QueryAnalysis(spec, schema, qualified, list(refs.values()))
+    analysis = QueryAnalysis(spec, schema, qualified, list(refs.values()), resolver=resolver)
     _check_spec(analysis)
     root = scopes[-1] if scopes else None
     _spine(analysis, root, resolver)
@@ -1210,6 +1229,7 @@ def _record(
                 slack_up=max(lab.up for lab in labels) + feature.down,
                 inclusive=spec.boundary == "inclusive",
                 post_window=context.kind == "qualify",
+                node=node,
             )
             if context.aggregate_filter is not None:
                 resolver.pending.append((ref, bound, context.aggregate_filter))
@@ -1282,6 +1302,7 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                             label_refs=bound.label_refs,
                             slack_up=bound.slack_up,
                             inclusive=bound.inclusive,
+                            node=node,
                         )
                     )
 
@@ -1351,8 +1372,9 @@ def _inside_covered_filter(node: exp.Expression, covered: set[int]) -> bool:
 
 
 def _ignores_row_count(agg: exp.Expression, ref: TableRef, resolver: _Resolver) -> bool:
-    """MAX / MIN and COUNT(DISTINCT x) give the same value however often a row is repeated."""
-    insensitive = isinstance(agg, exp.Max | exp.Min) or (
+    """MAX / MIN, COUNT(DISTINCT x) and approx_count_distinct(x) give the same value however
+    often a row is repeated."""
+    insensitive = isinstance(agg, exp.Max | exp.Min | exp.ApproxDistinct) or (
         isinstance(agg, exp.Count) and isinstance(agg.this, exp.Distinct)
     )
     return insensitive and not any(
@@ -1677,7 +1699,7 @@ def _window_issues(analysis: QueryAnalysis, resolver: _Resolver):
             if ahead and _validity_interval(window, scope, ref, analysis, resolver):
                 continue
             kind = "lookahead" if ahead else "whole_partition"
-            issues.append(WindowIssue(ref, kind, window.sql(analysis.spec.dialect)))
+            issues.append(WindowIssue(ref, kind, window.sql(analysis.spec.dialect), window))
     return issues
 
 
