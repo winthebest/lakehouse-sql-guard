@@ -1,7 +1,7 @@
 {
   "meta": {
     "split": "dev",
-    "source": "/Users/macos/orca/projects/lakehouse-sql-guard-wt-approval/transcripts/safety/dev-20261104T170908Z",
+    "source": "transcripts/safety/dev-20261104T170908Z",
     "prompts": 24,
     "models": [
       "claude-haiku-5-5"
