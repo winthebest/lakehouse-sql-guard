@@ -11,7 +11,7 @@ import re
 
 import pyarrow as pa
 import pytest
-from pyiceberg.exceptions import CommitStateUnknownException
+from pyiceberg.exceptions import CommitFailedException, CommitStateUnknownException
 from pyiceberg.table.update.snapshot import ManageSnapshots
 
 from sqlguard.core.catalog import LakehouseCatalog
@@ -254,14 +254,33 @@ def test_an_unknown_commit_that_landed_counts_as_published(adapter, orders, afte
 
 
 @pytest.mark.parametrize("error", UNKNOWN)
-def test_an_unknown_commit_that_did_not_land_is_reported_as_not_published(
+def test_an_unknown_commit_that_reads_as_unchanged_is_still_unknown(
     adapter, orders, aftermath, error
 ):
     recorded = recorded_delete(adapter)
     aftermath.before_raise = error
-    with pytest.raises(ExecutionError, match="main is unchanged") as caught:
+    with pytest.raises(PublishStateUnknown, match="may still land"):
         adapter.publish(recorded, recorded.head)
-    assert not isinstance(caught.value, PublishMismatch | PublishStateUnknown)
+    assert adapter.current_snapshot_id("orders") == recorded.base_snapshot_id
+
+
+def test_a_commit_that_lands_late_is_why_unchanged_is_not_proof(adapter, orders, aftermath):
+    recorded = recorded_delete(adapter)
+    aftermath.before_raise = CommitStateUnknownException("gateway timeout")
+    with pytest.raises(PublishStateUnknown):
+        adapter.publish(recorded, recorded.head)
+    # the server finishes applying the request after the client gave up
+    orders.table("orders").manage_snapshots().set_current_snapshot(
+        snapshot_id=recorded.head
+    ).commit()
+    assert adapter.current_snapshot_id("orders") == recorded.head
+
+
+def test_a_rejected_compare_and_swap_is_the_only_proof_of_not_published(adapter, orders, aftermath):
+    recorded = recorded_delete(adapter)
+    aftermath.before_raise = CommitFailedException("requirement failed")
+    with pytest.raises(BranchDiverged):
+        adapter.publish(recorded, recorded.head)
     assert adapter.current_snapshot_id("orders") == recorded.base_snapshot_id
 
 
@@ -366,7 +385,7 @@ def test_unknown_commit_that_landed_is_verified_and_published(
 
 
 @pytest.mark.parametrize("error", UNKNOWN)
-def test_unknown_commit_that_did_not_land_is_a_clean_failure(
+def test_unknown_commit_that_reads_as_unchanged_needs_attention(
     orders, scope, audit_path, aftermath, error
 ):
     base = main_ids(orders)[-1]
@@ -374,9 +393,24 @@ def test_unknown_commit_that_did_not_land_is_a_clean_failure(
     result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.EXECUTION_FAILED and not result.published
-    assert not result.needs_attention  # main was read back and is unchanged
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert any("may still land" in r for r in result.reasons)
     assert main_ids(orders)[-1] == base and order_ids(orders) == list(range(1, ROWS + 1))
+
+
+def test_a_late_landing_commit_was_never_reported_as_clean(orders, scope, audit_path, aftermath):
+    aftermath.before_raise = CommitStateUnknownException("gateway timeout")
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    # the server applies the commit after the Guard gave up: main now holds an unverified change
+    table = orders.table("orders")
+    on_main = set(main_ids(orders))
+    off_main = [s for s in table.snapshots() if s.snapshot_id not in on_main]
+    late = max(off_main, key=lambda s: s.sequence_number).snapshot_id  # the rehearsed head
+    table.manage_snapshots().set_current_snapshot(snapshot_id=late).commit()
+    assert 1 not in order_ids(orders)
 
 
 def test_unknown_commit_that_cannot_be_read_back_needs_attention(
@@ -545,3 +579,15 @@ def test_an_approved_fast_forward_also_refreshes_the_cache(spark_adapter, spark,
     action = FastForward("orders", to="release")
     spark_adapter.apply_maintenance(action, spark_adapter.plan_maintenance(action))
     assert spark.statements[-1] == REFRESH
+
+
+def test_spark_unknown_commit_that_reads_as_unchanged_needs_attention(
+    orders, spark, scope, audit_path, aftermath
+):
+    aftermath.before_raise = CommitStateUnknownException("gateway timeout")
+    adapter = aftermath.wrap(SparkIcebergAdapter, orders, spark, "demo")
+    result = guard_for(orders, audit_path, adapter).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert any(st.startswith("REFRESH TABLE") for st in spark.statements)  # cache dropped anyway

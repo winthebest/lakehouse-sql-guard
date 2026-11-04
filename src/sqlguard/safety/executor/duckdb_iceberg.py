@@ -14,7 +14,8 @@ How a write is executed
      itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent writer makes
      the publish fail instead of being overwritten. Afterwards main is read back and must be on
      `expected_head` or have it in its history; if the commit's outcome is uncertain (timeout, 5xx)
-     that read decides, and nothing is ever rolled back from here.
+     that read decides (main still at the base is not proof: the commit may land late), and
+     nothing is ever rolled back from here.
 
 Behaviours verified against pyiceberg 0.12 and locked by tests (a version bump that changes them
 turns those tests red): branch overwrite leaves main untouched; `rollback_to_snapshot` only moves
@@ -286,9 +287,12 @@ class DuckDBIcebergAdapter:
         if now == expected_head or expected_head in self._ancestry(iceberg, now):
             return
         if cause is not None and now == branch.base_snapshot_id:
-            raise ExecutionError(
-                f"publishing {expected_head} to {branch.table} failed ({_describe(cause)}); "
-                "main is unchanged"
+            # Main still reads as the base, but a gateway timeout does not prove the server
+            # dropped the commit: it may still be applying it. Only a rejected compare-and-swap
+            # (CommitFailedException, handled by the caller) proves "not published".
+            raise PublishStateUnknown(
+                f"publishing {expected_head} to {branch.table} failed ({_describe(cause)}) and "
+                "main still reads as unchanged, but the commit may still land"
             ) from cause
         raise PublishMismatch(
             f"main of {branch.table} is at snapshot {now} and does not include the published "

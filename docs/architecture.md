@@ -150,12 +150,14 @@ commit would destroy their work:
   (main is no longer on the published snapshot), so the result is `rollback_blocked` with
   `needs_attention`.
 - Main no longer has `expected_head` in its history (`PublishMismatch`), or the commit's
-  outcome is unknown and main cannot be read back (`PublishStateUnknown`): `rollback_blocked`
+  outcome is unknown and main cannot be read back or still reads as unchanged
+  (`PublishStateUnknown`): `rollback_blocked`
   with `needs_attention`, main untouched.
 - An unknown commit state (`CommitStateUnknownException`, 5xx, timeout, lost connection) is
   settled by reading main back, with retries: on `expected_head` or beyond is a success;
-  still at the base is a plain not-published failure; anything else is the attention cases
-  above. A confirmed commit response is trusted if the read-back itself fails.
+  still at the base is *not* proof that nothing landed (a gateway timeout can precede a late
+  commit), so it is an attention case too; only a rejected compare-and-swap
+  (`CommitFailedException`) proves not-published. A confirmed commit response is trusted if the read-back itself fails.
 
 On Spark the table cache is refreshed (`REFRESH TABLE`) after each such commit, since a
 PyIceberg commit bypasses Iceberg's `SparkCatalog` cache. The approved fast-forward
