@@ -37,6 +37,7 @@ from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
 from sqlguard.core.lineage import Schema, qualify_statement
+from sqlguard.core.parsing import parse_single
 from sqlguard.leakage.spec import LeakageSpec
 
 _FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
@@ -63,6 +64,23 @@ _TIMESTAMP_TYPES = {
 _DATE_ADD = (exp.DateAdd, exp.TimestampAdd, exp.DatetimeAdd, exp.TsOrDsAdd)
 _DATE_SUB = (exp.DateSub, exp.TimestampSub, exp.DatetimeSub)
 _COMPARISONS = (exp.LT, exp.LTE, exp.GT, exp.GTE)
+# the only nodes allowed between a clock call and the comparison it takes part in
+_TIME_ARITHMETIC = (
+    exp.Paren,
+    exp.Neg,
+    exp.Add,
+    exp.Sub,
+    exp.Interval,
+    exp.Cast,
+    exp.TryCast,
+    exp.DateTrunc,
+    exp.TimestampTrunc,
+    exp.DateDiff,
+    exp.TsOrDsDiff,
+    exp.TimeToUnix,
+    *_DATE_ADD,
+    *_DATE_SUB,
+)
 _TEST_NODES = (*_COMPARISONS, exp.EQ, exp.NEQ, exp.Between)
 # how much longer the assumed length of a calendar unit is than its shortest real length
 _UNIT_SLACK = {"MONTH": 3 * 86_400, "QUARTER": 3 * 86_400, "YEAR": 86_400}
@@ -101,6 +119,16 @@ _CLOCK_FUNCTIONS = {
     "clock_timestamp",
 }
 MATURED_LABELS = "__matured_labels"
+# the only aggregates a time-split cutoff may be made of
+_CUTOFF_AGGREGATES = (
+    exp.Max,
+    exp.Min,
+    exp.Quantile,
+    exp.PercentileCont,
+    exp.PercentileDisc,
+    exp.Median,
+    exp.ApproxQuantile,
+)
 _MAX_PATHS = 256
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
 
@@ -643,8 +671,7 @@ class _Resolver:
         if not isinstance(source, Scope):
             return None
         branches = _branch_scopes(source)
-        by_name = _matched_by_name(source.expression)
-        if not branches or by_name is None:
+        if not branches:
             return None
         position = _position(branches[0], column.name)
         if position is None:
@@ -652,15 +679,9 @@ class _Resolver:
         resolved: list[Resolved] = []
         for branch in branches:
             projections = branch.expression.selects
-            if by_name:  # UNION BY NAME lines columns up by name, whatever their position
-                matches = [p for p in projections if p.alias_or_name.lower() == column.name.lower()]
-                if len(matches) != 1:
-                    return None
-                projection = matches[0]
-            elif position >= len(projections):
+            if position >= len(projections):
                 return None
-            else:
-                projection = projections[position]
+            projection = projections[position]
             inner = projection.this if isinstance(projection, exp.Alias) else projection
             got = self.resolve_all(inner, branch, local=True, depth=depth + 1)
             if not got:
@@ -749,19 +770,65 @@ def _branch_scopes(scope: Scope) -> list[Scope]:
     return found
 
 
-def _matched_by_name(expression: exp.Expression) -> bool | None:
-    """True / False when every set operation under `expression` matches columns by name /
-    position; None when they differ (not worth reasoning about: fail closed)."""
-    flags = {
-        bool(op.args.get("by_name"))
-        for op in expression.find_all(exp.SetOperation)
-        if not _under_select(op, expression)
-    }
-    return flags.pop() if len(flags) == 1 else (False if not flags else None)
+def _output_names(node: exp.Expression) -> list[str]:
+    """Output column names of a SELECT or set operation, or raise when they cannot be known."""
+    node = node.unnest()
+    while isinstance(node, exp.SetOperation):
+        node = node.left.unnest()
+    if not isinstance(node, exp.Select):
+        raise ValueError("UNION BY NAME over an operand whose columns are unknown")
+    names = [p.alias_or_name for p in node.selects]
+    if not all(names) or any(isinstance(p.unalias(), exp.Star) for p in node.selects):
+        raise ValueError("UNION BY NAME needs every column of every branch to be named")
+    lowered = [n.lower() for n in names]
+    if len(set(lowered)) != len(lowered):
+        raise ValueError("UNION BY NAME over a branch with duplicate column names")
+    return names
 
 
-def _under_select(node: exp.Expression, top: exp.Expression) -> bool:
-    return any(isinstance(a, exp.Select) for a in _ancestors(node, top.parent))
+def _positional(tree: exp.Expression) -> exp.Expression:
+    """Rewrite every `UNION [ALL] BY NAME` into the positional union it means.
+
+    Columns are lined up by name (the first branch's order, then new names as they appear), and
+    a branch without a name supplies NULL for it, exactly as the engine does. Every later stage
+    (scopes, bounds, lineage, label uses) then reads the same columns in the same positions.
+    Branches whose columns cannot be named are refused (fail closed).
+    """
+    ops = [op for op in tree.find_all(exp.SetOperation) if op.args.get("by_name")]
+    for op in reversed(ops):  # innermost first
+        left, right = op.left.unnest(), op.right.unnest()
+        left_names, right_names = _output_names(left), _output_names(right)
+        canonical = list(left_names)
+        known = {n.lower() for n in canonical}
+        for name in right_names:
+            if name.lower() not in known:
+                canonical.append(name)
+                known.add(name.lower())
+        for operand in (left, right):
+            own = [n.lower() for n in _output_names(operand)]
+            leaves = [operand]
+            while leaves:
+                leaf = leaves.pop().unnest()
+                if isinstance(leaf, exp.SetOperation):
+                    leaves += [leaf.left, leaf.right]
+                    continue
+                if [n.lower() for n in _output_names(leaf)] != own:
+                    raise ValueError("UNION BY NAME over a nested union with different columns")
+                _align(leaf, canonical)
+        op.set("by_name", False)
+    return tree
+
+
+def _align(select: exp.Expression, canonical: list[str]) -> None:
+    if not isinstance(select, exp.Select):
+        raise ValueError("UNION BY NAME over an operand that is not a SELECT")
+    by_name = {p.alias_or_name.lower(): p for p in select.selects}
+    columns = []
+    for name in canonical:
+        projection = by_name.get(name.lower())
+        value = projection.unalias() if projection is not None else exp.null()
+        columns.append(exp.alias_(value.copy(), name, quoted=not name.isidentifier()))
+    select.set("expressions", columns)
 
 
 def _position(scope: Scope, name: str) -> int | None:
@@ -863,7 +930,9 @@ def _live_scopes(scopes: list[Scope]) -> set[int]:
 def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     """Qualify `sql` and attach normalized time bounds to every table reference."""
     schema = {t.lower(): {c.lower(): ty for c, ty in cols.items()} for t, cols in schema.items()}
-    qualified = qualify_statement(sql, schema, spec.dialect)
+    qualified = qualify_statement(
+        _positional(parse_single(sql, spec.dialect)), schema, spec.dialect
+    )
     every_scope = list(traverse_scope(qualified))
     live = _live_scopes(every_scope)
     scopes = [s for s in every_scope if id(s) in live]
@@ -1248,12 +1317,15 @@ def _only_filtered_reads(ref: TableRef, covered: set[int], resolver: _Resolver) 
     if not isinstance(select, exp.Select):
         return False
     scalar = ref.alias not in {j.alias_or_name for j in select.args.get("joins") or []}
-    for node in select.find_all(exp.AggFunc, exp.Window, exp.Column):
+    for node in select.find_all(exp.AggFunc, exp.Window, exp.Column, exp.Anonymous):
         if _innermost_select(node) is not select:
             continue
         if isinstance(node, exp.Window):
             return False  # a window counts or orders the joined rows
-        if isinstance(node, exp.AggFunc):
+        if isinstance(node, exp.Anonymous):
+            if not _inside_covered_filter(node, covered):
+                return False  # a function the analysis does not know may consume the joined rows
+        elif isinstance(node, exp.AggFunc):
             if node.find_ancestor(exp.Window) is not None:
                 continue
             if not _covered_filter(node, covered) and not _ignores_row_count(node, ref, resolver):
@@ -1330,7 +1402,7 @@ def _global_scans(analysis: QueryAnalysis, resolver: _Resolver) -> None:
             len(scope.selected_sources) == 1
             and not any(select.args.get(k) for k in ("joins", "group", "having", "qualify"))
             and not select.find(exp.Window)
-            and all(isinstance(p.unalias(), exp.AggFunc) for p in select.selects)
+            and all(isinstance(p.unalias(), _CUTOFF_AGGREGATES) for p in select.selects)
             and sum(1 for _ in select.find_all(exp.Select)) == 1
         )
         if not shapes_ok:
@@ -1342,23 +1414,40 @@ def _global_scans(analysis: QueryAnalysis, resolver: _Resolver) -> None:
             and got.column == spec.prediction_ts
             for c in columns
         )
-        if reads_time_only and _used_as_spine_cutoff(select.parent, resolver):
+        if reads_time_only and _used_as_spine_cutoff(select, resolver):
             ref.global_scan = True
             ref.time_column = None
             analysis.global_scans.append(ref)
 
 
-def _used_as_spine_cutoff(subquery: exp.Expression | None, resolver: _Resolver) -> bool:
-    """Is the subquery compared, in a row filter, with nothing but spine prediction times?"""
+def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
+    """Is the scan compared, in a row filter, with nothing but spine prediction times?
+
+    As an upper bound (`label_ts < cutoff`) it picks the training rows. As a lower bound anchored
+    at the global maximum (`label_ts >= cutoff`, `BETWEEN cutoff AND ...`) it keeps only the
+    latest rows, so which rows exist depends on later predictions: not accepted. Equality and
+    IN are the same thing and are not accepted either.
+    """
+    subquery = select.parent
     if not isinstance(subquery, exp.Subquery):
         return False
-    node = subquery.parent
+    child, node = subquery, subquery.parent
     while isinstance(node, exp.Paren | exp.Add | exp.Sub | exp.Cast):
-        node = node.parent
-    if not isinstance(node, (*_COMPARISONS, exp.Between)):
-        return (
-            False  # `= MAX(...)` keeps only the latest rows: which rows exist depends on later ones
-        )
+        if isinstance(node, exp.Sub) and node.this is not child:
+            return False
+        child, node = node, node.parent
+    if isinstance(node, exp.LT | exp.LTE):
+        lower = child is node.left
+    elif isinstance(node, exp.GT | exp.GTE):
+        lower = child is node.right
+    elif isinstance(node, exp.Between):
+        if child is node.this:
+            return False
+        lower = child is node.args["low"]
+    else:
+        return False
+    if lower and any(isinstance(p.unalias(), exp.Max) for p in select.selects):
+        return False
     context = _row_filter(node)
     if context is None:
         return False
@@ -1539,7 +1628,8 @@ def _window_issues(analysis: QueryAnalysis, resolver: _Resolver):
             func = func.this
         order = list(window.args["order"].expressions) if window.args.get("order") else []
         base_ahead = (
-            isinstance(func, exp.Lead)
+            # Anonymous: a window function we do not know, assume the worst
+            isinstance(func, exp.Anonymous | exp.Lead)
             or (isinstance(func, exp.Lag) and _lag_looks_ahead(func))
             or _frame_looks_ahead(window.args.get("spec"))
         )
@@ -1685,6 +1775,8 @@ def _clock_uses(analysis: QueryAnalysis, resolver: _Resolver) -> list[ClockUse]:
                 str(node.this).lower() in _CLOCK_FUNCTIONS
                 # Spark: unix_timestamp() with no argument is the current time
                 or (str(node.this).lower() == "unix_timestamp" and not node.expressions)
+                # DuckDB / Postgres: age(ts) with one argument is the age as of today
+                or (str(node.this).lower() == "age" and len(node.expressions) == 1)
             )
         )
         if not is_clock:
@@ -1703,8 +1795,8 @@ def _only_spine_filter(node, scope: Scope, analysis: QueryAnalysis, resolver: _R
     """
     comparison = node.parent
     while comparison is not None and not isinstance(comparison, _TEST_NODES):
-        if isinstance(comparison, exp.Select | exp.Subquery | exp.Alias):
-            return False
+        if not isinstance(comparison, _TIME_ARITHMETIC):
+            return False  # only plain arithmetic on the clock; anything else is a feature
         comparison = comparison.parent
     context = _row_filter(comparison) if comparison is not None else None
     if context is None or context.kind == "on" or not _rows_are_output(scope, analysis, resolver):

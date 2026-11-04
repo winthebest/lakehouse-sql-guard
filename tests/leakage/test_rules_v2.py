@@ -152,6 +152,22 @@ CLEAN = {
     ),
     # L7: the wall clock only chooses which prediction rows to train on
     "clock in a spine filter": f"{FEAT} WHERE l.label_ts < CURRENT_DATE - INTERVAL 30 DAY",
+    "cutoff written the other way, upper bound": (
+        f"{FEAT} WHERE (SELECT MAX(label_ts) FROM labels) > l.label_ts"
+    ),
+    "cutoff with a literal lower bound": (
+        f"{FEAT} WHERE l.label_ts BETWEEN TIMESTAMP '2026-01-01' "
+        "AND (SELECT MAX(label_ts) FROM labels)"
+    ),
+    "cutoff at a quantile as the start of the test window": (
+        f"{FEAT} WHERE l.label_ts >= (SELECT quantile_cont(label_ts, 0.8) FROM labels)"
+    ),
+    "union by name with columns in another order": (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
+        "SELECT amount, user_id, ingested_at AS t FROM events) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.t < l.label_ts {GROUP}"
+    ),
     "clock in a spine filter, now": f"{FEAT} AND l.label_ts <= now() - INTERVAL 1 DAY".replace(
         "AND", "WHERE", 1
     ),
@@ -428,6 +444,24 @@ LEAKY = {
         f"{SEL}, COUNT(e.event_id) {BEFORE} n {LEFT} WHERE e.user_id = l.user_id {GROUP}",
         "L3",
     ),
+    # an aggregate the analysis does not know may count the joined rows too
+    **{
+        f"filter beside {fn}": (f"{SEL}, SUM(e.amount) {BEFORE} a, {fn} n {LEFT} {GROUP}", "L3")
+        for fn in (
+            "count_star()",
+            "fsum(1)",
+            "sumkahan(1)",
+            "kahan_sum(1)",
+            "product(2)",
+            "histogram(l.user_id)",
+            "favg(l.user_id)",
+        )
+    },
+    "filter beside an unknown window function": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, fsum(l.user_id) OVER (PARTITION BY l.label_ts) n "
+        f"{LEFT} {GROUP}",
+        "L3",
+    ),
     # a UNION BY NAME lines columns up by name, not position
     "union by name with the bounded column in another position": (
         "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
@@ -443,6 +477,17 @@ LEAKY = {
         f"AND ev.t < l.label_ts {GROUP}",
         "L2",
     ),
+    "label hidden in a column the other branch names differently (cte)": (
+        "WITH s AS (SELECT user_id, label_ts, churned, 0 AS f FROM labels UNION ALL BY NAME "
+        "SELECT user_id, label_ts, churned AS f, 0 AS churned FROM labels) "
+        "SELECT s.user_id, s.label_ts, s.churned, s.f FROM s",
+        "L6",
+    ),
+    "label hidden in a column the other branch names differently (root)": (
+        "SELECT user_id, label_ts, churned, 0 AS f FROM labels UNION ALL BY NAME "
+        "SELECT user_id, label_ts, churned AS f, 0 AS churned FROM labels",
+        "L6",
+    ),
     # a window that skips nulls still reads the next row
     "lead ignoring nulls": (
         windowed("LEAD(total_spend IGNORE NULLS) OVER (PARTITION BY user_id ORDER BY updated_at)"),
@@ -457,6 +502,27 @@ LEAKY = {
     # a time split that keeps only the latest prediction
     "cutoff equal to the latest label time": (
         f"{FEAT} WHERE l.label_ts = (SELECT MAX(label_ts) FROM labels)",
+        "L3",
+    ),
+    "cutoff at or after the latest label time": (
+        f"{FEAT} WHERE l.label_ts >= (SELECT MAX(label_ts) FROM labels)",
+        "L3",
+    ),
+    "cutoff after the latest label time": (
+        f"{FEAT} WHERE l.label_ts > (SELECT MAX(label_ts) FROM labels)",
+        "L3",
+    ),
+    "cutoff written the other way round": (
+        f"{FEAT} WHERE (SELECT MAX(label_ts) FROM labels) <= l.label_ts",
+        "L3",
+    ),
+    "between the latest label time and itself": (
+        f"{FEAT} WHERE l.label_ts BETWEEN (SELECT MAX(label_ts) FROM labels) "
+        "AND (SELECT MAX(label_ts) FROM labels)",
+        "L3",
+    ),
+    "cutoff from an aggregate that is not a time statistic": (
+        f"{FEAT} WHERE l.user_id < (SELECT COUNT(label_ts) FROM labels)",
         "L3",
     ),
     # 10
@@ -489,6 +555,14 @@ LEAKY = {
     "transaction_timestamp": (
         f"{SEL}, date_diff('day', MAX(e.ingested_at), transaction_timestamp()) r {LEFT} "
         f"AND e.ingested_at < l.label_ts {GROUP}",
+        "L7",
+    ),
+    "age of a timestamp as of today": (
+        f"{SEL}, age(MAX(e.ingested_at)) r {LEFT} AND e.ingested_at < l.label_ts {GROUP}",
+        "L7",
+    ),
+    "clock inside a function the analysis does not know, in a spine filter": (
+        f"{FEAT} WHERE l.label_ts < CAST(strftime(now(), '%Y-%m-%d') AS TIMESTAMP)",
         "L7",
     ),
     "current_localtime": (f"{SEL}, current_localtime() AS built FROM labels l", "L7"),
@@ -717,3 +791,13 @@ def test_history_from_a_separate_label_reference_is_still_matured():
 def test_relations_keys_are_qualified_names():
     with pytest.raises(SpecError, match="bare name"):
         LeakageSpec.from_dict({**SPEC, "relations": {"events": "events"}})
+
+
+def test_union_by_name_over_an_unnamed_column_is_refused_not_guessed():
+    sql = (
+        "WITH ev AS (SELECT user_id, ingested_at + INTERVAL 0 DAY, amount FROM events "
+        "UNION ALL BY NAME SELECT user_id, ingested_at, amount FROM events) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id {GROUP}"
+    )
+    verdict, rules = check(sql)
+    assert verdict == "unverifiable" and rules == {"PARSE"}
