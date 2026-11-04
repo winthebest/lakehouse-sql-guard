@@ -6,18 +6,36 @@ shows up as one deleted plus one added row, and `rows_modified` is None.
 
 `rows_affected` is the number of pre-existing rows the change deleted or rewrote, which is what
 the policy's blast-radius thresholds measure. Pure inserts therefore affect zero rows.
+
+`compute_row_diff` goes further: it lists the changed rows (for a reviewer) and fingerprints them.
+It reads the base and head snapshots of an Iceberg table, always in that direction, and matches
+rows on `table_key`: the table's Iceberg identifier fields, else the policy's `unique_key`, else
+no key (rows compared as multisets, labelled "unkeyed"). The whole of both snapshots is
+compared: no part of a statement is used to narrow the scans, because the engine and Arrow
+disagree on NaN ordering and float coercion, and a row the filter dropped would be a row the
+reviewer never saw. A table above the row or byte cap is refused (`DiffTooLarge`) rather than
+half-read, and `check_against_impact` refuses a diff whose counts differ from the measured
+impact: a reviewer must never approve a diff that was cut short.
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Literal
 
 import duckdb
 import pyarrow as pa
+from pyiceberg.table import Table
 
 from sqlguard.safety.classifier import Impact
+from sqlguard.safety.store import canonical_json, digest
+
+_log = logging.getLogger("sqlguard.diff")
 
 
 def quote_ident(name: str) -> str:
@@ -212,3 +230,459 @@ def _multiset_counts(
         f"SELECT count(*) FROM (SELECT {cols} FROM after_t EXCEPT ALL SELECT {cols} FROM before_t)",
     )
     return added, deleted, None
+
+
+# -- row-level diff ------------------------------------------------------------------------------
+
+DEFAULT_MAX_DIFF_ROWS = 1_000_000
+DEFAULT_MAX_DIFF_BYTES = 256 * 1024 * 1024
+DEFAULT_DISPLAY_ROWS = 200
+_PRESENT = "__sqlguard_present"
+_BATCH = 4096
+
+
+class DiffError(RuntimeError):
+    """The row diff could not be computed. Callers treat that as 'cannot be reviewed'.
+
+    The message is written to be shown to users: engine and library errors are logged
+    (`sqlguard.diff`) and replaced by a generic text before this is raised.
+    """
+
+
+class DiffTooLarge(DiffError):
+    """A side of the diff is above the row or byte cap, so it was not read."""
+
+
+@dataclass(frozen=True)
+class DiffLimits:
+    """Caps on what one diff may read, per snapshot, and how many changed rows it lists."""
+
+    max_rows: int = DEFAULT_MAX_DIFF_ROWS
+    max_bytes: int = DEFAULT_MAX_DIFF_BYTES
+    display_rows: int = DEFAULT_DISPLAY_ROWS
+
+
+@dataclass(frozen=True)
+class TableKey:
+    """The columns that identify a row, and where they came from."""
+
+    columns: tuple[str, ...] = ()
+    source: Literal["identifier", "policy", "none"] = "none"
+
+
+def table_key(table: Table, configured: Sequence[str] = ()) -> TableKey:
+    """The key to match rows on: Iceberg identifier fields, else `configured`, else none.
+
+    `configured` is the policy's `unique_key` for the table. The Iceberg identifier fields win
+    because the table's owner declared them; the policy is the fallback for tables without any.
+    """
+    schema = table.schema()
+    names = tuple(schema.find_column_name(i) for i in schema.identifier_field_ids)
+    if names and all(names):
+        return TableKey(tuple(n for n in names if n), "identifier")
+    if configured:
+        return TableKey(tuple(configured), "policy")
+    return TableKey()
+
+
+@dataclass(frozen=True)
+class RowChange:
+    """One changed row. `before` / `after` map column to value; `key` is None when unkeyed."""
+
+    change: Literal["added", "deleted", "modified"]
+    key: dict[str, Any] | None
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    changed_columns: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "change": self.change,
+            "key": _plain(self.key),
+            "before": _plain(self.before),
+            "after": _plain(self.after),
+            "changed_columns": list(self.changed_columns),
+        }
+
+
+@dataclass(frozen=True)
+class RowDiff:
+    """Row-level difference between two snapshots of one table, base to head.
+
+    `digest` fingerprints the whole set of changed rows (not only the listed ones), so two diffs
+    with the same digest changed the same rows in the same way. `rows_modified` is None for an
+    unkeyed diff, where a modified row is one deleted plus one added row.
+    """
+
+    table: str
+    base_snapshot_id: int | None
+    head_snapshot_id: int | None
+    mode: Literal["keyed", "unkeyed"]
+    key: tuple[str, ...]
+    key_source: str
+    key_note: str | None
+    rows: tuple[RowChange, ...]
+    rows_added: int
+    rows_deleted: int
+    rows_modified: int | None
+    display_limit: int
+    schema_diff: SchemaDiff
+    digest: str
+
+    @property
+    def rows_changed(self) -> int:
+        return self.rows_added + self.rows_deleted + (self.rows_modified or 0)
+
+    @property
+    def truncated(self) -> bool:
+        return self.rows_changed > len(self.rows)
+
+    def to_dict(self, *, include_rows: bool = True) -> dict[str, Any]:
+        """JSON-friendly; `include_rows=False` leaves out every row value."""
+        out: dict[str, Any] = {
+            "table": self.table,
+            "base_snapshot_id": self.base_snapshot_id,
+            "head_snapshot_id": self.head_snapshot_id,
+            "mode": self.mode,
+            "key": list(self.key),
+            "key_source": self.key_source,
+            "key_note": self.key_note,
+            "rows_added": self.rows_added,
+            "rows_deleted": self.rows_deleted,
+            "rows_modified": self.rows_modified,
+            "rows_changed": self.rows_changed,
+            "truncated": self.truncated,
+            "display_limit": self.display_limit,
+            "schema_diff": self.schema_diff.to_dict(),
+            "digest": self.digest,
+        }
+        if include_rows:
+            out["rows"] = [r.to_dict() for r in self.rows]
+        return out
+
+
+def _plain(value: Any) -> Any:
+    """Row values as JSON-safe plain data."""
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).hex()
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def _differs(left: Any, right: Any) -> bool:
+    """SQL `IS DISTINCT FROM` for display: NULLs are equal to each other, and so are NaNs."""
+    if left is None or right is None:
+        return left is not right
+    if isinstance(left, float) and isinstance(right, float) and left != left and right != right:
+        return False
+    return bool(left != right)
+
+
+def row_diff(
+    before: pa.Table,
+    after: pa.Table,
+    key: Sequence[str] = (),
+    *,
+    table: str = "",
+    base_snapshot_id: int | None = None,
+    head_snapshot_id: int | None = None,
+    key_source: str = "none",
+    display_rows: int = DEFAULT_DISPLAY_ROWS,
+) -> RowDiff:
+    """Diff two Arrow tables of the same table, `before` to `after`.
+
+    Columns present on both sides are compared; a column that exists on one side only is
+    reported in `schema_diff`. A key that is missing, has NULLs or repeats a value on either
+    side is not used (see `key_note`); the diff then falls back to comparing whole rows.
+    """
+    common = [n for n in before.column_names if n in after.column_names]
+    schema = schema_diff(before.schema, after.schema)
+    conn = duckdb.connect()
+    try:
+        conn.execute(
+            "SET TimeZone = 'UTC'"
+        )  # text forms of timestamptz must not depend on the host
+        conn.register("before_t", before)
+        conn.register("after_t", after)
+        usable: tuple[str, ...] | None = None
+        note: str | None = None
+        if key:
+            if _key_usable(conn, key, common):
+                usable = tuple(key)
+            else:
+                note = f"key ({', '.join(key)}) is missing, null or repeated; rows compared whole"
+        if not common:
+            changes: list[RowChange] = []
+            counts = {"added": after.num_rows, "deleted": before.num_rows}
+            fingerprint = digest(counts)
+            modified = None
+        else:
+            changes, counts, fingerprint = _collect_changes(conn, common, usable, display_rows)
+            modified = counts.get("modified", 0) if usable else None
+    except Exception as err:  # noqa: BLE001 - whatever DuckDB or Arrow raise: fail closed
+        # The engine's text can quote values or module paths; keep it in the log, not the reason.
+        _log.warning("row diff of %s failed", table or "table", exc_info=True)
+        raise DiffError("the row diff could not be computed") from err
+    finally:
+        conn.close()
+    added, deleted = counts.get("added", 0), counts.get("deleted", 0)
+    return RowDiff(
+        table=table,
+        base_snapshot_id=base_snapshot_id,
+        head_snapshot_id=head_snapshot_id,
+        mode="keyed" if usable else "unkeyed",
+        key=usable or (),
+        key_source=key_source if usable else "none",
+        key_note=note,
+        rows=tuple(changes),
+        rows_added=added,
+        rows_deleted=deleted,
+        rows_modified=modified,
+        display_limit=display_rows,
+        schema_diff=schema,
+        digest=digest(
+            {
+                "table": table,
+                "base": base_snapshot_id,
+                "head": head_snapshot_id,
+                "mode": "keyed" if usable else "unkeyed",
+                "key": list(usable or ()),
+                "added": added,
+                "deleted": deleted,
+                "modified": modified,
+                "schema": schema.to_dict(),
+                "rows": fingerprint,
+            }
+        ),
+    )
+
+
+_PLAIN_TYPES = frozenset(
+    {
+        "BOOLEAN",
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "BIGINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "FLOAT",
+        "DOUBLE",
+        "VARCHAR",
+        "BLOB",
+        "DATE",
+        "TIME",
+        "TIMESTAMP",
+    }
+)
+
+
+def _column_types(conn: duckdb.DuckDBPyConnection, view: str) -> dict[str, str]:
+    return {str(row[0]): str(row[1]).upper() for row in conn.execute(f"DESCRIBE {view}").fetchall()}
+
+
+def _shown(expression: str, duck_type: str | None) -> str:
+    """`expression` as it is read back: values whose Python form is plain stay as they are.
+
+    Everything else (time zones, nested types, intervals, nanosecond timestamps, ...) is read as
+    text, because turning it into a Python object can need modules that are not dependencies
+    (`pytz` for `timestamptz`) and the comparison itself never leaves DuckDB.
+    """
+    if duck_type is None or duck_type in _PLAIN_TYPES or duck_type.startswith("DECIMAL("):
+        return expression
+    return f"CAST({expression} AS VARCHAR)"
+
+
+def _collect_changes(
+    conn: duckdb.DuckDBPyConnection,
+    common: list[str],
+    key: tuple[str, ...] | None,
+    display_rows: int,
+) -> tuple[list[RowChange], dict[str, int], str]:
+    """Run the diff query once, in a total order: list the first rows, count and hash them all.
+
+    Matching and comparing use the original columns; only the columns that are read back are
+    converted (see `_shown`), so the diff stays in DuckDB and Arrow.
+    """
+    btypes = _column_types(conn, "before_t")
+    atypes = _column_types(conn, "after_t")
+    before_cols = ", ".join(
+        f'{_shown("b." + quote_ident(c), btypes.get(c))} AS "b{i}"' for i, c in enumerate(common)
+    )
+    after_cols = ", ".join(
+        f'{_shown("a." + quote_ident(c), atypes.get(c))} AS "a{i}"' for i, c in enumerate(common)
+    )
+    if key:
+        key_cols = ", ".join(
+            f"{_shown(f'COALESCE(b.{quote_ident(k)}, a.{quote_ident(k)})', btypes.get(k))}"
+            f' AS "k{j}"'
+            for j, k in enumerate(key)
+        )
+        on = " AND ".join(f"b.{quote_ident(k)} = a.{quote_ident(k)}" for k in key)
+        values = [c for c in common if c not in key]
+        differs = "".join(
+            f" OR b.{quote_ident(c)} IS DISTINCT FROM a.{quote_ident(c)}" for c in values
+        )
+        query = (
+            f"SELECT CASE WHEN b.{_PRESENT} IS NULL THEN 'added' "
+            f"WHEN a.{_PRESENT} IS NULL THEN 'deleted' ELSE 'modified' END AS change, "
+            f"{key_cols}, {before_cols}, {after_cols} "
+            f"FROM (SELECT *, 1 AS {_PRESENT} FROM before_t) b "
+            f"FULL OUTER JOIN (SELECT *, 1 AS {_PRESENT} FROM after_t) a ON {on} "
+            f"WHERE b.{_PRESENT} IS NULL OR a.{_PRESENT} IS NULL{differs} "
+            f"ORDER BY {', '.join(f'"k{j}"' for j in range(len(key)))}"
+        )
+    else:
+        cols = ", ".join(quote_ident(c) for c in common)
+        nulls_b = ", ".join(f'NULL AS "b{i}"' for i in range(len(common)))
+        nulls_a = ", ".join(f'NULL AS "a{i}"' for i in range(len(common)))
+        deleted_cols = ", ".join(
+            f'{_shown(quote_ident(c), btypes.get(c))} AS "b{i}"' for i, c in enumerate(common)
+        )
+        added_cols = ", ".join(
+            f'{_shown(quote_ident(c), atypes.get(c))} AS "a{i}"' for i, c in enumerate(common)
+        )
+        order = ", ".join(f'"b{i}", "a{i}"' for i in range(len(common)))
+        query = (
+            f"SELECT * FROM ("
+            f"SELECT 'deleted' AS change, {deleted_cols}, {nulls_a} FROM "
+            f"(SELECT {cols} FROM before_t EXCEPT ALL SELECT {cols} FROM after_t) "
+            f"UNION ALL "
+            f"SELECT 'added' AS change, {nulls_b}, {added_cols} FROM "
+            f"(SELECT {cols} FROM after_t EXCEPT ALL SELECT {cols} FROM before_t)"
+            f") ORDER BY change, {order}"
+        )
+    width = len(common)
+    offset = 1 + (len(key) if key else 0)
+    cursor = conn.execute(query)
+    hasher = hashlib.sha256()
+    counts: dict[str, int] = {}
+    shown: list[RowChange] = []
+    while batch := cursor.fetchmany(_BATCH):
+        for row in batch:
+            change = str(row[0])
+            counts[change] = counts.get(change, 0) + 1
+            hasher.update(canonical_json(list(row)).encode("utf-8"))
+            hasher.update(b"\n")
+            if len(shown) < display_rows:
+                old = dict(zip(common, row[offset : offset + width], strict=True))
+                new = dict(zip(common, row[offset + width :], strict=True))
+                shown.append(_row_change(change, common, key, row, old, new))
+    return shown, counts, hasher.hexdigest()
+
+
+def _row_change(
+    change: str,
+    common: list[str],
+    key: tuple[str, ...] | None,
+    row: tuple[Any, ...],
+    old: dict[str, Any],
+    new: dict[str, Any],
+) -> RowChange:
+    identity = dict(zip(key, row[1 : 1 + len(key)], strict=True)) if key else None
+    if change == "added":
+        return RowChange("added", identity, None, new)
+    if change == "deleted":
+        return RowChange("deleted", identity, old, None)
+    changed = tuple(c for c in common if _differs(old[c], new[c]))
+    return RowChange("modified", identity, old, new, changed)
+
+
+# -- reading snapshots, with caps -----------------------------------------------------------------
+
+
+def _read_snapshot(table: Table, snapshot_id: int, limits: DiffLimits) -> pa.Table:
+    if table.snapshot_by_id(snapshot_id) is None:
+        raise DiffError(f"snapshot {snapshot_id} of {'.'.join(table.name())} no longer exists")
+    scan = table.scan(snapshot_id=snapshot_id)
+    rows = size = 0
+    for task in scan.plan_files():
+        rows += task.file.record_count
+        size += task.file.file_size_in_bytes
+        if rows > limits.max_rows or size > limits.max_bytes:
+            break
+    if rows > limits.max_rows or size > limits.max_bytes:
+        raise DiffTooLarge(
+            f"table too large to diff: snapshot {snapshot_id} has at least {rows} rows / "
+            f"{size} bytes to read (limits {limits.max_rows} rows / {limits.max_bytes} bytes)"
+        )
+    data = scan.to_arrow()
+    if data.nbytes > limits.max_bytes or data.num_rows > limits.max_rows:
+        raise DiffTooLarge(
+            f"table too large to diff: snapshot {snapshot_id} read as {data.num_rows} rows / "
+            f"{data.nbytes} bytes (limits {limits.max_rows} rows / {limits.max_bytes} bytes)"
+        )
+    return data
+
+
+def compute_row_diff(
+    table: Table,
+    base_snapshot_id: int,
+    head_snapshot_id: int,
+    *,
+    key: TableKey | Sequence[str] = (),
+    limits: DiffLimits | None = None,
+) -> RowDiff:
+    """Row diff of `table` from snapshot `base_snapshot_id` to `head_snapshot_id`.
+
+    Both snapshots are read whole. Raises DiffTooLarge above the caps, and DiffError for
+    anything else that stops the diff (missing snapshot, incomparable column types).
+    """
+    limits = limits or DiffLimits()
+    chosen = key if isinstance(key, TableKey) else TableKey(tuple(key), "policy" if key else "none")
+    try:
+        before = _read_snapshot(table, base_snapshot_id, limits)
+        after = _read_snapshot(table, head_snapshot_id, limits)
+    except DiffError:
+        raise
+    except Exception as err:  # noqa: BLE001 - PyIceberg raises I/O and catalog errors of many kinds
+        _log.warning("could not read %s for the diff", ".".join(table.name()), exc_info=True)
+        raise DiffError("the table could not be read for the diff") from err
+    return row_diff(
+        before,
+        after,
+        chosen.columns,
+        table=".".join(table.name()),
+        base_snapshot_id=base_snapshot_id,
+        head_snapshot_id=head_snapshot_id,
+        key_source=chosen.source,
+        display_rows=limits.display_rows,
+    )
+
+
+def check_size(before: pa.Table, after: pa.Table, limits: DiffLimits) -> None:
+    """Raise DiffTooLarge unless both sides are within the caps (for data already in memory)."""
+    for side in (before, after):
+        if side.num_rows > limits.max_rows or side.nbytes > limits.max_bytes:
+            raise DiffTooLarge(
+                f"table too large to diff: {side.num_rows} rows / {side.nbytes} bytes "
+                f"(limits {limits.max_rows} rows / {limits.max_bytes} bytes)"
+            )
+
+
+def check_against_impact(diff: RowDiff, impact: TableImpact) -> None:
+    """Raise DiffError unless the listed diff accounts for exactly what the impact measured.
+
+    The net row change must always agree; when both were matched on the same key (or both
+    unkeyed) the added, deleted and modified counts must too. A disagreement means the diff is
+    not the whole change, so it cannot be offered for review.
+    """
+    if diff.rows_added - diff.rows_deleted != impact.rows_after - impact.rows_before:
+        raise DiffError("the row diff does not add up to the measured row count change")
+    if tuple(impact.key or ()) == diff.key and (
+        diff.rows_added,
+        diff.rows_deleted,
+        diff.rows_modified,
+    ) != (impact.rows_added, impact.rows_deleted, impact.rows_modified):
+        raise DiffError("the row diff disagrees with the measured impact")
