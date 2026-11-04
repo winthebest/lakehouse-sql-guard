@@ -8,6 +8,10 @@ time_columns:
   user_stats: updated_at
 availability_columns:
   events: ingested_at
+# Both values follow from the world generator's parameters (see world.declared_spec_fields).
+max_ingest_delay:
+  events: 8 days
+label_known_after: 14 days
 static_tables: [entities]
 outcome_columns:
   - user_outcomes.refund_after_churn

@@ -1,6 +1,8 @@
 """The leakage benchmark counts and lists the cases a detector could not check."""
 
-from bench.leakage.cases import LeakCase
+import pytest
+
+from bench.leakage.cases import LEAK_TYPES, LeakCase
 from bench.leakage.run import DETECTORS, SYNTHETIC_SPEC, evaluate, markdown, score_cases
 from sqlguard.leakage.spec import LeakageSpec
 
@@ -56,3 +58,66 @@ def test_markdown_lists_unverifiable_cases(world):
     }
     text = markdown(result)
     assert "Unverifiable cases" in text and "`crash`" in text
+
+
+def split_stub() -> dict:
+    detector = {
+        "recall": 1.0,
+        "fpr": 0.0,
+        "precision": 1.0,
+        "f1": 1.0,
+        "auc": 1.0,
+        "median_ms": None,
+        "ci95": {},
+        "recall_by_type": {},
+        "n_unverifiable": 0,
+    }
+    return {
+        "n_cases": 2,
+        "n_leaky": 1,
+        "detectors": {d: detector for d in DETECTORS},
+        "attribution_accuracy": None,
+        "unverifiable_cases": [],
+    }
+
+
+def result_for(*names: str) -> dict:
+    return {
+        "git_sha": "abc",
+        "prereg_sha": "def",
+        "splits": {name: split_stub() for name in names},
+        "real_data": None,
+        "optimism_gap": {},
+    }
+
+
+def test_report_says_which_splits_were_seen_during_development():
+    text = markdown(result_for("dev", "dev_v1b"))
+    assert "In-sample:" in text and "dev, dev_v1b" in text
+    assert "before held-out templates existed" not in text
+    assert "## dev_v1b" in text and "holdout" not in text
+
+
+def test_a_split_nobody_tuned_on_is_not_called_in_sample():
+    text = markdown(result_for("dev", "holdout_v2"))
+    assert (
+        "**In-sample:** dev was seen" in text and "Not seen during development: holdout_v2" in text
+    )
+
+
+def test_run_needs_known_splits(tmp_path):
+    from bench.leakage.cases import SPLITS
+    from bench.leakage.run import main, run
+
+    assert SPLITS == ("dev", "dev_v1b") and "L7" in LEAK_TYPES
+    with pytest.raises(SystemExit, match="no templates"):
+        run(42, tmp_path, False, tmp_path, splits=("holdout",))
+    with pytest.raises(SystemExit):
+        main(["run", "--splits", "holdout"])
+
+
+def test_bench_cli_takes_the_splits_to_score():
+    from bench import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["leakage", "run", "--splits", "holdout"])

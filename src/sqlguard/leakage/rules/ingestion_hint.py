@@ -3,6 +3,10 @@
 Event-time bounds look correct, but rows for the past can still arrive after prediction
 time. Only replay over snapshot history can confirm it, so this rule is weighted below the
 leaky threshold on its own: it raises suspicion, replay decides.
+
+A table with a declared `max_ingest_delay` has a known worst case: an event-time bound at least
+that far before prediction_ts admits only rows that had already landed, so no hint is raised
+(the availability column, when the query uses it, is still the better bound).
 """
 
 from __future__ import annotations
@@ -18,9 +22,12 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
         availability = spec.availability_columns.get(ref.table)
         if not availability:
             continue
+        delay = spec.max_ingest_delay.get(ref.table)
         for group in ref.bound_groups():
             upper = [b for b in group if b.is_upper]
             if not upper or any(b.column_role == "availability" for b in upper):
+                continue
+            if delay is not None and any(b.covers(delay) for b in upper):
                 continue
             findings.append(
                 Finding(

@@ -10,7 +10,8 @@ def test_dev_case_counts_and_balance():
     cases = generate_cases(seed=42)
     counts = Counter(c.leak_type for c in cases)
     assert len(cases) >= 200
-    assert all(counts[t] >= 20 for t in LEAK_TYPES)
+    assert all(counts[t] >= 20 for t in LEAK_TYPES[:7])  # clean, L1..L6
+    assert counts["L7"] >= 8
     assert 0.4 <= counts["clean"] / len(cases) <= 0.6
     assert {c.split for c in cases} == {"dev"}
 

@@ -1,5 +1,7 @@
 import hashlib
 import json
+from datetime import timedelta
+from pathlib import Path
 
 from bench.leakage.world import WorldConfig, build_world, write_timeline
 from sqlguard.core.catalog import LakehouseCatalog
@@ -49,3 +51,31 @@ def test_timeline_file(world, tmp_path):
     write_timeline(catalog, path)
     timeline = json.loads(path.read_text())
     assert len(timeline["events"]) == len(catalog.snapshots("events"))
+
+
+def test_spec_values_follow_from_the_world_parameters(world):
+    """bench/leakage/spec.yaml declares what the generator guarantees, nothing read off a query."""
+    import yaml
+
+    from bench.leakage.world import declared_spec_fields
+
+    catalog, _ = world
+    declared = declared_spec_fields(WorldConfig())
+    assert declared == {"max_ingest_delay": {"events": "8 days"}, "label_known_after": "14 days"}
+    spec = yaml.safe_load(Path("bench/leakage/spec.yaml").read_text(encoding="utf-8"))
+    assert {k: spec[k] for k in declared} == declared
+
+    events = catalog.read("events").to_pylist()
+    longest = max(r["ingested_at"] - r["event_ts"] for r in events)
+    assert longest < timedelta(days=8)
+    assert longest > timedelta(days=7)  # the bound is tight: late events do reach 7 nights
+    outcomes = catalog.read("user_outcomes").to_pylist()
+    assert max(r["days_to_churn"] for r in outcomes) <= 14
+
+
+def test_late_events_use_the_configured_range(tmp_path):
+    config = WorldConfig(seed=3, n_users=60, n_days=30, label_start_day=10, label_end_day=14)
+    catalog = LakehouseCatalog.local(tmp_path)
+    build_world(catalog, WorldConfig(**{**config.__dict__, "late_max_days": 2}))
+    delays = [r["ingested_at"] - r["event_ts"] for r in catalog.read("events").to_pylist()]
+    assert max(delays) < timedelta(days=3)
