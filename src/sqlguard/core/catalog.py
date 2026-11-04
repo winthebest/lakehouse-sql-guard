@@ -148,14 +148,25 @@ class LakehouseCatalog:
         """Latest main-branch snapshot visible at `ts` (None if the table did not exist yet).
 
         Follows the main-branch lineage, so rolled-back or branch-only snapshots are ignored.
+        The logical-ts property means "when this commit became readable"; the visibility time of
+        a snapshot is the latest of its own and its ancestors'.
         With `strict_history`, raise HistoryGap when the state at `ts` predates retained
         history (snapshots were expired), instead of silently answering "empty".
         """
         ts = naive_utc(ts)
         chain = self._main_chain(table)
-        visible = [s for s in chain if s.visible_at <= ts]
-        if visible:
-            return visible[-1].snapshot_id
+        # A snapshot holds everything committed before it, so it is only visible once its
+        # ancestors are: a late backfill tagged with an early logical time does not make the
+        # data committed before it visible earlier.
+        visible: SnapshotInfo | None = None
+        seen_at = None
+        for snapshot in chain:
+            seen_at = snapshot.visible_at if seen_at is None else max(seen_at, snapshot.visible_at)
+            if seen_at > ts:
+                break
+            visible = snapshot
+        if visible is not None:
+            return visible.snapshot_id
         if strict_history and chain and self._chain_truncated(table, chain):
             raise HistoryGap(
                 f"history of {table!r} before {chain[0].visible_at.isoformat()} was expired; "
