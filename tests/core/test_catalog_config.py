@@ -201,3 +201,47 @@ def test_a_bad_catalog_name_is_a_usage_error(
     argv = ["leakage", "check", str(sql), "--spec", SPEC, "--catalog", "x"]
     assert run(argv) == 2
     assert "cannot open catalog" in capsys.readouterr().err
+
+
+# -- sqlguard-mcp --------------------------------------------------------------------------------
+
+
+def test_mcp_config_takes_a_catalog_instead_of_a_warehouse(tmp_path: Path) -> None:
+    from sqlguard.mcp_server import build_config
+
+    config = build_config(["--catalog", NAME, "--audit-log", str(tmp_path / "a.jsonl")], {})
+    assert config.catalog == NAME and config.warehouse is None
+
+    from_env = build_config([], {"SQLGUARD_CATALOG": NAME})
+    assert from_env.catalog == NAME and from_env.warehouse is None
+    # a flag for one kind of lakehouse outranks an environment variable for the other
+    assert build_config(["--catalog", NAME], {"SQLGUARD_WAREHOUSE": "/w"}).warehouse is None
+    assert build_config(["--warehouse", "/w"], {"SQLGUARD_CATALOG": NAME}).catalog is None
+
+
+@pytest.mark.parametrize("argv", [[], ["--catalog", NAME, "--warehouse", "/w"]])
+def test_mcp_config_needs_exactly_one_lakehouse(argv: list[str]) -> None:
+    from sqlguard.mcp_server import build_config
+
+    with pytest.raises(SystemExit) as exit_info:
+        build_config(argv, {})
+    assert exit_info.value.code == 2
+
+
+def test_mcp_serves_a_catalog_from_pyiceberg_yaml(home: Path, warehouse: Path, tmp_path: Path):
+    from sqlguard.mcp_server import ConfigError, ServerConfig, build_tools
+
+    write_pyiceberg_yaml(home, warehouse)
+    audit = tmp_path / "audit.jsonl"
+    tools = build_tools(ServerConfig(catalog=NAME, audit_log=audit, spec_dir=Path(SPEC).parent))
+    assert tools.warehouse is None
+    assert tools.backend.catalog.table_names() == ["orders"]
+    with pytest.raises(ConfigError, match="--audit-log is required"):
+        build_tools(ServerConfig(catalog=NAME))
+    with pytest.raises(ConfigError, match="cannot open catalog"):
+        build_tools(ServerConfig(catalog="missing", audit_log=audit))
+    # without a local warehouse a client cannot point the leakage check at one
+    result = tools.call(
+        "check_training_sql", {"sql": "SELECT 1", "spec_path": "spec.yaml", "warehouse": "/w"}
+    )
+    assert result.status == "error" and "server's own warehouse" in json.dumps(result.payload)
