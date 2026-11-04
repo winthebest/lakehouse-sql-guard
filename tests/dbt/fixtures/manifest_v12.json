@@ -1,0 +1,331 @@
+{
+  "metadata": {
+    "adapter_type": "duckdb",
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.12.6",
+    "project_name": "jaffle_churn"
+  },
+  "nodes": {
+    "model.jaffle_churn.int_customer_features": {
+      "columns": {},
+      "compiled_code": "select\n    customer_id,\n    count(*) as lifetime_orders,\n    sum(amount) as lifetime_amount,\n    max(ordered_at) as last_order_at\n\nfrom \"jaffle\".\"main\".\"stg_orders\"\n\ngroup by customer_id",
+      "config": {
+        "materialized": "view",
+        "meta": {}
+      },
+      "depends_on": {
+        "nodes": [
+          "model.jaffle_churn.stg_orders"
+        ]
+      },
+      "meta": {},
+      "name": "int_customer_features",
+      "original_file_path": "models/intermediate/int_customer_features.sql",
+      "relation_name": "\"jaffle\".\"main\".\"int_customer_features\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.int_customer_features"
+    },
+    "model.jaffle_churn.int_customer_recent_orders": {
+      "columns": {},
+      "compiled_code": "select\n    labels.customer_id,\n    labels.cutoff_ts,\n    count(orders.order_id) as orders_90d,\n    coalesce(sum(orders.amount), 0) as amount_90d\n\nfrom \"jaffle\".\"raw\".\"churn_labels\" as labels\n\nleft join \"jaffle\".\"main\".\"stg_orders\" as orders\n    on orders.customer_id = labels.customer_id\n    and orders.ordered_at < labels.cutoff_ts\n    and orders.loaded_at < labels.cutoff_ts\n    and orders.ordered_at >= labels.cutoff_ts - interval 90 day\n\ngroup by labels.customer_id, labels.cutoff_ts",
+      "config": {
+        "materialized": "view",
+        "meta": {}
+      },
+      "depends_on": {
+        "nodes": [
+          "source.jaffle_churn.raw.churn_labels",
+          "model.jaffle_churn.stg_orders"
+        ]
+      },
+      "meta": {},
+      "name": "int_customer_recent_orders",
+      "original_file_path": "models/intermediate/int_customer_recent_orders.sql",
+      "relation_name": "\"jaffle\".\"main\".\"int_customer_recent_orders\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.int_customer_recent_orders"
+    },
+    "model.jaffle_churn.stg_customers": {
+      "columns": {},
+      "compiled_code": "select\n    id as customer_id,\n    first_name,\n    last_name\n\nfrom \"jaffle\".\"raw\".\"customers\"",
+      "config": {
+        "materialized": "view",
+        "meta": {}
+      },
+      "depends_on": {
+        "nodes": [
+          "source.jaffle_churn.raw.customers"
+        ]
+      },
+      "meta": {},
+      "name": "stg_customers",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "relation_name": "\"jaffle\".\"main\".\"stg_customers\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.stg_customers"
+    },
+    "model.jaffle_churn.stg_orders": {
+      "columns": {},
+      "compiled_code": "select\n    id as order_id,\n    user_id as customer_id,\n    ordered_at,\n    loaded_at,\n    status,\n    amount\n\nfrom \"jaffle\".\"raw\".\"orders\"",
+      "config": {
+        "materialized": "view",
+        "meta": {}
+      },
+      "depends_on": {
+        "nodes": [
+          "source.jaffle_churn.raw.orders"
+        ]
+      },
+      "meta": {},
+      "name": "stg_orders",
+      "original_file_path": "models/staging/stg_orders.sql",
+      "relation_name": "\"jaffle\".\"main\".\"stg_orders\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.stg_orders"
+    },
+    "model.jaffle_churn.training_churn_clean": {
+      "columns": {},
+      "compiled_code": "select\n    labels.customer_id,\n    labels.cutoff_ts,\n    labels.churned,\n    recent.orders_90d,\n    recent.amount_90d,\n    customers.first_name\n\nfrom \"jaffle\".\"raw\".\"churn_labels\" as labels\n\nleft join \"jaffle\".\"main\".\"int_customer_recent_orders\" as recent\n    on recent.customer_id = labels.customer_id\n    and recent.cutoff_ts = labels.cutoff_ts\n\nleft join \"jaffle\".\"main\".\"stg_customers\" as customers\n    on customers.customer_id = labels.customer_id",
+      "config": {
+        "materialized": "table",
+        "meta": {
+          "leakage": {
+            "role": "training_set"
+          }
+        }
+      },
+      "depends_on": {
+        "nodes": [
+          "source.jaffle_churn.raw.churn_labels",
+          "model.jaffle_churn.int_customer_recent_orders",
+          "model.jaffle_churn.stg_customers"
+        ]
+      },
+      "meta": {
+        "leakage": {
+          "role": "training_set"
+        }
+      },
+      "name": "training_churn_clean",
+      "original_file_path": "models/marts/training_churn_clean.sql",
+      "relation_name": "\"jaffle\".\"main\".\"training_churn_clean\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.training_churn_clean"
+    },
+    "model.jaffle_churn.training_churn_leaky": {
+      "columns": {},
+      "compiled_code": "select\n    labels.customer_id,\n    labels.cutoff_ts,\n    labels.churned,\n    features.lifetime_orders,\n    features.lifetime_amount,\n    customers.first_name\n\nfrom \"jaffle\".\"raw\".\"churn_labels\" as labels\n\nleft join \"jaffle\".\"main\".\"int_customer_features\" as features\n    on features.customer_id = labels.customer_id\n\nleft join \"jaffle\".\"main\".\"stg_customers\" as customers\n    on customers.customer_id = labels.customer_id",
+      "config": {
+        "materialized": "table",
+        "meta": {
+          "leakage": {
+            "role": "training_set"
+          }
+        }
+      },
+      "depends_on": {
+        "nodes": [
+          "source.jaffle_churn.raw.churn_labels",
+          "model.jaffle_churn.int_customer_features",
+          "model.jaffle_churn.stg_customers"
+        ]
+      },
+      "meta": {
+        "leakage": {
+          "role": "training_set"
+        }
+      },
+      "name": "training_churn_leaky",
+      "original_file_path": "models/marts/training_churn_leaky.sql",
+      "relation_name": "\"jaffle\".\"main\".\"training_churn_leaky\"",
+      "resource_type": "model",
+      "unique_id": "model.jaffle_churn.training_churn_leaky"
+    }
+  },
+  "sources": {
+    "source.jaffle_churn.raw.churn_labels": {
+      "columns": {
+        "churned": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "boolean",
+          "meta": {},
+          "name": "churned"
+        },
+        "customer_id": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "bigint",
+          "meta": {},
+          "name": "customer_id"
+        },
+        "cutoff_ts": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "timestamp",
+          "meta": {},
+          "name": "cutoff_ts"
+        }
+      },
+      "config": {
+        "meta": {
+          "leakage": {
+            "entity_keys": [
+              "customer_id"
+            ],
+            "label_columns": [
+              "churned"
+            ],
+            "prediction_ts": "cutoff_ts",
+            "role": "label_spine"
+          },
+          "plugin": "iceberg"
+        }
+      },
+      "identifier": "churn_labels",
+      "meta": {
+        "leakage": {
+          "entity_keys": [
+            "customer_id"
+          ],
+          "label_columns": [
+            "churned"
+          ],
+          "prediction_ts": "cutoff_ts",
+          "role": "label_spine"
+        },
+        "plugin": "iceberg"
+      },
+      "name": "churn_labels",
+      "original_file_path": "models/staging/sources.yml",
+      "relation_name": "\"jaffle\".\"raw\".\"churn_labels\"",
+      "resource_type": "source",
+      "unique_id": "source.jaffle_churn.raw.churn_labels"
+    },
+    "source.jaffle_churn.raw.customers": {
+      "columns": {
+        "first_name": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "varchar",
+          "meta": {},
+          "name": "first_name"
+        },
+        "id": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "bigint",
+          "meta": {},
+          "name": "id"
+        },
+        "last_name": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "varchar",
+          "meta": {},
+          "name": "last_name"
+        }
+      },
+      "config": {
+        "meta": {
+          "leakage": {
+            "role": "static"
+          },
+          "plugin": "iceberg"
+        }
+      },
+      "identifier": "customers",
+      "meta": {
+        "leakage": {
+          "role": "static"
+        },
+        "plugin": "iceberg"
+      },
+      "name": "customers",
+      "original_file_path": "models/staging/sources.yml",
+      "relation_name": "\"jaffle\".\"raw\".\"customers\"",
+      "resource_type": "source",
+      "unique_id": "source.jaffle_churn.raw.customers"
+    },
+    "source.jaffle_churn.raw.orders": {
+      "columns": {
+        "amount": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "double",
+          "meta": {},
+          "name": "amount"
+        },
+        "id": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "bigint",
+          "meta": {},
+          "name": "id"
+        },
+        "loaded_at": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "timestamp",
+          "meta": {},
+          "name": "loaded_at"
+        },
+        "ordered_at": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "timestamp",
+          "meta": {},
+          "name": "ordered_at"
+        },
+        "status": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "varchar",
+          "meta": {},
+          "name": "status"
+        },
+        "user_id": {
+          "config": {
+            "meta": {}
+          },
+          "data_type": "bigint",
+          "meta": {},
+          "name": "user_id"
+        }
+      },
+      "config": {
+        "meta": {
+          "leakage": {
+            "availability_column": "loaded_at",
+            "time_column": "ordered_at"
+          },
+          "plugin": "iceberg"
+        }
+      },
+      "identifier": "orders",
+      "meta": {
+        "leakage": {
+          "availability_column": "loaded_at",
+          "time_column": "ordered_at"
+        },
+        "plugin": "iceberg"
+      },
+      "name": "orders",
+      "original_file_path": "models/staging/sources.yml",
+      "relation_name": "\"jaffle\".\"raw\".\"orders\"",
+      "resource_type": "source",
+      "unique_id": "source.jaffle_churn.raw.orders"
+    }
+  }
+}

@@ -34,10 +34,13 @@ column by the qualifier or leaves an unresolved column, and either way the rule 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
 from sqlguard.core.lineage import Schema, qualify_statement
+from sqlguard.leakage.analysis import resolve_relations
 from sqlguard.leakage.rewrite import TAG, _clause_of, _null_strict, _reads, _unmatched_neutral
 
 _SCALAR_WRAPPERS = (
@@ -63,16 +66,22 @@ def _fail(reason: str) -> None:
 
 
 def unproven(
-    tree: exp.Expression, tag: int, schema: Schema, dialect: str, local: bool = True
+    tree: exp.Expression,
+    tag: int,
+    schema: Schema,
+    dialect: str,
+    local: bool = True,
+    relations: Mapping[str, str] | None = None,
 ) -> str | None:
     """Why the edit cannot be shown to change only values, or None when it can.
 
     `tag` is the id (see `rewrite.tag_tree`) of the bounded table in the edited `tree`. With
     `local` False the join and aggregate checks of rule 3 are skipped and every output of the
-    table's SELECT is followed upward (for edits that are not a bound on a join).
+    table's SELECT is followed upward (for edits that are not a bound on a join). `relations` is
+    the spec's mapping of SQL relation names to catalog tables, which the schema is keyed by.
     """
     try:
-        qualified = qualify_statement(tree, schema, dialect)
+        qualified = qualify_statement(resolve_relations(tree, relations or {}), schema, dialect)
     except Exception as err:  # noqa: BLE001 - qualification failing is itself the answer
         return f"the query could not be qualified against the schema ({err})"
     try:

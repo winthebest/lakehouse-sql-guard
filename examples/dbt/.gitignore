@@ -1,0 +1,5 @@
+build*/
+logs/
+warehouse/
+*.duckdb
+*.duckdb.wal

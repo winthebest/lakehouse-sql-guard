@@ -226,7 +226,9 @@ def _repair(
             skipped.add(_key(finding))
             continue
         if edit.proof_tag is not None:
-            reason = proof.unproven(trial, edit.proof_tag, schema, spec.dialect, edit.proof_local)
+            reason = proof.unproven(
+                trial, edit.proof_tag, schema, spec.dialect, edit.proof_local, spec.relations
+            )
             if reason:
                 edit.not_shown(reason, finding.location.split(" AS ")[0])
         checked = static_findings(after, spec, schema)

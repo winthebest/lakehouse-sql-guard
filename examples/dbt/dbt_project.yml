@@ -1,0 +1,23 @@
+name: 'jaffle_churn'
+
+config-version: 2
+version: '0.1'
+
+profile: 'jaffle_churn'
+
+model-paths: ["models"]
+
+clean-targets:
+    - "build"
+    - "logs"
+
+require-dbt-version: [">=1.8.0", "<2.0.0"]
+
+models:
+  jaffle_churn:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

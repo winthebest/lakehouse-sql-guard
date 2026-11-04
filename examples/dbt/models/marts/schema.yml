@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: training_churn_leaky
+    description: Churn training set whose feature `lifetime_orders` is computed over all orders.
+    config:
+      meta:
+        leakage:
+          role: training_set
+
+  - name: training_churn_clean
+    description: Churn training set with features bounded to the 90 days before each cutoff.
+    config:
+      meta:
+        leakage:
+          role: training_set

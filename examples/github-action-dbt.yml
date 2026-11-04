@@ -1,0 +1,37 @@
+# Copy to .github/workflows/sqlguard-dbt.yml in a dbt repository.
+#
+# Compiles the training sets and everything they are built from, then checks them for temporal
+# leakage. The guard reads only manifest.json (schema v12, dbt-core 1.8 to 1.12); dbt is needed
+# for the compile step alone.
+#
+# Every model with `meta.leakage.role: training_set` is checked on every run. Do not narrow the
+# run with `--select state:modified+`: dbt's state comparison ignores changes to `meta`, so an
+# edit to a source's time_column (or to the label spine) would go unchecked.
+name: sqlguard-dbt
+
+on:
+  pull_request:
+    paths: ["models/**", "macros/**", "seeds/**", "snapshots/**", "dbt_project.yml"]
+
+jobs:
+  leakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Compile the training sets and their ancestors
+        # Compile with your warehouse's adapter and profile: models that call run_query() or
+        # introspect the warehouse do not compile on DuckDB. `--target-path` must differ from any
+        # `--state` directory you use elsewhere.
+        run: >
+          uvx --from "dbt-core<2" --with dbt-duckdb dbt compile
+          --profiles-dir ci --target-path build_ci
+          --select "+config.meta.leakage.role:training_set"
+      - name: Check the training sets for temporal leakage
+        # Add `--catalog-json build_ci/catalog.json` (from `dbt docs generate`) when column types
+        # are not declared in the yml, and `--replay --catalog NAME` to replay the Iceberg sources.
+        run: >
+          uvx --from git+https://github.com/winthebest/lakehouse-sql-guard@v0.2.0
+          sqlguard leakage dbt --manifest build_ci/manifest.json
