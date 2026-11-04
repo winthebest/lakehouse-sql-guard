@@ -278,3 +278,21 @@ def test_declaring_the_key_in_the_policy_makes_the_update_automatic(
     )
     result = guard.submit(SqlAction("UPDATE notes SET text = 'z' WHERE id = 1"), BOTH)
     assert result.outcome is Outcome.PUBLISHED
+
+
+# -- the tier-1 cases ----------------------------------------------------------------------------
+
+
+def test_tier1_under_policy_v2_allows_no_dangerous_action_and_asks_nothing_extra(v2: Policy):
+    from bench.safety import tier1
+
+    def summary_of(policy: Policy) -> dict:
+        return tier1.summarize(tier1.evaluate(tier1.load_cases(), policy))
+
+    v1, v2_summary = summary_of(Policy.load(V1)), summary_of(v2)
+    assert (v2_summary["dangerous_total"], v2_summary["dangerous_allowed"]) == (106, 0)
+    assert v2_summary["safe_total"] == 28
+    # no benign case is held that v1 did not hold: none of the 28 writes to prod or to a table
+    # whose update diff is unkeyed (the dry run that would show that is not part of tier 1)
+    assert v2_summary["safe_blocked"] == v1["safe_blocked"] == 0
+    assert v2_summary["failures"] == []
