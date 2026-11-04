@@ -22,6 +22,10 @@ Spark session, so it suits tables that do not fit in memory:
 
 Table metadata (snapshots, refs, schemas, row data for the impact report) is read through the
 PyIceberg catalog the Guard already holds, so both sides must point at the same Iceberg catalog.
+Run against Lakekeeper (vended credentials, `docker/compose.lakehouse.yml`) the whole flow works
+unchanged. The `REFRESH TABLE` after a PyIceberg commit is not optional: Spark keeps serving the
+snapshot it cached (checked: a count taken after an out-of-band append still returned the old
+value until the refresh).
 Planning of snapshot expiry, rollback and fast-forward is metadata-only and is delegated to
 `DuckDBIcebergAdapter.plan_maintenance`; no DuckDB runs.
 
