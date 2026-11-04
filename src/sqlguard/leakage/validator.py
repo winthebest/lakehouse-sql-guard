@@ -2,7 +2,8 @@
 
 Verdicts: `leaky` (score >= threshold), `unverifiable` (the guard could not check part of
 the query: unparseable or non-SELECT input, undeclared tables, spec/schema mismatch,
-lineage failure, expired snapshot history, or too little replay evidence), otherwise `clean`.
+lineage failure, expired snapshot history, or too little replay evidence for a query with a
+static ingestion-time hint), otherwise `clean`.
 Never `clean` by default.
 """
 
@@ -147,11 +148,18 @@ def validate(
 
     score = _score([f for f in findings if f.rule_id != "REPLAY"], replay_result, weights)
     leak_types = sorted({f.rule_id for f in findings if f.rule_id in weights.rules})
+    needs_replay = any(f.rule_id == "L4" for f in findings)  # only replay can settle the hint
+    replay_blocks = (
+        replay_result is not None
+        and replay_result.status is ReplayStatus.UNVERIFIABLE
+        # too little evidence only matters when something static is waiting on it; the reason
+        # stays in the report's replay field either way
+        and (needs_replay or not replay_result.insufficient_evidence)
+    )
     unchecked = (
         any(f.rule_id in UNCHECKED for f in findings)
-        or (replay_result is not None and replay_result.status is ReplayStatus.UNVERIFIABLE)
-        # an L4 hint is only settled by replay
-        or (replay_result is None and any(f.rule_id == "L4" for f in findings))
+        or replay_blocks
+        or (replay_result is None and needs_replay)
     )
     if score >= weights.threshold:
         verdict = "leaky"

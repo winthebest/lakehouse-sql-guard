@@ -667,19 +667,36 @@ def test_late_data_is_found_when_the_query_keeps_a_recent_slice(bench_world, whe
 
 
 @pytest.mark.parametrize(
-    "where, reason",
+    "where, reason, hinted",
     [
-        ("WHERE l.label_ts >= TIMESTAMP '2026-03-01'", "no label prediction time"),
-        ("WHERE l.user_id = 3", "needs at least"),
-        ("WHERE l.label_ts > TIMESTAMP '2026-01-31 00:00'", "needs at least"),
+        ("WHERE l.label_ts >= TIMESTAMP '2026-03-01'", "no label prediction time", True),
+        ("WHERE l.user_id = 3", "needs at least", True),
+        # the event-time variant leaks visibly in these 14 rows, so replay finds it anyway
+        ("WHERE l.label_ts > TIMESTAMP '2026-01-31 00:00'", "needs at least", False),
     ],
 )
-def test_replay_without_enough_evidence_never_passes(bench_world, where, reason):
+def test_replay_without_enough_evidence_never_passes(bench_world, where, reason, hinted):
+    """Too little compared is never a PASS. It blocks a query whose static hint only replay can
+    settle (event-time bound), and is only recorded for one that static analysis cleared."""
     catalog, replayer = bench_world
-    sql = events_query("ingested_at", where)
-    result = replayer.run(sql)
-    assert result.status is ReplayStatus.UNVERIFIABLE and reason in result.reason
-    assert validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer).verdict == "unverifiable"
+    if hinted:
+        sql = events_query("event_ts", where)
+        result = replayer.run(sql)
+        assert result.status is ReplayStatus.UNVERIFIABLE and reason in result.reason
+        assert validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer).verdict == "unverifiable"
+
+    cleared = events_query("ingested_at", where)
+    report = validate(cleared, BENCH_SPEC, catalog=catalog, replay=replayer)
+    assert report.replay.status is ReplayStatus.UNVERIFIABLE and reason in report.replay.reason
+    assert report.replay.insufficient_evidence
+    assert report.verdict == "clean" and not report.findings
+
+
+def test_replay_that_cannot_run_still_blocks_a_clean_query(bench_world):
+    catalog, replayer = bench_world
+    sql = "SELECT l.user_id, l.label_ts, l.churned, l.nope FROM labels l"
+    report = validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer)
+    assert report.verdict == "unverifiable"
 
 
 def test_static_only_event_time_leak_is_not_cleared_by_an_empty_replay(bench_world):
@@ -773,3 +790,41 @@ def test_aware_logical_snapshot_time_does_not_crash(tmp_path, logical):
     assert validate(sql, spec, catalog=catalog, replay=True).verdict == "clean"
     assert datetime(2026, 1, 1, tzinfo=UTC)  # aware input to snapshot_as_of is accepted
     assert catalog.snapshot_as_of("stats", datetime(2026, 1, 3, tzinfo=UTC)) is not None
+
+
+@pytest.fixture(scope="module")
+def prior_labels_replayer(bench_world):
+    return bench_world[1]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        f"{SEL}, COUNT(*) OVER (PARTITION BY l.user_id ORDER BY l.label_ts ROWS BETWEEN "
+        "UNBOUNDED PRECEDING AND 1 PRECEDING) AS n_prior FROM labels l",
+        f"{SEL}, (SELECT COUNT(*) FROM labels k WHERE k.user_id = l.user_id "
+        "AND k.label_ts < l.label_ts) AS n_prior FROM labels l",
+        f"{SEL}, date_diff('hour', LAG(l.label_ts) OVER (PARTITION BY l.user_id "
+        "ORDER BY l.label_ts), l.label_ts) AS gap FROM labels l",
+        f"{SEL} FROM labels l QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id "
+        "ORDER BY l.label_ts) = 1",
+    ],
+    ids=["window count", "subquery count", "gap to previous", "first per user"],
+)
+def test_features_over_earlier_prediction_rows_replay_identically(prior_labels_replayer, sql):
+    result = prior_labels_replayer.run(sql)
+    assert result.status is ReplayStatus.PASS, result
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        f"{SEL}, LAG(l.churned) OVER (PARTITION BY l.user_id ORDER BY l.label_ts) AS prev "
+        "FROM labels l",
+        f"{SEL}, (SELECT SUM(k.churned) FROM labels k WHERE k.user_id = l.user_id "
+        "AND k.label_ts < l.label_ts) AS prior_churn FROM labels l",
+    ],
+    ids=["previous label value", "sum of earlier labels"],
+)
+def test_reading_an_earlier_label_value_still_mismatches_in_replay(prior_labels_replayer, sql):
+    assert prior_labels_replayer.run(sql).status is ReplayStatus.MISMATCH

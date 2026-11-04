@@ -10,7 +10,9 @@ This is what catches late-arriving data (L4): the SQL can look perfectly time-co
 the source table still received rows for the past after the prediction was made.
 
 A PASS needs evidence: at least `min_rows` compared rows spread over `min_points` prediction
-times. A query that keeps no rows, or too few, is UNVERIFIABLE rather than clean.
+times. A query that keeps no rows, or too few, is UNVERIFIABLE rather than a pass (flagged
+`insufficient_evidence`; the validator only lets that block a query that has a static
+ingestion-time hint, which replay is the only way to settle).
 
 User SQL runs in a sandboxed in-memory DuckDB (no file or network access), and only SELECT
 queries are replayed.
@@ -58,6 +60,8 @@ class ReplayResult:
     mismatched_columns: dict[str, int] = field(default_factory=dict)
     reason: str = ""
     timestamps_compared: int = 0  # distinct prediction times that had rows to compare
+    # unverifiable only because too little was compared (not because replay could not run)
+    insufficient_evidence: bool = False
 
     @property
     def mismatch_rate(self) -> float:
@@ -116,7 +120,7 @@ class Replayer:
         # a query-independent sample over all labels (the point set `run` draws from its output)
         self.points: list[datetime] = sample_points(counts, max_points, seed)
         self._current: duckdb.DuckDBPyConnection | None = None
-        self._pinned: dict[datetime, duckdb.DuckDBPyConnection | HistoryGap] = {}
+        self._pinned: dict[tuple[datetime, bool], duckdb.DuckDBPyConnection | HistoryGap] = {}
         self._reads: dict[tuple[str, int | None], pa.Table] = {}
 
     def _read(self, table: str, snapshot_id: int | None) -> pa.Table:
@@ -134,9 +138,17 @@ class Replayer:
             self._current = connect({t: self.catalog.read(t) for t in self.tables})
         return self._current
 
-    def pinned(self, ts: datetime) -> duckdb.DuckDBPyConnection:
-        """Connection where every table looks as it did just before `ts`."""
-        if ts not in self._pinned:
+    def pinned(self, ts: datetime, history: bool = False) -> duckdb.DuckDBPyConnection:
+        """Connection where every table looks as it did just before `ts`.
+
+        The label table holds the rows at `ts`. With `history`, it also holds the earlier rows
+        with their label columns set to NULL: that those predictions exist, and when, was known
+        at `ts`, but their outcomes may not have been. Features over the label table's own
+        history (prior-prediction counts, time since the last prediction) therefore replay
+        identically, while one that reads an earlier label's value does not.
+        """
+        key = (ts, history)
+        if key not in self._pinned:
             try:
                 before = naive_utc(ts) - _STRICT
                 data = {
@@ -144,17 +156,27 @@ class Replayer:
                     for t in self.tables
                     if t != self.spec.label_table
                 }
-                column = self.labels.column(self.spec.prediction_ts)
-                data[self.spec.label_table] = self.labels.filter(
-                    pc.equal(column, pa.scalar(ts, type=column.type))
-                )
-                self._pinned[ts] = connect(data)
+                data[self.spec.label_table] = self._pinned_labels(ts, history)
+                self._pinned[key] = connect(data)
             except HistoryGap as err:
-                self._pinned[ts] = err
-        entry = self._pinned[ts]
+                self._pinned[key] = err
+        entry = self._pinned[key]
         if isinstance(entry, HistoryGap):
             raise entry
         return entry
+
+    def _pinned_labels(self, ts: datetime, history: bool) -> pa.Table:
+        column = self.labels.column(self.spec.prediction_ts)
+        at = self.labels.filter(pc.equal(column, pa.scalar(ts, type=column.type)))
+        if not history:
+            return at
+        earlier = self.labels.filter(pc.less(column, pa.scalar(ts, type=column.type)))
+        for name in self.spec.label_columns:
+            index = earlier.schema.get_field_index(name)
+            if index >= 0:
+                nulls = pa.nulls(earlier.num_rows, earlier.schema.field(index).type)
+                earlier = earlier.set_column(index, earlier.schema.field(index), nulls)
+        return pa.concat_tables([earlier, at])
 
     def _rows_by_key(
         self, table: pa.Table, key_cols: list[str], value_cols: list[str]
@@ -209,18 +231,24 @@ class Replayer:
             return ReplayResult(
                 ReplayStatus.UNVERIFIABLE,
                 reason="no label prediction time appears in the query output",
+                insufficient_evidence=True,
             )
 
         compared = mismatched = timestamps = 0
         columns: Counter[str] = Counter()
         for ts in points:
             try:
-                replayed = self.pinned(ts).sql(sql).to_arrow_table()
+                replayed = self.pinned(ts, history=True).sql(sql).to_arrow_table()
             except HistoryGap as err:
                 return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=str(err))
             except duckdb.Error as err:
                 return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=f"replay failed: {err}")
-            past_rows = self._rows_by_key(replayed, key_cols, value_cols)
+            # earlier prediction rows are context only: compare the rows at `ts`
+            past_rows = {
+                key: rows
+                for key, rows in self._rows_by_key(replayed, key_cols, value_cols).items()
+                if isinstance(key[-1], datetime) and naive_utc(key[-1]) == naive_utc(ts)
+            }
             now_rows = full_by_ts.get(naive_utc(ts), {})
             keys = now_rows.keys() | past_rows.keys()
             timestamps += bool(keys)
@@ -239,7 +267,14 @@ class Replayer:
 
         def result(status: ReplayStatus, reason: str = "") -> ReplayResult:
             return ReplayResult(
-                status, len(points), compared, mismatched, dict(columns), reason, timestamps
+                status,
+                len(points),
+                compared,
+                mismatched,
+                dict(columns),
+                reason,
+                timestamps,
+                insufficient_evidence=status is ReplayStatus.UNVERIFIABLE,
             )
 
         if mismatched:
