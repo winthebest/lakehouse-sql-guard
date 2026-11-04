@@ -1,7 +1,8 @@
 """Agent-facing tools over a lakehouse, with an unguarded and a guarded backend.
 
 Six tools (`list_tables`, `describe_table`, `run_sql`, `expire_snapshots`, `remove_orphan_files`,
-`rollback`) are described once as OpenAI function-calling JSON schemas (`tool_schemas()`) and
+`rollback`) are described once as Anthropic tool definitions (`tool_schemas()`: name, description,
+`input_schema` as JSON Schema, strict) and
 implemented by two backends that share one interface (`ToolBackend.call(name, arguments)`):
 
     RawBackend      calls the executor adapter directly. The agent has full write access to
@@ -83,14 +84,13 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
 
-    def to_openai(self) -> dict[str, Any]:
+    def to_anthropic(self) -> dict[str, Any]:
+        """Anthropic tool definition. `strict` makes the API validate the model's input."""
         return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": copy.deepcopy(self.parameters),
-            },
+            "name": self.name,
+            "description": self.description,
+            "input_schema": copy.deepcopy(self.parameters),
+            "strict": True,
         }
 
 
@@ -166,8 +166,8 @@ _SPECS: dict[str, ToolSpec] = {spec.name: spec for spec in TOOL_SPECS}
 
 
 def tool_schemas() -> list[dict[str, Any]]:
-    """The tools as OpenAI function-calling definitions (fresh copies, safe to mutate)."""
-    return [spec.to_openai() for spec in TOOL_SPECS]
+    """The tools as Anthropic tool definitions (fresh copies, safe to mutate)."""
+    return [spec.to_anthropic() for spec in TOOL_SPECS]
 
 
 class ToolArgumentError(ValueError):
@@ -279,6 +279,12 @@ class ToolResult:
     def ok(self) -> bool:
         return self.status == "ok"
 
+    @property
+    def is_error(self) -> bool:
+        """True when the call itself failed (bad input, engine error). A guard refusal or a
+        pending approval is information for the agent, not an error."""
+        return self.status in ("error", "invalid_arguments")
+
     def to_message(self) -> str:
         """The text handed back to the model."""
         return json.dumps(self.payload, ensure_ascii=False)
@@ -288,6 +294,7 @@ class ToolResult:
             "name": self.name,
             "status": self.status,
             "ok": self.ok,
+            "is_error": self.is_error,
             "mutating": self.mutating,
             "klass": self.klass,
             "guard": self.guard,
