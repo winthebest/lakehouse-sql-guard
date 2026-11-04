@@ -45,7 +45,7 @@ import os
 import socket
 import threading
 import uuid
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -278,6 +278,8 @@ DEFAULT_PENDING_TTL = timedelta(hours=24)
 DEFAULT_LEASE = timedelta(minutes=5)
 DEFAULT_RECONCILE_GRACE = timedelta(0)
 DEFAULT_MAX_PENDING = 50
+DEFAULT_MAX_PENDING_PER_REQUESTER = 10
+DEFAULT_FULL_SWEEP_EVERY = timedelta(hours=1)
 ORPHAN_BRANCH_MARGIN = timedelta(hours=1)
 _ACTIVE_OWNERS: set[str] = set()  # owners of publishes running in this process right now
 _ACTIVE_LOCK = threading.Lock()
@@ -396,8 +398,14 @@ class Guard:
             the diff and what is listed, not the adapter, which loads both snapshots to rehearse.
         lease: how long a `resolve` that is publishing may go without renewing its hold on the
             action before `reconcile` may act on it. A heartbeat renews it while publishing.
-        max_pending: queue size; with this many actions pending, further ones are refused. The
-            requester label is supplied by the caller, so the cap is global, not per requester.
+        max_pending: queue size; with this many actions pending, further ones are refused.
+        max_pending_per_requester: the same limit for one requester label, so that one requester
+            cannot fill the queue and starve the others. The label is whatever the submitting
+            side passes, so this only protects against a requester whose label the server
+            fixes (as the MCP server does); `max_pending` is the ceiling for all of them.
+        full_sweep_every: `expire_pending` / `reconcile` look for orphaned audit branches on the
+            tables the store knows about every time, and on every table of the catalog (one
+            catalog round trip each) at most this often.
 
     Audit trail: a "started" record is written before the first side effect (branch creation or
     maintenance) and a "completed" record afterwards; both share one `id`. If the completion
@@ -422,6 +430,8 @@ class Guard:
         diff_limits: DiffLimits | None = None,
         lease: timedelta = DEFAULT_LEASE,
         max_pending: int = DEFAULT_MAX_PENDING,
+        max_pending_per_requester: int = DEFAULT_MAX_PENDING_PER_REQUESTER,
+        full_sweep_every: timedelta = DEFAULT_FULL_SWEEP_EVERY,
     ) -> None:
         self.catalog = catalog
         self.policy = policy or Policy()
@@ -439,6 +449,9 @@ class Guard:
         self.diff_limits = diff_limits or DiffLimits()
         self.lease = lease
         self.max_pending = max_pending
+        self.max_pending_per_requester = max_pending_per_requester
+        self.full_sweep_every = full_sweep_every
+        self._last_full_sweep: datetime | None = None
 
     @property
     def _capabilities(self) -> Capabilities:
@@ -903,13 +916,20 @@ class Guard:
     def _pending_full(self, run: _Run) -> bool:
         """True (after finishing `run`) when the queue is at its limit."""
         store = self.store
-        if store is None or store.count_pending() < self.max_pending:
+        if store is None:
+            return False
+        requester = run.requester or self.requester
+        if store.count_pending() >= self.max_pending:
+            why = f"too many actions are waiting for approval ({self.max_pending})"
+        elif store.count_pending(requester) >= self.max_pending_per_requester:
+            why = (
+                f"too many actions from {requester} are waiting for approval "
+                f"({self.max_pending_per_requester})"
+            )
+        else:
             return False
         run.decision = Decision.DENY
-        run.finish(
-            Outcome.DENIED,
-            f"too many actions are waiting for approval ({self.max_pending}); decide some first",
-        )
+        run.finish(Outcome.DENIED, f"{why}; decide some first")
         return True
 
     def _seal(self, run: _Run, **fields: Any) -> ActionRecord:
@@ -1486,19 +1506,36 @@ class Guard:
                 catalog_name=self._catalog_name, engine=self._engine
             ):
                 self._drop_kept_branch(_Run(action=SqlAction(""), scope=None), record)
-            self.sweep_orphan_branches(now)
+            last = self._last_full_sweep
+            if last is None or now - last >= self.full_sweep_every:
+                self.sweep_orphan_branches(now)
+                self._last_full_sweep = now
+            else:  # between full sweeps, only tables that have had an action are worth a look
+                self.sweep_orphan_branches(
+                    now,
+                    tables=store.action_tables(
+                        catalog_name=self._catalog_name, engine=self._engine
+                    ),
+                )
         except Exception:  # noqa: BLE001 - housekeeping must not fail the caller's real work
             _log.warning("branch housekeeping failed", exc_info=True)
         store.scrub()
 
-    def sweep_orphan_branches(self, now: datetime | None = None) -> list[str]:
+    def sweep_orphan_branches(
+        self, now: datetime | None = None, *, tables: Collection[str] | None = None
+    ) -> list[str]:
         """Drop `sqlguard-` branches that no unfinished action owns and that hold stale data.
 
         An audit branch holds the rows a rehearsal produced, and pins their data files against
         expiry and orphan cleanup. One is swept only when its head snapshot is not on main's
         history (a branch still at its base holds nothing and may belong to a submission that
         is running right now) and is older than the pending lifetime plus an hour, so no live
-        submission or pending action can own it. Returns `table:branch` for each one dropped.
+        submission or pending action can own it. A branch of a `needs_attention` action is never
+        swept: it is the evidence a person was asked to inspect. Returns `table:branch` for each
+        one dropped.
+
+        Without `tables` every table of the catalog is loaded (one round trip each); with it,
+        only those, named like `db.orders`.
         """
         store = self.store
         if store is None:
@@ -1508,30 +1545,37 @@ class Guard:
         owned = store.live_branches()
         swept: list[str] = []
         catalog = self.catalog.catalog
-        for namespace in catalog.list_namespaces():
-            for identifier in catalog.list_tables(namespace):
-                name = ".".join(identifier)
-                try:
-                    iceberg = catalog.load_table(identifier)
-                    on_main = set(self._ancestry(iceberg, None))
-                    for ref_name, ref in iceberg.refs().items():
-                        if (
-                            ref_name == "main"
-                            or not ref_name.startswith(AUDIT_BRANCH_PREFIX)
-                            or ref_name in owned
-                            or ref.snapshot_ref_type.value != "branch"
-                            or ref.snapshot_id in on_main
-                        ):
-                            continue
-                        snapshot = iceberg.snapshot_by_id(ref.snapshot_id)
-                        if snapshot is None or snapshot.timestamp_ms >= cutoff_ms:
-                            continue
-                        self.adapter.drop_branch(
-                            BranchHandle(name, ref_name, ref.snapshot_id, ref.snapshot_id)
-                        )
-                        swept.append(f"{name}:{ref_name}")
-                except Exception:  # noqa: BLE001 - one unreadable table must not stop the sweep
-                    _log.warning("could not sweep branches of %s", name, exc_info=True)
+        if tables is None:
+            identifiers = [
+                identifier
+                for namespace in catalog.list_namespaces()
+                for identifier in catalog.list_tables(namespace)
+            ]
+        else:
+            identifiers = [tuple(name.split(".")) for name in sorted(tables)]
+        for identifier in identifiers:
+            name = ".".join(identifier)
+            try:
+                iceberg = catalog.load_table(identifier)
+                on_main = set(self._ancestry(iceberg, None))
+                for ref_name, ref in iceberg.refs().items():
+                    if (
+                        ref_name == "main"
+                        or not ref_name.startswith(AUDIT_BRANCH_PREFIX)
+                        or ref_name in owned
+                        or ref.snapshot_ref_type.value != "branch"
+                        or ref.snapshot_id in on_main
+                    ):
+                        continue
+                    snapshot = iceberg.snapshot_by_id(ref.snapshot_id)
+                    if snapshot is None or snapshot.timestamp_ms >= cutoff_ms:
+                        continue
+                    self.adapter.drop_branch(
+                        BranchHandle(name, ref_name, ref.snapshot_id, ref.snapshot_id)
+                    )
+                    swept.append(f"{name}:{ref_name}")
+            except Exception:  # noqa: BLE001 - one unreadable table must not stop the sweep
+                _log.warning("could not sweep branches of %s", name, exc_info=True)
         for entry in swept:
             self._log_settled({"outcome": "branch_swept", "branch": entry})
         return swept
@@ -1592,7 +1636,8 @@ class Guard:
                 ):
                     continue
                 try:
-                    state, reason, keep = self._judge_publishing(record, status)
+                    with self._heartbeat(record.id, me):  # a long check keeps the lease
+                        state, reason, keep = self._judge_publishing(record, status)
                 except Exception as err:  # noqa: BLE001 - unreadable table: a person has to look
                     state, keep = ActionState.NEEDS_ATTENTION, True
                     _log.warning("could not judge action %s", record.id, exc_info=True)
@@ -1645,7 +1690,7 @@ class Guard:
                 )
             return (
                 attention,
-                "main is still on the snapshot it had, but the publisher is on another host "
+                "main is still on the snapshot it had, but the publisher cannot be proven gone "
                 "and its commit may still land",
                 True,
             )
