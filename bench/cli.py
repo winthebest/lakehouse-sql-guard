@@ -1,6 +1,6 @@
 """`sqlguard-bench`: reproducible benchmarks.
 
-sqlguard-bench leakage prereg --seed 42     # thresholds on dev, written before held-out
+sqlguard-bench leakage prereg --seed 42     # thresholds fit on dev only
 sqlguard-bench leakage run --seed 42 [--real] [--splits dev dev_v1b]
 sqlguard-bench safety tier1
 sqlguard-bench safety agent --model <id> --condition both --runs 3 --split dev [--replay DIR]
