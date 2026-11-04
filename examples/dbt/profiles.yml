@@ -1,0 +1,14 @@
+# Run dbt with `--profiles-dir .`. ICEBERG_WAREHOUSE is the directory make-warehouse.py filled.
+jaffle_churn:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'jaffle_churn.duckdb') }}"
+      plugins:
+        - module: iceberg
+          config:
+            catalog: jaffle
+            type: sql
+            uri: "sqlite:///{{ env_var('ICEBERG_WAREHOUSE') }}/catalog.db"
+            warehouse: "file://{{ env_var('ICEBERG_WAREHOUSE') }}"

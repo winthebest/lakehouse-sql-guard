@@ -6,3 +6,11 @@
   language: python
   files: \.sql$
   require_serial: true
+- id: sqlguard-leakage-dbt
+  name: sqlguard leakage dbt
+  description: Fail when a dbt training_set model, with its upstream models inlined, reads data not available at prediction time. Reads manifest.json from `dbt compile`; pass it with `--manifest`.
+  entry: sqlguard leakage dbt
+  language: python
+  files: \.(sql|ya?ml)$
+  pass_filenames: false
+  require_serial: true
