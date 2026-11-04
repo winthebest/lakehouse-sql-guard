@@ -60,3 +60,25 @@ def test_baseline_only_sees_output_timestamps():
     without_ts = "SELECT l.user_id, l.label_ts, f.user_id AS x FROM labels l JOIN f USING (user_id)"
     assert baseline_score(conn, with_ts, spec) == 0.5
     assert baseline_score(conn, without_ts, spec) == 0.0
+
+
+def test_bootstrap_ci_resamples_whole_templates():
+    from bench.leakage.metrics import bootstrap_ci
+
+    labels = [True, True, True, True, False, False, False, False]
+    scores = [0.9, 0.9, 0.1, 0.1, 0.0, 0.0, 0.9, 0.9]
+    groups = ["a", "a", "b", "b", "c", "c", "d", "d"]
+    ci = bootstrap_ci(labels, scores, 0.5, groups, n_resamples=500, seed=1)
+    # Each template is either fully caught or fully missed, so recall only takes 0, 0.5, 1.
+    assert ci["recall"][0] == 0.0 and ci["recall"][1] == 1.0
+    assert ci["fpr"][0] == 0.0 and ci["fpr"][1] == 1.0
+    assert ci == bootstrap_ci(labels, scores, 0.5, groups, n_resamples=500, seed=1)
+
+
+def test_bootstrap_ci_is_tight_when_every_template_agrees():
+    from bench.leakage.metrics import bootstrap_ci
+
+    labels = [True, True, False, False]
+    scores = [0.9, 0.8, 0.1, 0.0]
+    ci = bootstrap_ci(labels, scores, 0.5, ["a", "b", "c", "d"], n_resamples=200)
+    assert ci["recall"] == (1.0, 1.0) and ci["fpr"] == (0.0, 0.0)

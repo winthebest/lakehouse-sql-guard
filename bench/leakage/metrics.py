@@ -91,3 +91,48 @@ def threshold_at_fpr(labels: list[bool], scores: list[float], max_fpr: float = 0
     if best + 1 < len(points):
         return (points[best][0] + points[best + 1][0]) / 2
     return points[best][0]
+
+
+def bootstrap_ci(
+    labels: list[bool],
+    scores: list[float],
+    threshold: float,
+    groups: list[str],
+    *,
+    n_resamples: int = 2000,
+    seed: int = 0,
+    level: float = 0.95,
+) -> dict[str, tuple[float, float]]:
+    """Percentile intervals for recall and FPR at a fixed threshold.
+
+    Cases rendered from the same template share their structure, so whole templates are
+    resampled (cluster bootstrap) instead of single cases; resampling cases would
+    understate the uncertainty. A resample without leaky (or clean) cases does not
+    contribute to the recall (or FPR) interval.
+    """
+    import random
+
+    by_group: dict[str, list[int]] = {}
+    for i, g in enumerate(groups):
+        by_group.setdefault(g, []).append(i)
+    clusters = list(by_group.values())
+    rng = random.Random(seed)
+    recalls: list[float] = []
+    fprs: list[float] = []
+    for _ in range(n_resamples):
+        idx = [i for _ in clusters for i in rng.choice(clusters)]
+        c = confusion([labels[i] for i in idx], [scores[i] for i in idx], threshold)
+        if c.tp + c.fn:
+            recalls.append(c.recall)
+        if c.fp + c.tn:
+            fprs.append(c.fpr)
+
+    def interval(values: list[float]) -> tuple[float, float]:
+        if not values:
+            return (float("nan"), float("nan"))
+        values = sorted(values)
+        lo = values[int((1 - level) / 2 * (len(values) - 1))]
+        hi = values[int((1 + level) / 2 * (len(values) - 1))]
+        return (round(lo, 4), round(hi, 4))
+
+    return {"recall": interval(recalls), "fpr": interval(fprs)}

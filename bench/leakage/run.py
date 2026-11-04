@@ -29,7 +29,7 @@ from pathlib import Path
 from bench.leakage import optimism
 from bench.leakage.baseline import baseline_score
 from bench.leakage.cases import LEAK_TYPES, LeakCase, generate_cases, load_templates, render
-from bench.leakage.metrics import auc, confusion, roc_curve, threshold_at_fpr
+from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.world import WorldConfig, build_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.replay import Replayer, ReplayStatus
@@ -136,8 +136,10 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
             if group:
                 hits = sum(s.scores[d] >= cut[d] for s in group)
                 by_type[leak] = round(hits / len(group), 4)
+        groups = [s.case.template_id for s in scored]
         report["detectors"][d] = {
             **c.as_dict(),
+            "ci95": bootstrap_ci(labels, scores, cut[d], groups),
             "threshold": None if cut[d] == float("inf") else cut[d],
             "auc": round(auc(roc_curve(labels, scores)), 4),
             "recall_by_type": by_type,
@@ -274,7 +276,8 @@ def markdown(result: dict) -> str:
     lines = [
         f"# Leakage benchmark — {result['git_sha']} (prereg {result['prereg_sha']})",
         "",
-        f"Thresholds chosen on dev at FPR ≤ {MAX_FPR:.0%} before held-out templates existed.",
+        f"Thresholds chosen on dev at FPR ≤ {MAX_FPR:.0%} before held-out templates existed. "
+        "Intervals: 95% bootstrap over templates (a template's cases are resampled together).",
         "",
     ]
     sections = dict(result["splits"])
@@ -284,14 +287,14 @@ def markdown(result: dict) -> str:
         lines += [
             f"## {name} — {split['n_cases']} cases ({split['n_leaky']} leaky)",
             "",
-            "| detector | recall | FPR | precision | F1 | AUC | median ms |",
+            "| detector | recall [95% CI] | FPR [95% CI] | precision | F1 | AUC | median ms |",
             "|---|---|---|---|---|---|---|",
         ]
         for d, m in split["detectors"].items():
             ms = "" if m["median_ms"] is None else m["median_ms"]
             lines.append(
-                f"| {d} | {m['recall']:.2f} | {m['fpr']:.2f} | {m['precision']:.2f} | "
-                f"{m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
+                f"| {d} | {m['recall']:.2f} {_ci(m, 'recall')} | {m['fpr']:.2f} {_ci(m, 'fpr')} | "
+                f"{m['precision']:.2f} | {m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
             )
         types = sorted({t for m in split["detectors"].values() for t in m["recall_by_type"]})
         lines += ["", "| recall by type | " + " | ".join(types) + " |"]
@@ -325,6 +328,11 @@ def markdown(result: dict) -> str:
     for name, g in gap.items():
         lines.append(f"| {name} | {g['offline_auc']:.3f} | {g['real_auc']:.3f} | {g['gap']:+.3f} |")
     return "\n".join(lines) + "\n"
+
+
+def _ci(metrics: dict, key: str) -> str:
+    lo, hi = metrics.get("ci95", {}).get(key, (None, None))
+    return "" if lo is None or lo != lo else f"[{lo:.2f}, {hi:.2f}]"
 
 
 def plot_roc(curves: dict[str, list], path: Path) -> None:
