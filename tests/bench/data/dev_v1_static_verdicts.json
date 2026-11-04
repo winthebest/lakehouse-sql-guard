@@ -1,0 +1,1426 @@
+{
+"c01_asof_stats-000": [
+"clean",
+0.0,
+[]
+],
+"c01_asof_stats-001": [
+"clean",
+0.0,
+[]
+],
+"c02_ranked_stats-000": [
+"clean",
+0.0,
+[]
+],
+"c02_ranked_stats-001": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-000": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-001": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-002": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-003": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-004": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-005": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-006": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-007": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-008": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-009": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-010": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-011": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-012": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-013": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-014": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-015": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-016": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-017": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-018": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-019": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-020": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-021": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-022": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-023": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-024": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-025": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-026": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-027": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-028": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-029": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-030": [
+"clean",
+0.0,
+[]
+],
+"c03_window_agg_events-031": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-000": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-001": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-002": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-003": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-004": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-005": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-006": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-007": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-008": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-009": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-010": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-011": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-012": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-013": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-014": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-015": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-016": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-017": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-018": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-019": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-020": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-021": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-022": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-023": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-024": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-025": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-026": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-027": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-028": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-029": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-030": [
+"clean",
+0.0,
+[]
+],
+"c04_cte_events-031": [
+"clean",
+0.0,
+[]
+],
+"c05_static_entity-000": [
+"clean",
+0.0,
+[]
+],
+"c05_static_entity-001": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-000": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-001": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-002": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-003": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-004": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-005": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-006": [
+"clean",
+0.0,
+[]
+],
+"c06_combo-007": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-000": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-001": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-002": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-003": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-004": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-005": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-006": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-007": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-008": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-009": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-010": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-011": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-012": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-013": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-014": [
+"clean",
+0.0,
+[]
+],
+"c07_correlated_subquery-015": [
+"clean",
+0.0,
+[]
+],
+"c08_recency-000": [
+"clean",
+0.0,
+[]
+],
+"c08_recency-001": [
+"clean",
+0.0,
+[]
+],
+"c08_recency-002": [
+"clean",
+0.0,
+[]
+],
+"c08_recency-003": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-000": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-001": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-002": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-003": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-004": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-005": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-006": [
+"clean",
+0.0,
+[]
+],
+"c09_stats_delta-007": [
+"clean",
+0.0,
+[]
+],
+"l1_asof_next-000": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l1_asof_next-001": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l1_future_window-000": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-001": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-002": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-003": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-004": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-005": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-006": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-007": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-008": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-009": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-010": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-011": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-012": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-013": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-014": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_future_window-015": [
+"leaky",
+0.97,
+[
+"L1",
+"L4"
+]
+],
+"l1_stats_after-000": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l1_stats_after-001": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l1_stats_after-002": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l1_stats_after-003": [
+"leaky",
+0.95,
+[
+"L1"
+]
+],
+"l2_last_event-000": [
+"leaky",
+0.9,
+[
+"L2"
+]
+],
+"l2_last_event-001": [
+"leaky",
+0.9,
+[
+"L2"
+]
+],
+"l2_latest_cte-000": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_cte-001": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_cte-002": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_cte-003": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_cte-004": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_cte-005": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-000": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-001": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-002": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-003": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-004": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_latest_stats-005": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-000": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-001": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-002": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-003": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-004": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l2_plain_join_qualify-005": [
+"leaky",
+0.995,
+[
+"L1",
+"L2"
+]
+],
+"l3_correlated-000": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_correlated-001": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_correlated-002": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_correlated-003": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-000": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-001": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-002": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-003": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-004": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-005": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-006": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_group_join-007": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-000": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-001": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-002": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-003": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-004": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-005": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-006": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l3_total_cte-007": [
+"leaky",
+0.9,
+[
+"L3"
+]
+],
+"l4_correlated-000": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_correlated-001": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_correlated-002": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_correlated-003": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-000": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-001": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-002": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-003": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-004": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-005": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-006": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-007": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-008": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-009": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-010": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-011": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-012": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-013": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-014": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l4_event_time_window-015": [
+"unverifiable",
+0.4,
+[
+"L4"
+]
+],
+"l5_asof_inclusive-000": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_asof_inclusive-001": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_asof_inclusive-002": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_asof_inclusive-003": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-000": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-001": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-002": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-003": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-004": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-005": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-006": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_ingest_inclusive-007": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-000": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-001": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-002": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-003": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-004": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-005": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-006": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l5_timezone_shift-007": [
+"leaky",
+0.85,
+[
+"L5"
+]
+],
+"l6_outcome_cte-000": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_cte-001": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_cte-002": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_cte-003": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_cte-004": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_cte-005": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_exists-000": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_exists-001": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-000": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-001": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-002": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-003": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-004": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_outcome_join-005": [
+"leaky",
+0.9975,
+[
+"L6"
+]
+],
+"l6_target_encoding-000": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+],
+"l6_target_encoding-001": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+],
+"l6_target_encoding-002": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+],
+"l6_target_encoding-003": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+],
+"l6_target_encoding-004": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+],
+"l6_target_encoding-005": [
+"leaky",
+0.9998,
+[
+"L3",
+"L6"
+]
+]
+}

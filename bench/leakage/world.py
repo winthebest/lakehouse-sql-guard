@@ -76,6 +76,21 @@ class WorldConfig:
     midnight_label_rate: float = 0.3
     horizon_days: int = 14
     fade_days: int = 10
+    late_max_days: int = 7  # a late event arrives 1..late_max_days nights after the usual night
+
+
+def declared_spec_fields(config: WorldConfig | None = None) -> dict[str, object]:
+    """The spec values this world's parameters guarantee (bench/leakage/spec.yaml repeats them).
+
+    An event is ingested at midnight 1 night after its day, or up to `late_max_days` nights
+    later, so `ingested_at - event_ts` stays below `late_max_days + 1` days. A label covers the
+    `horizon_days` after its prediction time, so it is final once the horizon has passed.
+    """
+    cfg = config or WorldConfig()
+    return {
+        "max_ingest_delay": {"events": f"{cfg.late_max_days + 1} days"},
+        "label_known_after": f"{cfg.horizon_days} days",
+    }
 
 
 @dataclass(frozen=True)
@@ -152,7 +167,7 @@ def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) ->
                 rate *= (churn_day[u] - day) / (cfg.fade_days + 1)
             for _ in range(_poisson(rng, rate)):
                 late = rng.random() < cfg.late_rate
-                ingest_day = day + 1 + (rng.randint(1, 7) if late else 0)
+                ingest_day = day + 1 + (rng.randint(1, cfg.late_max_days) if late else 0)
                 n_events += 1
                 if ingest_day > cfg.n_days:
                     continue  # still in flight when the world ends
