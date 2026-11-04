@@ -38,7 +38,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                         "L2",
                         Severity.HIGH,
                         f"{ref.describe()} is joined without bounding "
-                        f"{spec.time_columns[ref.table]} before {spec.prediction_ts}",
+                        f"{ref.time_column} before {spec.prediction_ts}",
                         ref.describe(),
                         {"bounds": [b.sql for b in group]},
                     )

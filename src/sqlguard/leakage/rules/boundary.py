@@ -1,7 +1,9 @@
 """L5 boundary and timezone errors in an upper time bound.
 
 Checked per time column: a strict bound on event time does not excuse an inclusive or
-forward-shifted bound on ingestion time, and vice versa.
+forward-shifted bound on ingestion time. The reverse holds: a strict bound on the ingestion
+(availability) column means every admitted row was already known, so an inclusive event-time
+bound next to it is harmless.
 """
 
 from __future__ import annotations
@@ -24,9 +26,14 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
             if future_bounds(group):
                 continue  # already a future reference (L1)
             loose = []
+            known_at_prediction = any(
+                b.is_upper and b.column_role == "availability" and b.is_strict_past for b in group
+            )
             for column in {b.column for b in group if b.is_upper}:
                 upper = [b for b in group if b.is_upper and b.column == column]
                 if any(b.is_strict_past for b in upper):
+                    continue
+                if known_at_prediction and upper[0].column_role == "time":
                     continue
                 loose += [
                     b

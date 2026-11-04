@@ -2,20 +2,29 @@
 
 The query is qualified against the catalog schema and split into sqlglot scopes. Every
 physical table reference is collected, and every *conjunctive* filter predicate (an AND-ed
-term of WHERE, ON, or HAVING — never inside OR, NOT, CASE, or a projection) is normalized
-into
+term of WHERE, ON, or HAVING — never inside OR, NOT, CASE, FILTER, or a projection) is
+normalized into
 
     <feature time column of reference R>  OP  <prediction_ts of the spine> + offset
 
+A predicate only bounds a reference whose rows it actually filters: the reference must be
+selected in the predicate's own scope (directly or through a CTE / derived table), and in
+the ON clause of an outer join only the null-supplying side is filtered. A subquery that
+merely mentions an outer column bounds nothing outside itself.
+
 The spine is the label-table reference whose prediction_ts reaches the output, plus any
-label reference equated to it on prediction_ts. Bounds against other copies of the label
-table do not count. A bound reached through a CTE or derived table only covers that one use
-of it, so a CTE reused twice must be bounded at both uses.
+label reference equated to it on prediction_ts. Label references outside the spine are
+treated as temporal rows (time column prediction_ts) that must be bounded against it.
+
+A bound reached through a CTE or derived table covers only the chain of uses it was written
+for, so a CTE (or a CTE nested in another) consumed twice must be bounded at both uses.
 """
 
 from __future__ import annotations
 
 import math
+from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from sqlglot import exp
@@ -47,8 +56,11 @@ _TIMESTAMP_TYPES = {
 }
 _DATE_ADD = (exp.DateAdd, exp.TimestampAdd, exp.DatetimeAdd, exp.TsOrDsAdd)
 _DATE_SUB = (exp.DateSub, exp.TimestampSub, exp.DatetimeSub)
+_COMPARISONS = (exp.LT, exp.LTE, exp.GT, exp.GTE)
+_MAX_PATHS = 256
 
-Use = tuple[int, str]  # (id(scope), alias) of a CTE/derived-table use
+Use = tuple[int, str]  # (id(scope), alias) of one CTE / derived-table use
+Chain = tuple[Use, ...]  # uses from the predicate's scope down to the reference's scope
 
 
 @dataclass(frozen=True)
@@ -61,7 +73,7 @@ class TimeBound:
     offset_seconds: float
     sql: str
     raw: bool  # both sides were bare columns (no cast/trunc/arithmetic on the feature side)
-    via: Use | None = None
+    via: Chain = ()  # () = written in the reference's own scope
 
     @property
     def is_upper(self) -> bool:
@@ -77,24 +89,35 @@ class TimeBound:
 
 @dataclass(eq=False)
 class TableRef:
-    """One occurrence of a physical table in the query."""
+    """One occurrence of a physical table in the query (one FROM item, however it is reached)."""
 
     table: str
     alias: str
     scope: Scope
     kind: str  # label | temporal | static | outcome | unclassified
     bounds: list[TimeBound] = field(default_factory=list)
-    uses: list[Use] = field(default_factory=list)
+    # every chain of CTE / derived-table uses by which this reference's rows reach the root
+    paths: list[Chain] = field(default_factory=lambda: [()])
+    # Set once the spine is known. Label references outside the spine count as temporal rows
+    # (time column: prediction_ts); spine labels have a time column but are not `temporal`.
+    time_column: str | None = None
+    availability_column: str | None = None
+    temporal: bool = False
 
     @property
     def direct_bounds(self) -> list[TimeBound]:
-        return [b for b in self.bounds if b.via is None]
+        return [b for b in self.bounds if not b.via]
 
     def bound_groups(self) -> list[list[TimeBound]]:
-        """Bounds that apply to each way the reference's rows reach the query output."""
-        if not self.uses:
-            return [self.direct_bounds]
-        return [self.direct_bounds + [b for b in self.bounds if b.via == u] for u in self.uses]
+        """Bounds that apply to each way the reference's rows reach the query output.
+
+        A bound written for a chain of uses applies to a path when the chain is a suffix of it.
+        """
+        direct = self.direct_bounds
+        return [
+            direct + [b for b in self.bounds if b.via and path[-len(b.via) :] == b.via]
+            for path in self.paths
+        ]
 
     @property
     def aggregated(self) -> bool:
@@ -110,13 +133,17 @@ class TableRef:
             if agg.find_ancestor(exp.Window) is None
         )
 
+    @property
+    def time_columns(self) -> set[str]:
+        return {c for c in (self.time_column, self.availability_column) if c}
+
     def describe(self) -> str:
         return f"{self.table} AS {self.alias}" if self.alias != self.table else self.table
 
 
 @dataclass(frozen=True)
 class LabelUse:
-    """A label column used somewhere other than a passthrough or a root-level filter."""
+    """A label column used somewhere other than a passthrough or a final-row filter."""
 
     ref: TableRef
     column: str
@@ -143,7 +170,7 @@ class QueryAnalysis:
 
     @property
     def temporal_refs(self) -> list[TableRef]:
-        return [r for r in self.refs if r.kind == "temporal"]
+        return [r for r in self.refs if r.temporal]
 
     @property
     def unclassified_refs(self) -> list[TableRef]:
@@ -164,14 +191,50 @@ def _innermost_select(node: exp.Expression) -> exp.Expression | None:
     return parent
 
 
-def _is_conjunctive_filter(node: exp.Expression) -> bool:
-    """True if `node` is an AND-ed term of a WHERE, HAVING, or JOIN ... ON condition."""
+@dataclass(frozen=True)
+class _Filter:
+    """Where a conjunctive predicate sits: a WHERE / HAVING, or the ON of a join."""
+
+    join: exp.Join | None = None
+
+    def filters(self, alias: str) -> bool:
+        """Does the predicate restrict the rows of the FROM item named `alias`?"""
+        if self.join is None:
+            return True
+        side = str(self.join.args.get("side") or "").upper()
+        kind = str(self.join.args.get("kind") or "").upper()
+        own = self.join.alias_or_name
+        if side == "FULL":
+            return False
+        if side == "LEFT" or kind in ("SEMI", "ANTI"):
+            return alias == own  # only the null-supplying (joined) side loses rows
+        if side == "RIGHT":
+            return alias != own
+        return True
+
+
+def _conjunctive_filter(node: exp.Expression) -> _Filter | None:
+    """The filter `node` is an AND-ed term of, or None (OR, NOT, CASE, FILTER, projections)."""
     child, parent = node, node.parent
     while isinstance(parent, exp.And | exp.Paren):
         child, parent = parent, parent.parent
-    if isinstance(parent, exp.Where | exp.Having):
-        return True
-    return isinstance(parent, exp.Join) and parent.args.get("on") is child
+    if isinstance(parent, exp.Where):
+        return None if isinstance(parent.parent, exp.Filter) else _Filter()
+    if isinstance(parent, exp.Having):
+        return _Filter()
+    if isinstance(parent, exp.Join) and parent.args.get("on") is child:
+        return _Filter(parent)
+    return None
+
+
+def _in_filter(node: exp.Expression) -> bool:
+    """True if `node` sits in a WHERE / HAVING / QUALIFY / JOIN clause of its own query."""
+    parent = node.parent
+    while parent is not None and not isinstance(parent, exp.Select):
+        if isinstance(parent, exp.Where | exp.Having | exp.Qualify | exp.Join):
+            return True
+        parent = parent.parent
+    return False
 
 
 def _unit_seconds(unit: exp.Expression | None, default: str = "DAY") -> float | None:
@@ -272,10 +335,29 @@ def _peel(node: exp.Expression) -> tuple[exp.Expression, float, float] | None:
     return (node, offset, trunc) if isinstance(node, exp.Column) else None
 
 
+@dataclass(frozen=True)
+class Resolved:
+    """A time expression traced to a column of a physical table reference."""
+
+    ref: TableRef
+    column: str
+    chain: Chain  # CTE / derived-table uses crossed on the way (outermost first)
+    offset: float  # seconds added to the column
+    trunc: float  # seconds of truncation applied to the column
+    raw: bool  # no cast, truncation, or arithmetic anywhere on the path
+    alias: str  # alias of the FROM item in the scope where the expression was written
+
+    @property
+    def exact(self) -> bool:
+        """The expression equals the column (at most a lossless timestamp cast)."""
+        return self.offset == 0 and self.trunc == 0
+
+
 class _Resolver:
-    def __init__(self, scopes: list[Scope], refs: dict[tuple[int, str], TableRef]) -> None:
+    def __init__(self, scopes: list[Scope], refs: dict[int, TableRef], spec: LeakageSpec) -> None:
         self.by_expression = {id(s.expression): s for s in scopes}
         self.refs = refs
+        self.spec = spec
 
     def scope_of(self, node: exp.Expression) -> Scope | None:
         current = node
@@ -286,70 +368,141 @@ class _Resolver:
             current = current.parent
         return None
 
-    def resolve(self, column: exp.Column, scope: Scope | None, depth: int = 0):
-        """Return (TableRef, column_name, via_use) for a passthrough column, else None."""
-        if scope is None or depth > 8 or not column.table:
+    def _source(self, scope: Scope, alias: str, local: bool):
+        """(source, scope where found). `local` limits the search to the scope's own FROM items;
+        otherwise enclosing scopes are searched too (a correlated reference to an outer table)."""
+        if local:
+            entry = scope.selected_sources.get(alias)
+            if entry:
+                return entry[1], scope
+            if alias in scope.semi_or_anti_join_tables and alias in scope.sources:
+                return scope.sources[alias], scope  # filtered by its own ON, never exposed
             return None
         current: Scope | None = scope
         while current is not None:
-            source = current.sources.get(column.table)
-            if isinstance(source, exp.Table):
-                ref = self.refs.get((id(current), column.table))
-                return (ref, column.name.lower(), None) if ref else None
-            if isinstance(source, Scope):
-                inner = self.through(source, column.name, depth)
-                if inner is None:
-                    return None
-                ref, name, via = inner
-                return ref, name, via or (id(current), column.table)
+            source = current.sources.get(alias)
+            if source is not None:
+                return source, current
             current = current.parent
         return None
 
-    def through(self, scope: Scope, name: str, depth: int = 0):
-        select = scope.expression
-        if not isinstance(select, exp.Select):
-            return None
-        for projection in select.selects:
-            if projection.alias_or_name.lower() != name.lower():
-                continue
-            inner = projection.this if isinstance(projection, exp.Alias) else projection
-            if isinstance(inner, exp.Column):
-                return self.resolve(inner, scope, depth + 1)
-        return None
+    def resolve_time(
+        self, node: exp.Expression, scope: Scope | None, *, local: bool = False, depth: int = 0
+    ) -> Resolved | None:
+        """Trace a time expression to a physical column.
 
-    def resolve_time(self, node: exp.Expression, scope: Scope | None, depth: int = 0):
-        """Like `resolve`, for a time expression: follows projections that are a shifted,
-        cast, or truncated column (e.g. `label_ts - INTERVAL 1 DAY AS cutoff`).
-
-        Returns (TableRef, column, via_use, offset_seconds, trunc_seconds, raw) or None.
+        Follows projections that are a shifted, cast, or truncated column (for example
+        `label_ts - INTERVAL 1 DAY AS cutoff`) through CTEs and derived tables. `local`
+        restricts the first hop to the scope's own FROM items: the rows a predicate filters
+        are the ones selected in its scope, never an outer query's.
         """
         peeled = _peel(node)
         if peeled is None or scope is None or depth > 8:
             return None
         column, offset, trunc = peeled
+        if not column.table:
+            return None
+        found = self._source(scope, column.table, local)
+        if found is None:
+            return None
+        source, owner = found
         raw = column is node
-        current: Scope | None = scope
-        while current is not None and column.table:
-            source = current.sources.get(column.table)
-            if isinstance(source, exp.Table):
-                ref = self.refs.get((id(current), column.table))
-                return (ref, column.name.lower(), None, offset, trunc, raw) if ref else None
-            if isinstance(source, Scope):
-                select = source.expression
-                if not isinstance(select, exp.Select):
-                    return None
-                for projection in select.selects:
-                    if projection.alias_or_name.lower() == column.name.lower():
-                        inner = projection.this if isinstance(projection, exp.Alias) else projection
-                        got = self.resolve_time(inner, source, depth + 1)
-                        if got is None:
-                            return None
-                        ref, name, via, o, t, r = got
-                        use = via or (id(current), column.table)
-                        return ref, name, use, offset + o, max(trunc, t), raw and r
+        if isinstance(source, exp.Table):
+            ref = self.refs.get(id(source))
+            if ref is None:
                 return None
-            current = current.parent
+            return Resolved(ref, column.name.lower(), (), offset, trunc, raw, column.table)
+        if isinstance(source, Scope) and isinstance(source.expression, exp.Select):
+            for projection in source.expression.selects:
+                if projection.alias_or_name.lower() != column.name.lower():
+                    continue
+                inner = projection.this if isinstance(projection, exp.Alias) else projection
+                got = self.resolve_time(inner, source, local=True, depth=depth + 1)
+                if got is None:
+                    return None
+                return Resolved(
+                    got.ref,
+                    got.column,
+                    ((id(owner), column.table), *got.chain),
+                    offset + got.offset,
+                    max(trunc, got.trunc),
+                    raw and got.raw,
+                    column.table,
+                )
         return None
+
+    def resolve(self, column: exp.Column, scope: Scope | None) -> Resolved | None:
+        return self.resolve_time(column, scope)
+
+    def through(self, scope: Scope, name: str) -> Resolved | None:
+        """Trace the output column `name` of a SELECT scope to a physical column."""
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            return None
+        for projection in select.selects:
+            if projection.alias_or_name.lower() == name.lower():
+                inner = projection.this if isinstance(projection, exp.Alias) else projection
+                return self.resolve_time(inner, scope, local=True)
+        return None
+
+    def prediction_label(self, node: exp.Expression, scope: Scope | None, local=False):
+        """Resolve `node` when it is exactly a label table's prediction_ts, else None."""
+        got = self.resolve_time(node, scope, local=local)
+        if got and got.exact and got.ref.kind == "label" and got.column == self.spec.prediction_ts:
+            return got
+        return None
+
+
+def _branches(expression: exp.Expression) -> list[exp.Expression]:
+    expression = expression.unnest()
+    if isinstance(expression, exp.SetOperation):
+        return _branches(expression.left) + _branches(expression.right)
+    return [expression]
+
+
+def _scope_paths(scopes: list[Scope]) -> dict[int, list[Chain]]:
+    """For every scope, each chain of CTE / derived-table uses leading from the root to it."""
+    consumers: dict[int, list[tuple[Scope, str]]] = defaultdict(list)
+    for scope in scopes:
+        for alias, (_, source) in scope.selected_sources.items():
+            if isinstance(source, Scope):
+                consumers[id(source)].append((scope, alias))
+    memo: dict[int, list[Chain]] = {}
+
+    def paths(scope: Scope, seen: tuple[int, ...]) -> list[Chain]:
+        if id(scope) in memo:
+            return memo[id(scope)]
+        found: list[Chain] = []
+        for consumer, alias in consumers.get(id(scope), []):
+            if id(consumer) in seen:
+                continue  # recursive CTE
+            found += [(*p, (id(consumer), alias)) for p in paths(consumer, (*seen, id(scope)))]
+            if len(found) > _MAX_PATHS:
+                raise ValueError("query reuses CTEs along too many paths to analyze")
+        memo[id(scope)] = found or [()]
+        return memo[id(scope)]
+
+    return {id(scope): paths(scope, ()) for scope in scopes}
+
+
+def _collect_refs(scopes: list[Scope], spec: LeakageSpec) -> dict[int, TableRef]:
+    """One TableRef per physical FROM item, shared by every scope that can see it."""
+    refs: dict[int, TableRef] = {}
+
+    def add(scope: Scope, alias: str, source: exp.Table) -> None:
+        if id(source) not in refs:
+            name = source.name.lower()
+            refs[id(source)] = TableRef(name, alias, scope, spec.classify(name))
+
+    for scope in scopes:  # home scope: where the item is actually selected from
+        for alias, (_, source) in scope.selected_sources.items():
+            if isinstance(source, exp.Table):
+                add(scope, alias, source)
+    for scope in scopes:  # tables only reachable through a semi / anti join
+        for alias, source in scope.sources.items():
+            if isinstance(source, exp.Table):
+                add(scope, alias, source)
+    return refs
 
 
 def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
@@ -357,27 +510,29 @@ def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     schema = {t.lower(): {c.lower(): ty for c, ty in cols.items()} for t, cols in schema.items()}
     qualified = qualify_statement(sql, schema, spec.dialect)
     scopes = list(traverse_scope(qualified))
-    refs: dict[tuple[int, str], TableRef] = {}
-    for scope in scopes:
-        for alias, source in scope.sources.items():
-            if isinstance(source, exp.Table):
-                name = source.name.lower()
-                refs[(id(scope), alias)] = TableRef(name, alias, scope, spec.classify(name))
-    for scope in scopes:
-        for alias, source in scope.sources.items():
-            if isinstance(source, Scope):
-                for ref in refs.values():
-                    if ref.scope is source:
-                        ref.uses.append((id(scope), alias))
+    refs = _collect_refs(scopes, spec)
+    paths = _scope_paths(scopes)
+    for ref in refs.values():
+        ref.paths = paths[id(ref.scope)]
 
-    resolver = _Resolver(scopes, refs)
+    resolver = _Resolver(scopes, refs, spec)
     analysis = QueryAnalysis(spec, schema, qualified, list(refs.values()))
     _check_spec(analysis)
-    analysis.spine = _spine(analysis, scopes[-1] if scopes else None, resolver)
+    root = scopes[-1] if scopes else None
+    analysis.spine = _spine(analysis, root, resolver)
     spine_ids = {id(r) for r in analysis.spine}
+    for ref in analysis.refs:
+        if ref.kind == "temporal":
+            ref.time_column = spec.time_columns[ref.table]
+            ref.availability_column = spec.availability_columns.get(ref.table)
+            ref.temporal = True
+        elif ref.kind == "label":
+            ref.time_column = spec.prediction_ts
+            ref.temporal = id(ref) not in spine_ids
 
     for node in qualified.find_all(exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between):
-        if not _is_conjunctive_filter(node):
+        context = _conjunctive_filter(node)
+        if context is None:
             continue
         scope = resolver.scope_of(node)
         if isinstance(node, exp.Between):
@@ -385,10 +540,11 @@ def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
         else:
             pairs = [(node.left, _OPS[type(node)], node.right)]
         for left, op, right in pairs:
-            _record(left, op, right, scope, resolver, spec, spine_ids, node)
+            _record(left, op, right, scope, context, resolver, spine_ids, node)
+    _record_latest_row(analysis, resolver)
 
-    root = scopes[-1] if scopes else None
-    analysis.label_uses = _label_uses(analysis, resolver, root)
+    outputs = _output_scopes(root, resolver) if root is not None else []
+    analysis.label_uses = _label_uses(analysis, resolver, {id(s) for s in outputs}, spine_ids)
     analysis.windows = _window_issues(analysis, resolver, spine_ids)
     return analysis
 
@@ -409,145 +565,346 @@ def _check_spec(analysis: QueryAnalysis) -> None:
                 analysis.spec_errors.append(f"spec column {ref.table}.{column} not in schema")
 
 
-def _ts_side(node, scope, resolver: _Resolver):
-    return resolver.resolve_time(node, scope)
+def _output_scopes(root: Scope, resolver: _Resolver) -> list[Scope]:
+    """The SELECT scopes producing the query output (one per UNION branch); [] if unsupported."""
+    found = [resolver.by_expression.get(id(b)) for b in _branches(root.expression)]
+    if not found or any(s is None or not isinstance(s.expression, exp.Select) for s in found):
+        return []
+    return found
+
+
+def _equality_side(node: exp.Expression, scope: Scope | None, resolver: _Resolver):
+    """(label refs, alias) for one side of `a = b` when it is a label's exact prediction_ts.
+
+    COALESCE(a, b) is accepted when every argument is: it then equals one of them, or NULL.
+    """
+    nodes = [node.this, *node.expressions] if isinstance(node, exp.Coalesce) else [node]
+    got = [resolver.prediction_label(n, scope) for n in nodes]
+    if not got or any(g is None for g in got):
+        return None
+    return [g.ref for g in got], got[0].alias if len(got) == 1 else None
 
 
 def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> list[TableRef]:
     spec = analysis.spec
     labels = [r for r in analysis.refs if r.kind == "label"]
-    seed = resolver.through(root, spec.prediction_ts) if root is not None else None
-    if not seed or seed[0].kind != "label" or seed[1] != spec.prediction_ts:
+    outputs = _output_scopes(root, resolver) if root is not None else []
+    seeds = [
+        resolver.prediction_label(_output(s, spec.prediction_ts), s, local=True) for s in outputs
+    ]
+    if not seeds or any(seed is None for seed in seeds):
         analysis.spec_errors.append(
             f"output column {spec.prediction_ts!r} must pass through "
             f"{spec.label_table}.{spec.prediction_ts} so rows can be checked against it"
         )
         return labels  # fall back to every label reference
-    spine = {id(seed[0]): seed[0]}
+    spine = {id(seed.ref): seed.ref for seed in seeds}
     equalities = []
     for node in analysis.qualified.find_all(exp.EQ):
-        if not _is_conjunctive_filter(node):
+        context = _conjunctive_filter(node)
+        if context is None:
             continue
         scope = resolver.scope_of(node)
-        sides = []
-        for side in (node.left, node.right):
-            peeled = _peel(side)
-            got = resolver.resolve(peeled[0], scope) if peeled and not peeled[1] else None
-            if got and got[0].kind == "label" and got[1] == spec.prediction_ts:
-                sides.append(got[0])
-        if len(sides) == 2:
-            equalities.append(sides)
+        a = _equality_side(node.left, scope, resolver)
+        b = _equality_side(node.right, scope, resolver)
+        if a and b:
+            equalities.append((a, b, context))
     changed = True
     while changed:
         changed = False
-        for a, b in equalities:
-            if (id(a) in spine) != (id(b) in spine):
-                spine[id(a)] = a
-                spine[id(b)] = b
-                changed = True
+        for a, b, context in equalities:
+            for (known, _), (new, alias) in ((a, b), (b, a)):
+                # a single column equal to something already on the spine is on it too — if the
+                # predicate really restricts that column's rows (not the preserved side of a join)
+                if (
+                    len(new) == 1
+                    and alias is not None
+                    and context.filters(alias)
+                    and all(id(r) in spine for r in known)
+                    and id(new[0]) not in spine
+                ):
+                    spine[id(new[0])] = new[0]
+                    changed = True
     return list(spine.values())
 
 
-def _record(left, op, right, scope, resolver, spec, spine_ids, node) -> None:
+def _output(scope: Scope, name: str) -> exp.Expression:
+    """The projection expression of the output column `name` (a placeholder if absent)."""
+    for projection in scope.expression.selects:
+        if projection.alias_or_name.lower() == name.lower():
+            return projection.this if isinstance(projection, exp.Alias) else projection
+    return exp.null()
+
+
+def _record(left, op, right, scope, context, resolver, spine_ids, node) -> None:
+    spec = resolver.spec
     for feature_node, label_node, normalized in ((left, right, op), (right, left, _FLIP[op])):
-        feature = _ts_side(feature_node, scope, resolver)
-        label = _ts_side(label_node, scope, resolver)
+        feature = resolver.resolve_time(feature_node, scope, local=True)
+        label = resolver.resolve_time(label_node, scope)
         if not feature or not label:
             continue
-        ref, column, via, f_offset, f_trunc, f_raw = feature
-        lref, lcolumn, _, l_offset, l_trunc, l_raw = label
-        if ref.kind != "temporal" or id(lref) not in spine_ids or lcolumn != spec.prediction_ts:
+        ref = feature.ref
+        if not ref.temporal or id(label.ref) not in spine_ids or label.column != spec.prediction_ts:
             continue
-        if column == spec.time_columns.get(ref.table):
+        if not context.filters(feature.alias):
+            continue
+        if feature.column == ref.time_column:
             role = "time"
-        elif column == spec.availability_columns.get(ref.table):
+        elif feature.column == ref.availability_column:
             role = "availability"
         else:
             continue
         # feature + f_offset OP label + l_offset  ->  feature OP label + (l_offset - f_offset)
-        offset = l_offset - f_offset
-        if normalized in ("<", "<=") and f_trunc > l_trunc:
-            offset += f_trunc  # truncating only the feature side admits later facts
+        offset = label.offset - feature.offset
+        if normalized in ("<", "<=") and feature.trunc > label.trunc:
+            offset += feature.trunc  # truncating only the feature side admits later facts
         ref.bounds.append(
             TimeBound(
-                column,
+                feature.column,
                 role,
                 normalized,
                 offset,
                 node.sql(spec.dialect),
-                raw=f_raw and l_raw,
-                via=via,
+                raw=feature.raw and label.raw,
+                via=feature.chain,
             )
         )
         return
 
 
-def _label_uses(analysis: QueryAnalysis, resolver: _Resolver, root: Scope | None):
-    """Label columns used to compute anything, filter a subquery, or partition a window."""
+def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
+    """`col = (SELECT MAX(col) FROM same_table WHERE col < prediction_ts ...)` bounds `col`.
+
+    The equality keeps only the row holding the subquery's maximum, which is at or below every
+    upper bound the subquery applies to its own rows.
+    """
+    spec = analysis.spec
+    for node in analysis.qualified.find_all(exp.EQ):
+        context = _conjunctive_filter(node)
+        if context is None:
+            continue
+        scope = resolver.scope_of(node)
+        for feature_node, other in ((node.left, node.right), (node.right, node.left)):
+            if not isinstance(other, exp.Subquery) or not isinstance(other.this, exp.Select):
+                continue
+            inner = other.this
+            inner_scope = resolver.by_expression.get(id(inner))
+            if len(inner.selects) != 1 or inner.args.get("group") or inner_scope is None:
+                continue
+            peak = inner.selects[0].unalias()
+            if not isinstance(peak, exp.Max):
+                continue
+            sub = resolver.resolve_time(peak.this, inner_scope, local=True)
+            feature = resolver.resolve_time(feature_node, scope, local=True)
+            if not sub or not feature or not feature.exact or not feature.ref.temporal:
+                continue
+            ref = feature.ref
+            if ref.table != sub.ref.table or feature.column != sub.column:
+                continue
+            if not context.filters(feature.alias):
+                continue
+            role = "time" if feature.column == ref.time_column else "availability"
+            for bound in sub.ref.direct_bounds:
+                if bound.is_upper and bound.column == sub.column:
+                    ref.bounds.append(
+                        TimeBound(
+                            feature.column,
+                            role,
+                            bound.op,
+                            bound.offset_seconds,
+                            node.sql(spec.dialect),
+                            raw=False,
+                            via=feature.chain,
+                        )
+                    )
+
+
+def _ancestors(node: exp.Expression, stop: exp.Expression | None) -> Iterator[exp.Expression]:
+    parent = node.parent
+    while parent is not None and parent is not stop:
+        yield parent
+        parent = parent.parent
+
+
+def _label_uses(
+    analysis: QueryAnalysis, resolver: _Resolver, output_scopes: set[int], spine_ids: set[int]
+):
+    """Label columns used to compute anything, filter a subquery, or partition a window.
+
+    Passing a label through (possibly cast, parenthesized, or defaulted with a literal) and
+    filtering or grouping the rows of a spine-only scope by it are not uses: the output-column
+    lineage check still catches a label that reaches a feature.
+    """
     spec = analysis.spec
     uses = []
     for column in analysis.qualified.find_all(exp.Column):
         scope = resolver.scope_of(column)
-        resolved = resolver.resolve(column, scope)
-        if not resolved:
+        got = resolver.resolve(column, scope)
+        if not got or got.ref.kind != "label" or got.column not in spec.label_columns:
             continue
-        ref, name, _ = resolved
-        if ref.kind != "label" or name not in spec.label_columns:
-            continue
-        parent = column.parent
-        if isinstance(parent, exp.Select):
-            continue  # bare passthrough projection
-        if isinstance(parent, exp.Alias) and isinstance(parent.parent, exp.Select):
-            if parent.alias.lower() == name:
-                continue  # passthrough under its own name
-        elif (
-            scope is root
-            and column.find_ancestor(exp.Where, exp.Group, exp.Order) is not None
-            and column.find_ancestor(exp.Window, exp.Subquery) is None
+        node, parent = column, column.parent
+        while isinstance(parent, exp.Paren | exp.Cast | exp.TryCast) or (
+            isinstance(parent, exp.Coalesce)
+            and parent.this is node
+            and all(isinstance(e, exp.Literal) for e in parent.expressions)
         ):
-            continue  # filtering or grouping the final training set by its label
-        uses.append(LabelUse(ref, name, (parent or column).sql(spec.dialect)))
+            node, parent = parent, parent.parent
+        if isinstance(parent, exp.Select) or (
+            isinstance(parent, exp.Alias) and isinstance(parent.parent, exp.Select)
+        ):
+            continue  # passthrough projection
+        if scope is not None and _filters_final_rows(
+            column, scope, resolver, output_scopes, spine_ids
+        ):
+            continue
+        uses.append(LabelUse(got.ref, got.column, (column.parent or column).sql(spec.dialect)))
     return uses
 
 
+def _filters_final_rows(
+    column, scope: Scope, resolver: _Resolver, output_scopes: set[int], spine_ids: set[int]
+) -> bool:
+    """Is `column` in a filter / grouping of the output rows (or of a spine-only subquery)?"""
+    kinds = list(_ancestors(column, scope.expression))
+    if any(isinstance(a, exp.Window | exp.Subquery) for a in kinds):
+        return False
+    clauses = (exp.Where, exp.Having, exp.Qualify, exp.Group, exp.Order)
+    if not any(isinstance(a, clauses) for a in kinds):
+        return False
+    if id(scope) in output_scopes:
+        return True
+    sources = [source for _, source in scope.selected_sources.values()]
+    refs = [resolver.refs.get(id(s)) for s in sources if isinstance(s, exp.Table)]
+    return (
+        bool(sources)
+        and len(refs) == len(sources)
+        and all(r is not None and r.kind == "label" and id(r) in spine_ids for r in refs)
+    )
+
+
+_WHOLE_PARTITION = (exp.Ntile, exp.CumeDist, exp.PercentRank)
+
+
+def _frame_looks_ahead(frame: exp.Expression | None) -> bool:
+    if frame is None:
+        return False
+    return any(
+        str(frame.args.get(side) or "").upper() == "FOLLOWING"
+        for side in ("start_side", "end_side")
+    )
+
+
+def _lag_offset_negative(func: exp.Expression) -> bool:
+    offset = func.args.get("offset")
+    value = _constant(offset) if offset is not None else None
+    return value is not None and value < 0
+
+
 def _window_issues(analysis: QueryAnalysis, resolver: _Resolver, spine_ids: set[int]):
+    """Windows that let a row see later rows of a temporal table or of the label spine.
+
+    Look-ahead: LEAD (or LAG with a negative offset), a FOLLOWING frame, or an ORDER BY time
+    DESC (every row then aggregates the rows after it). Whole partition: an aggregate with no
+    ORDER BY, or a distribution function (CUME_DIST, PERCENT_RANK, NTILE) whose value depends
+    on the size of the partition. A window is safe when the table's rows are already strictly
+    before prediction time (a bound in the table's own scope runs before the window), when it
+    partitions by the table's own timestamp, or when it only derives a validity interval that
+    is compared with prediction_ts.
+    """
     issues = []
     for window in analysis.qualified.find_all(exp.Window):
         scope = resolver.scope_of(window)
         func = window.this
-        spec_node = window.args.get("spec")
-        looks_ahead = isinstance(func, exp.Lead) or (
-            spec_node is not None
-            and "FOLLOWING" in (str(spec_node.args.get("end_side") or "").upper(),)
+        order = list(window.args["order"].expressions) if window.args.get("order") else []
+        base_ahead = (
+            isinstance(func, exp.Lead)
+            or (isinstance(func, exp.Lag) and _lag_offset_negative(func))
+            or _frame_looks_ahead(window.args.get("spec"))
         )
-        if spec_node is not None and str(spec_node.args.get("start_side") or "").upper() == (
-            "FOLLOWING"
-        ):
-            looks_ahead = True
-        whole_partition = (
-            isinstance(func, exp.AggFunc) and not window.args.get("order") and not looks_ahead
+        base_whole = isinstance(func, _WHOLE_PARTITION) or (
+            isinstance(func, exp.AggFunc) and not order and not base_ahead
         )
-        if not (looks_ahead or whole_partition):
-            continue
+        descending: dict[int, TableRef] = {}
         targets: dict[int, TableRef] = {}
-        columns = list(func.find_all(exp.Column)) + list(
-            (window.args.get("order") or exp.Order()).find_all(exp.Column)
-        )
-        for column in columns:
+        for item in order:
+            got = resolver.resolve_time(item.this, scope)
+            if got:
+                targets[id(got.ref)] = got.ref
+                if item.args.get("desc") and got.column in got.ref.time_columns:
+                    descending[id(got.ref)] = got.ref
+        for column in func.find_all(exp.Column):
             got = resolver.resolve(column, scope)
             if got:
-                targets[id(got[0])] = got[0]
-        if not columns and scope is not None:  # COUNT(*): every source row counts
-            for ref in analysis.refs:
-                if ref.scope is scope:
-                    targets[id(ref)] = ref
-        for ref in targets.values():
-            if ref.kind == "temporal":
-                bounded = any(b.is_upper and b.is_strict_past for b in ref.direct_bounds)
-                if whole_partition and bounded:
-                    continue
-            elif not (ref.kind == "label" and id(ref) in spine_ids):
+                targets[id(got.ref)] = got.ref
+        if not targets and scope is not None:  # COUNT(*): every source row counts
+            targets = {id(r): r for r in analysis.refs if r.scope is scope}
+        for key, ref in targets.items():
+            if ref.time_column is None:
+                continue  # static, outcome, or unclassified tables have no time to look past
+            ahead = base_ahead or key in descending
+            if not (ahead or base_whole):
                 continue
-            kind = "lookahead" if looks_ahead else "whole_partition"
+            if ref.temporal and any(b.is_upper and b.is_strict_past for b in ref.direct_bounds):
+                continue  # the window only sees rows already known at prediction time
+            if _partitioned_by_time(window, scope, ref, resolver):
+                continue
+            if ahead and _validity_interval(window, scope, ref, analysis, resolver, spine_ids):
+                continue
+            kind = "lookahead" if ahead else "whole_partition"
             issues.append(WindowIssue(ref, kind, window.sql(analysis.spec.dialect)))
     return issues
+
+
+def _partitioned_by_time(window, scope, ref: TableRef, resolver: _Resolver) -> bool:
+    """Each partition holds rows of one instant, so nothing in it lies in the future."""
+    for item in window.args.get("partition_by") or []:
+        got = resolver.resolve_time(item, scope)
+        if got and got.ref is ref and got.exact and got.column in ref.time_columns:
+            return True
+    return False
+
+
+def _validity_interval(window, scope, ref, analysis, resolver, spine_ids) -> bool:
+    """`LEAD(time) OVER (...) AS valid_to` used only to test validity against prediction_ts.
+
+    The next version's timestamp is compared with prediction_ts (or tested for NULL) and never
+    reaches an output, and the table's rows are also bounded strictly before prediction time.
+    """
+    func, alias = window.this, window.parent
+    if not isinstance(func, exp.Lead | exp.Lag):
+        return False
+    if not isinstance(alias, exp.Alias) or not isinstance(alias.parent, exp.Select):
+        return False
+    arg = resolver.resolve_time(func.this, scope, local=True)
+    if not arg or arg.ref is not ref or not arg.exact or arg.column not in ref.time_columns:
+        return False
+    if not all(any(b.is_upper and b.is_strict_past for b in g) for g in ref.bound_groups()):
+        return False
+    owner = resolver.by_expression.get(id(alias.parent))
+    uses = [
+        column
+        for column in analysis.qualified.find_all(exp.Column)
+        if column.name.lower() == alias.alias.lower() and _reads_scope(column, owner, resolver)
+    ]
+    return bool(uses) and all(_validity_use(c, resolver) for c in uses)
+
+
+def _reads_scope(column: exp.Column, target: Scope | None, resolver: _Resolver) -> bool:
+    scope = resolver.scope_of(column)
+    found = resolver._source(scope, column.table, local=False) if scope and column.table else None
+    return found is not None and found[0] is target
+
+
+def _validity_use(column: exp.Column, resolver: _Resolver) -> bool:
+    node, parent = column, column.parent
+    while isinstance(parent, exp.Paren):
+        node, parent = parent, parent.parent
+    if not _in_filter(column):
+        return False
+    if isinstance(parent, exp.Is):
+        return isinstance(parent.expression, exp.Null)
+    if not isinstance(parent, _COMPARISONS):
+        return False
+    other = parent.right if parent.left is node else parent.left
+    got = resolver.resolve_time(other, resolver.scope_of(column))
+    return got is not None and got.ref.kind == "label" and got.column == resolver.spec.prediction_ts

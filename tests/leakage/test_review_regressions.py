@@ -266,6 +266,366 @@ def test_tag_on_old_snapshot_does_not_hide_expiry(tmp_path):
     assert catalog.history_truncated("stats")
 
 
+# --- static shapes: leaks that must be caught, correct queries that must stay clean ------
+
+STATS = "ASOF JOIN user_stats s ON s.user_id = l.user_id AND l.label_ts > s.updated_at"
+FEAT = f"{SEL}, s.total_spend FROM labels l {STATS}"
+
+
+def windowed(expr: str) -> str:
+    """A feature CTE computing `expr` over user_stats, ASOF-joined to the spine."""
+    return (
+        f"WITH f AS (SELECT user_id, updated_at, {expr} AS v FROM user_stats) "
+        f"{SEL}, f.v FROM labels l ASOF JOIN f ON f.user_id = l.user_id "
+        "AND l.label_ts > f.updated_at"
+    )
+
+
+LEAKY_SHAPES = [
+    # nested CTE consumed twice, once unbounded (id, sql, rule)
+    (
+        "nested cte reuse",
+        "WITH a AS (SELECT * FROM user_stats), b AS (SELECT * FROM a) "
+        f"{SEL}, x.total_spend, y.n_orders FROM labels l "
+        "JOIN b x ON x.user_id = l.user_id AND x.updated_at < l.label_ts "
+        "JOIN b y ON y.user_id = l.user_id",
+        "L2",
+    ),
+    (
+        "three-level cte reuse",
+        "WITH a AS (SELECT * FROM user_stats), b AS (SELECT * FROM a), c AS (SELECT * FROM b) "
+        f"{SEL}, x.total_spend, y.n_orders FROM labels l "
+        "JOIN c x ON x.user_id = l.user_id AND x.updated_at < l.label_ts "
+        "JOIN c y ON y.user_id = l.user_id",
+        "L2",
+    ),
+    (
+        "nested cte in two subqueries",
+        "WITH e0 AS (SELECT * FROM events), ev AS (SELECT * FROM e0) "
+        f"{SEL}, (SELECT SUM(amount) FROM ev WHERE ev.user_id = l.user_id "
+        "AND ev.ingested_at < l.label_ts) a, "
+        "(SELECT SUM(amount) FROM ev WHERE ev.user_id = l.user_id) b FROM labels l",
+        "L2",
+    ),
+    # a bound that does not filter the reference's rows
+    (
+        "FILTER clause bounds one aggregate only",
+        f"{SEL}, COUNT(*) n, SUM(e.amount) FILTER (WHERE e.ingested_at < l.label_ts) a "
+        "FROM labels l JOIN events e ON e.user_id = l.user_id GROUP BY 1, 2, 3",
+        "L3",
+    ),
+    (
+        "scalar subquery mentions outer column",
+        f"{SEL}, e.amount, (SELECT COUNT(*) FROM entities x WHERE x.user_id = e.user_id "
+        "AND e.ingested_at < l.label_ts) c FROM labels l JOIN events e ON e.user_id = l.user_id",
+        "L2",
+    ),
+    (
+        "NOT EXISTS inverts the condition",
+        f"{SEL}, e.amount FROM labels l JOIN events e ON e.user_id = l.user_id "
+        "WHERE NOT EXISTS (SELECT 1 FROM entities x WHERE x.user_id = e.user_id "
+        "AND e.ingested_at < l.label_ts)",
+        "L2",
+    ),
+    (
+        "NOT IN subquery mentions outer column",
+        f"{SEL}, e.amount FROM labels l JOIN events e ON e.user_id = l.user_id "
+        "WHERE e.user_id NOT IN "
+        "(SELECT x.user_id FROM entities x WHERE e.ingested_at < l.label_ts)",
+        "L2",
+    ),
+    (
+        "bound in ON of a LEFT JOIN to another table",
+        f"{SEL}, e.amount FROM labels l JOIN events e ON e.user_id = l.user_id "
+        "LEFT JOIN entities x ON x.user_id = l.user_id AND e.ingested_at < l.label_ts",
+        "L2",
+    ),
+    (
+        "bound in ON of a RIGHT JOIN filters the left side only",
+        f"{SEL}, e.amount FROM labels l RIGHT JOIN events e "
+        "ON e.user_id = l.user_id AND e.ingested_at < l.label_ts",
+        "L2",
+    ),
+    (
+        "bound in ON of a FULL JOIN filters nothing",
+        f"{SEL}, e.amount FROM labels l FULL JOIN events e "
+        "ON e.user_id = l.user_id AND e.ingested_at < l.label_ts",
+        "L2",
+    ),
+    # windows
+    (
+        "DESC running sum",
+        windowed("SUM(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at DESC)"),
+        "L1",
+    ),
+    (
+        "DESC first_value",
+        windowed("FIRST_VALUE(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at DESC)"),
+        "L1",
+    ),
+    (
+        "DESC lag",
+        windowed("LAG(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at DESC)"),
+        "L1",
+    ),
+    (
+        "negative lag",
+        windowed("LAG(total_spend, -1) OVER (PARTITION BY user_id ORDER BY updated_at)"),
+        "L1",
+    ),
+    ("cume_dist", windowed("CUME_DIST() OVER (PARTITION BY user_id ORDER BY updated_at)"), "L3"),
+    (
+        "percent_rank",
+        windowed("PERCENT_RANK() OVER (PARTITION BY user_id ORDER BY updated_at)"),
+        "L3",
+    ),
+    ("ntile", windowed("NTILE(4) OVER (PARTITION BY user_id ORDER BY updated_at)"), "L3"),
+    (
+        "row_number desc latest-row filter",
+        "WITH f AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY updated_at DESC) rn "
+        f"FROM user_stats) {SEL}, f.total_spend FROM labels l "
+        "JOIN f ON f.user_id = l.user_id AND f.rn = 1 AND f.updated_at < l.label_ts",
+        "L1",
+    ),
+    (
+        "rank from the end of the spine",
+        f"{SEL}, ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) AS k "
+        "FROM labels l",
+        "L1",
+    ),
+    (
+        "later labels of the same user",
+        f"{SEL}, (SELECT COUNT(*) FROM labels l2 WHERE l2.user_id = l.user_id "
+        "AND l2.label_ts > l.label_ts) AS n FROM labels l",
+        "L1",
+    ),
+    (
+        "max over every label of the user",
+        f"{SEL}, MAX(l2.label_ts) AS last_ts FROM labels l "
+        "JOIN labels l2 ON l2.user_id = l.user_id GROUP BY 1, 2, 3",
+        "L3",
+    ),
+    (
+        "window over another copy of the labels",
+        f"{SEL}, (SELECT MAX(k) FROM (SELECT ROW_NUMBER() OVER (PARTITION BY l2.user_id "
+        "ORDER BY l2.label_ts DESC) AS k FROM labels l2 WHERE l2.user_id = l.user_id) t) AS n "
+        "FROM labels l",
+        "L1",
+    ),
+    # spine equality must be exact
+    (
+        "equality through month truncation",
+        f"{SEL}, s.total_spend FROM labels l JOIN labels l2 ON l2.user_id = l.user_id "
+        "AND DATE_TRUNC('month', l2.label_ts) = DATE_TRUNC('month', l.label_ts) "
+        "JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l2.label_ts",
+        "L2",
+    ),
+    (
+        "equality through cast to date",
+        f"{SEL}, s.total_spend FROM labels l JOIN labels l2 ON l2.user_id = l.user_id "
+        "AND CAST(l2.label_ts AS DATE) = CAST(l.label_ts AS DATE) "
+        "JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l2.label_ts",
+        "L2",
+    ),
+    # one branch of a union leaks
+    (
+        "leaky union branch",
+        f"{FEAT} UNION ALL {SEL}, s.total_spend FROM labels l "
+        "JOIN user_stats s ON s.user_id = l.user_id",
+        "L2",
+    ),
+    (
+        "correlated MAX without a bound",
+        f"{SEL}, s.total_spend FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+        "AND s.updated_at = (SELECT MAX(s2.updated_at) FROM user_stats s2 "
+        "WHERE s2.user_id = l.user_id)",
+        "L2",
+    ),
+    (
+        "correlated MAX with inclusive bound",
+        f"{SEL}, s.total_spend FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+        "AND s.updated_at = (SELECT MAX(s2.updated_at) FROM user_stats s2 "
+        "WHERE s2.user_id = l.user_id AND s2.updated_at <= l.label_ts)",
+        "L5",
+    ),
+    (
+        "validity end reaches the output",
+        "WITH v AS (SELECT user_id, updated_at, total_spend, LEAD(updated_at) OVER "
+        "(PARTITION BY user_id ORDER BY updated_at) AS valid_to FROM user_stats) "
+        f"{SEL}, v.valid_to AS next_update FROM labels l JOIN v ON v.user_id = l.user_id "
+        "AND v.updated_at < l.label_ts",
+        "L1",
+    ),
+    (
+        "validity interval without a bound on the version time",
+        "WITH v AS (SELECT user_id, updated_at, total_spend, LEAD(updated_at) OVER "
+        f"(PARTITION BY user_id ORDER BY updated_at) AS valid_to FROM user_stats) {SEL}, "
+        "v.total_spend FROM labels l JOIN v ON v.user_id = l.user_id "
+        "AND (v.valid_to IS NULL OR v.valid_to >= l.label_ts)",
+        "L1",
+    ),
+    (
+        "validity end used as a feature value",
+        "WITH v AS (SELECT user_id, updated_at, total_spend, LEAD(updated_at) OVER "
+        "(PARTITION BY user_id ORDER BY updated_at) AS valid_to FROM user_stats) "
+        f"{SEL}, CASE WHEN v.valid_to IS NULL THEN 1 ELSE 0 END AS is_last "
+        "FROM labels l JOIN v ON v.user_id = l.user_id AND v.updated_at < l.label_ts",
+        "L1",
+    ),
+    (
+        "lead of a value column",
+        windowed("LEAD(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at)"),
+        "L1",
+    ),
+    (
+        "label used by a cast feature",
+        f"{SEL}, CAST(l.churned AS DOUBLE) + 1 AS f FROM labels l",
+        "L6",
+    ),
+    (
+        "label filter in a subquery of another table",
+        f"{SEL}, (SELECT COUNT(*) FROM user_outcomes o WHERE o.user_id = l.user_id "
+        "AND l.churned = 1) AS f FROM labels l",
+        "L6",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "sql, rule", [c[1:] for c in LEAKY_SHAPES], ids=[c[0] for c in LEAKY_SHAPES]
+)
+def test_leaky_shape_is_flagged(sql, rule):
+    result, rules = verdict(sql)
+    assert result == "leaky" and rule in rules, (result, rules)
+
+
+CLEAN_SHAPES = {
+    "aliased cte with asof join": f"WITH stats AS (SELECT * FROM user_stats) {SEL}, s.total_spend "
+    "FROM labels l ASOF JOIN stats s ON s.user_id = l.user_id AND l.label_ts > s.updated_at",
+    "aliased cte feeding an aggregate": "WITH ev AS "
+    "(SELECT user_id, ingested_at, amount FROM events) "
+    f"{SEL}, SUM(x.amount) AS a FROM labels l JOIN ev x ON x.user_id = l.user_id "
+    "AND x.ingested_at < l.label_ts GROUP BY 1, 2, 3",
+    "nested cte, both uses bounded": "WITH a AS (SELECT * FROM user_stats), b AS (SELECT * FROM a) "
+    f"{SEL}, x.total_spend, y.n_orders FROM labels l "
+    "ASOF JOIN b x ON x.user_id = l.user_id AND l.label_ts > x.updated_at "
+    "ASOF JOIN b y ON y.user_id = l.user_id AND l.label_ts > y.updated_at",
+    "bound written inside a nested feature cte": "WITH f AS (SELECT l.user_id, l.label_ts, "
+    "s.total_spend FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+    "AND s.updated_at < l.label_ts), g AS (SELECT * FROM f) "
+    f"{SEL}, a.total_spend, b.total_spend AS again FROM labels l "
+    "JOIN g a ON a.user_id = l.user_id AND a.label_ts = l.label_ts "
+    "JOIN g b ON b.user_id = l.user_id AND b.label_ts = l.label_ts",
+    "lateral subquery with bound": f"{SEL}, t.a FROM labels l, LATERAL (SELECT SUM(e.amount) a "
+    "FROM events e WHERE e.user_id = l.user_id AND e.ingested_at < l.label_ts) t",
+    "using join on a bounded feature cte": "WITH a AS (SELECT l.user_id, l.label_ts, COUNT(*) n "
+    "FROM labels l JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts "
+    f"GROUP BY 1, 2) {SEL}, a.n FROM labels l LEFT JOIN a USING (user_id, label_ts)",
+    "two using joins": "WITH a AS (SELECT l.user_id, l.label_ts, COUNT(*) n FROM labels l "
+    "JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts GROUP BY 1, 2), "
+    "b AS (SELECT l.user_id, l.label_ts, MAX(s.total_spend) t FROM labels l "
+    "JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l.label_ts GROUP BY 1, 2) "
+    f"{SEL}, a.n, b.t FROM labels l LEFT JOIN a USING (user_id, label_ts) "
+    "LEFT JOIN b USING (user_id, label_ts)",
+    "scd2 validity interval": "WITH v AS (SELECT user_id, updated_at, total_spend, "
+    "LEAD(updated_at) OVER (PARTITION BY user_id ORDER BY updated_at) AS valid_to "
+    f"FROM user_stats) {SEL}, v.total_spend FROM labels l JOIN v ON v.user_id = l.user_id "
+    "AND v.updated_at < l.label_ts AND (v.valid_to IS NULL OR v.valid_to >= l.label_ts)",
+    "label cast to integer": "SELECT l.user_id, l.label_ts, CAST(l.churned AS INTEGER) AS churned, "
+    f"s.total_spend FROM labels l {STATS}",
+    "label double colon cast": "SELECT l.user_id, l.label_ts, l.churned::INT AS churned, "
+    f"s.total_spend FROM labels l {STATS}",
+    "label coalesce with literal": "SELECT l.user_id, l.label_ts, "
+    f"COALESCE(l.churned, 0) AS churned, s.total_spend FROM labels l {STATS}",
+    "label filter inside a spine cte": "WITH sp AS (SELECT user_id, label_ts, churned FROM labels "
+    "WHERE churned IS NOT NULL) SELECT p.user_id, p.label_ts, p.churned, s.total_spend "
+    "FROM sp p ASOF JOIN user_stats s ON s.user_id = p.user_id AND p.label_ts > s.updated_at",
+    "label filter inside a derived spine": "SELECT p.user_id, p.label_ts, p.churned, s.total_spend "
+    "FROM (SELECT * FROM labels WHERE churned IN (0, 1)) p "
+    "ASOF JOIN user_stats s ON s.user_id = p.user_id AND p.label_ts > s.updated_at",
+    "label renamed in the spine and back": "WITH sp AS (SELECT user_id, label_ts, churned AS y "
+    "FROM labels) SELECT p.user_id, p.label_ts, p.y AS churned, s.total_spend "
+    "FROM sp p ASOF JOIN user_stats s ON s.user_id = p.user_id AND p.label_ts > s.updated_at",
+    "label having filter": f"{SEL}, MAX(s.total_spend) AS m FROM labels l JOIN user_stats s "
+    "ON s.user_id = l.user_id AND s.updated_at < l.label_ts GROUP BY 1, 2, 3 "
+    "HAVING l.churned IS NOT NULL",
+    "strict ingestion, inclusive event-time window": f"{AGG} AND e.ingested_at < l.label_ts "
+    "AND e.event_ts BETWEEN l.label_ts - INTERVAL 30 DAY AND l.label_ts GROUP BY 1, 2, 3",
+    "strict ingestion, inclusive event-time bound": f"{AGG} AND e.ingested_at < l.label_ts "
+    "AND e.event_ts <= l.label_ts GROUP BY 1, 2, 3",
+    "correlated MAX picks the latest earlier row": f"{SEL}, s.total_spend FROM labels l "
+    "JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at = (SELECT MAX(s2.updated_at) "
+    "FROM user_stats s2 WHERE s2.user_id = l.user_id AND s2.updated_at < l.label_ts)",
+    "union of two correct branches": f"{FEAT} UNION ALL {FEAT}",
+    "prediction_ts cast in the output": "SELECT l.user_id, CAST(l.label_ts AS TIMESTAMP) AS "
+    f"label_ts, l.churned, s.total_spend FROM labels l {STATS}",
+    "qualify latest row under a strict bound": f"{SEL}, s.total_spend FROM labels l "
+    "JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l.label_ts "
+    "QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id, l.label_ts ORDER BY s.updated_at DESC) = 1",
+    "desc window over rows bounded in its own scope": "WITH f AS (SELECT s.user_id, s.updated_at, "
+    "l.label_ts, ROW_NUMBER() OVER (PARTITION BY s.user_id, l.label_ts ORDER BY s.updated_at DESC) "
+    "rn, s.total_spend FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+    f"AND s.updated_at < l.label_ts) {SEL}, f.total_spend FROM labels l "
+    "JOIN f ON f.user_id = l.user_id AND f.label_ts = l.label_ts AND f.rn = 1",
+    "trailing window excluding the current row": windowed(
+        "SUM(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at "
+        "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
+    ),
+    "trailing lag and ascending rank": windowed(
+        "total_spend - LAG(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at)"
+    ),
+    "window to the end over bounded rows": f"{SEL}, SUM(s.total_spend) OVER (PARTITION BY "
+    "l.user_id, l.label_ts ORDER BY s.updated_at ROWS BETWEEN UNBOUNDED PRECEDING AND "
+    "UNBOUNDED FOLLOWING) AS f FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+    "AND s.updated_at < l.label_ts",
+    "ascending rank among earlier labels": f"{SEL}, ROW_NUMBER() OVER (PARTITION BY l.user_id "
+    "ORDER BY l.label_ts) AS k FROM labels l",
+    "count of earlier labels": f"{SEL}, (SELECT COUNT(*) FROM labels l2 WHERE l2.user_id = "
+    "l.user_id AND l2.label_ts < l.label_ts) AS n FROM labels l",
+    "second label copy equated exactly": f"{SEL}, s.total_spend FROM labels l JOIN labels l2 "
+    "ON l2.user_id = l.user_id AND l2.label_ts = l.label_ts JOIN user_stats s "
+    "ON s.user_id = l.user_id AND s.updated_at < l2.label_ts",
+    "exists with correlated bound": f"{SEL}, EXISTS (SELECT 1 FROM events e WHERE e.user_id = "
+    "l.user_id AND e.ingested_at < l.label_ts) AS seen FROM labels l",
+    "left join with the bound in on": f"{SEL}, e.amount FROM labels l LEFT JOIN events e "
+    "ON e.user_id = l.user_id AND e.ingested_at < l.label_ts AND e.event_ts < l.label_ts",
+    "right join keeping the bounded side": f"{SEL}, e.amount FROM events e RIGHT JOIN labels l "
+    "ON e.user_id = l.user_id AND e.ingested_at < l.label_ts AND e.event_ts < l.label_ts",
+    "semi join with the bound in on": f"{SEL}, l.user_id AS seen_by FROM labels l "
+    "SEMI JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts",
+    "rolling average over bounded rows": f"{SEL}, AVG(e.amount) OVER (PARTITION BY l.user_id, "
+    "l.label_ts ORDER BY e.event_ts ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS r "
+    "FROM labels l JOIN events e ON e.user_id = l.user_id "
+    "AND e.ingested_at < l.label_ts AND e.event_ts < l.label_ts",
+    "partition count per prediction": f"{SEL}, COUNT(*) OVER (PARTITION BY l.user_id, l.label_ts) "
+    "AS n FROM labels l JOIN events e ON e.user_id = l.user_id "
+    "AND e.ingested_at < l.label_ts AND e.event_ts < l.label_ts",
+    "anti join on earlier events": f"{SEL} FROM labels l WHERE NOT EXISTS (SELECT 1 FROM events e "
+    "WHERE e.user_id = l.user_id AND e.ingested_at < l.label_ts AND e.event_ts < l.label_ts)",
+    "spine and feature ctes with a date filter": "WITH sp AS (SELECT user_id, label_ts, churned "
+    "FROM labels WHERE label_ts >= TIMESTAMP '2026-01-15'), ft AS (SELECT sp.user_id, "
+    "sp.label_ts, COUNT(*) n FROM sp JOIN events e ON e.user_id = sp.user_id AND "
+    "e.ingested_at < sp.label_ts GROUP BY 1, 2) SELECT sp.user_id, sp.label_ts, sp.churned, ft.n "
+    "FROM sp LEFT JOIN ft ON ft.user_id = sp.user_id AND ft.label_ts = sp.label_ts",
+    "distinct spine with ordering": f"SELECT DISTINCT l.user_id, l.label_ts, l.churned, "
+    f"s.total_spend FROM labels l {STATS} ORDER BY l.label_ts LIMIT 1000",
+    "timezone-aware table with an explicit cast": f"{SEL}, COUNT(c.page) AS n FROM labels l "
+    "LEFT JOIN clicks c ON c.user_id = l.user_id AND CAST(c.click_ts AS TIMESTAMP) < l.label_ts "
+    "GROUP BY 1, 2, 3",
+    "static table beside a bounded feature": f"{SEL}, u.country, s.total_spend FROM labels l "
+    f"JOIN entities u ON u.user_id = l.user_id {STATS}",
+}
+
+
+@pytest.mark.parametrize("sql", CLEAN_SHAPES.values(), ids=CLEAN_SHAPES.keys())
+def test_correct_shape_stays_clean(sql):
+    assert verdict(sql) == ("clean", set())
+
+
+def test_clean_side_is_at_least_as_large_as_the_leaky_side():
+    assert len(CLEAN_SHAPES) >= 15
+
+
 # --- replay evidence and sampling ----------------------------------------------------------
 
 BENCH_SPEC = LeakageSpec.from_yaml("bench/leakage/spec.yaml")
