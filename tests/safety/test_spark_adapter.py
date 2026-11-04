@@ -3,7 +3,8 @@
 The unit tests drive the adapter with a recording stand-in for the Spark session; effects Spark
 would have on the table (creating a branch, moving main) are reproduced with PyIceberg so the
 adapter's checks run against real table metadata. The `spark` tests need the Docker stack in
-`docker/` and are deselected by default (`pytest -m spark`).
+`docker/` and are deselected by default; `docker/run-integration.sh` runs them (`-m spark`) in
+the runner container against Lakekeeper.
 """
 
 from __future__ import annotations
@@ -598,6 +599,8 @@ REST_URI = os.environ.get("SQLGUARD_REST_URI", "http://localhost:8181")
 S3_ENDPOINT = os.environ.get("SQLGUARD_S3_ENDPOINT", "http://localhost:9000")
 S3_KEY = os.environ.get("SQLGUARD_S3_KEY", "admin")
 S3_SECRET = os.environ.get("SQLGUARD_S3_SECRET", "password")
+# Set to a Lakekeeper warehouse name to use vended credentials instead of the static S3 ones.
+REST_WAREHOUSE = os.environ.get("SQLGUARD_REST_WAREHOUSE")
 SPARK_CATALOG = os.environ.get("SQLGUARD_SPARK_CATALOG", "demo")
 
 
@@ -618,17 +621,18 @@ def real_lake(spark_session):
     from pyiceberg.catalog.rest import RestCatalog
 
     namespace = f"t{uuid.uuid4().hex[:8]}"
-    rest = RestCatalog(
-        "demo",
-        uri=REST_URI,
-        **{
+    properties = (
+        {"warehouse": REST_WAREHOUSE}
+        if REST_WAREHOUSE
+        else {
             "s3.endpoint": S3_ENDPOINT,
             "s3.access-key-id": S3_KEY,
             "s3.secret-access-key": S3_SECRET,
             "s3.region": "us-east-1",
             "s3.path-style-access": "true",
-        },
+        }
     )
+    rest = RestCatalog("demo", uri=REST_URI, **properties)
     rest.create_namespace(namespace)
     lake = LakehouseCatalog(rest, namespace)
     spark_session.sql("SET spark.sql.session.timeZone = UTC")
