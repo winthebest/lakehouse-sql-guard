@@ -2,12 +2,15 @@
 
 Template format (`templates/<split>/<template_id>.sql`):
 
-    -- leak: clean | L1 | ... | L6
+    -- leak: clean | L1 | ... | L7
     -- param <name>: value | value | ...      (zero or more lines)
     <SQL with {name} placeholders>
 
-Every combination of parameter values becomes one case. Splits are by template, so the
-held-out split only contains templates the rules were never tuned on.
+Every combination of parameter values becomes one case. Splits are by template:
+
+- `dev`: tuned on; the rules and thresholds were developed against these.
+- `dev_v1b`: the v1 held-out templates. They were seen while the rules were extended, so they are
+  development data now and a result on them is in-sample.
 
 Usage: python -m bench.leakage.cases --seed 42 --split dev --out bench/leakage/cases.jsonl
 """
@@ -23,7 +26,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6")
+SPLITS = ("dev", "dev_v1b")
+LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6", "L7")
 _HEADER = re.compile(r"^--\s*(leak|param\s+(\w+))\s*:\s*(.*)$")
 
 
@@ -42,7 +46,7 @@ class LeakCase:
     template_id: str
     split: str
     label: str  # "clean" | "leaky"
-    leak_type: str  # "clean" | "L1".."L6"
+    leak_type: str  # "clean" | "L1".."L7"
     params: dict[str, str]
     sql: str
 
@@ -113,10 +117,10 @@ def read_jsonl(path: Path) -> list[LeakCase]:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
+    parser.add_argument("--split", choices=[*SPLITS, "all"], default="dev")
     parser.add_argument("--out", type=Path, default=Path("bench/leakage/cases.jsonl"))
     args = parser.parse_args(argv)
-    splits = ("dev", "holdout") if args.split == "all" else (args.split,)
+    splits = SPLITS if args.split == "all" else (args.split,)
     cases = generate_cases(args.seed, splits)
     write_jsonl(cases, args.out)
     counts = {t: sum(c.leak_type == t for c in cases) for t in LEAK_TYPES}

@@ -14,11 +14,16 @@ lists them separately (`n_unverifiable`, `unverifiable_cases`) so they are never
 the FPR or recall.
 
 Protocol: `prereg` picks each detector's threshold on the dev split (FPR <= 5%) and writes it
-with the commit SHA *before* held-out templates exist; `run` evaluates with those thresholds.
+with the commit SHA, the splits it saw, and a hash of the spec; `run --splits ...` evaluates the
+named splits with those thresholds. `dev` and `dev_v1b` were both seen while the rules were
+developed, so a run over them is in-sample tracking. A result only counts as held-out for a split
+written after the rules and the spec were frozen.
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import subprocess
 import time
@@ -28,7 +33,14 @@ from pathlib import Path
 
 from bench.leakage import optimism
 from bench.leakage.baseline import baseline_score
-from bench.leakage.cases import LEAK_TYPES, LeakCase, generate_cases, load_templates, render
+from bench.leakage.cases import (
+    LEAK_TYPES,
+    SPLITS,
+    LeakCase,
+    generate_cases,
+    load_templates,
+    render,
+)
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.world import WorldConfig, build_world
 from sqlguard.core.catalog import LakehouseCatalog
@@ -39,6 +51,8 @@ from sqlguard.leakage.validator import UNCHECKED, LeakageReport, Weights, valida
 DETECTORS = ("baseline", "static", "replay", "combined")
 SYNTHETIC_SPEC = Path(__file__).parent / "spec.yaml"
 RESULTS_DIR = Path("results/leakage")
+DEFAULT_SPLITS = ("dev", "dev_v1b")
+IN_SAMPLE = frozenset({"dev", "dev_v1b"})  # seen while the rules and the spec were developed
 MAX_FPR = 0.05
 OPTIMISM_CUTOFF = datetime(2026, 1, 24)
 
@@ -199,6 +213,8 @@ def prereg(seed: int, warehouse: Path, out_dir: Path = RESULTS_DIR) -> Path:
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_sha": sha,
         "seed": seed,
+        "splits_seen": ["dev"],
+        "spec_sha256": hashlib.sha256(SYNTHETIC_SPEC.read_bytes()).hexdigest(),
         "max_fpr": MAX_FPR,
         # null = the detector cannot reach FPR <= max_fpr with any positive threshold
         "thresholds": {d: (None if t == float("inf") else t) for d, t in thresholds(dev).items()},
@@ -235,20 +251,27 @@ def _real(seed: int, warehouse: Path, cut: dict[str, float]) -> dict | None:
     return evaluate(score_cases(cases, catalog, spec, seed), cut)
 
 
-def run(seed: int, warehouse: Path, with_real: bool, out_dir: Path = RESULTS_DIR) -> Path:
+def run(
+    seed: int,
+    warehouse: Path,
+    with_real: bool,
+    out_dir: Path = RESULTS_DIR,
+    splits: tuple[str, ...] = DEFAULT_SPLITS,
+) -> Path:
+    """Score the template `splits` with the pre-registered thresholds and write the report."""
+    unknown = [name for name in splits if not load_templates(name)]
+    if not splits or unknown:
+        raise SystemExit(f"no templates for split(s) {unknown or splits}; known: {SPLITS}")
     started = time.perf_counter()
     pre = latest_prereg(out_dir)
     cut = {d: float("inf") if t is None else t for d, t in pre["thresholds"].items()}
     spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
     catalog = synthetic_world(warehouse, seed)
-    splits = {}
+    results = {}
     curves = {}
-    for split in ("dev", "holdout"):
-        cases = generate_cases(seed, (split,))
-        if not cases:
-            continue
-        scored = score_cases(cases, catalog, spec, seed)
-        splits[split] = evaluate(scored, cut)
+    for split in splits:
+        scored = score_cases(generate_cases(seed, (split,)), catalog, spec, seed)
+        results[split] = evaluate(scored, cut)
         labels = [s.case.is_leaky for s in scored]
         curves[split] = {d: roc_curve(labels, [s.scores[d] for s in scored]) for d in DETECTORS}
     sha, dirty = git_sha()
@@ -259,7 +282,8 @@ def run(seed: int, warehouse: Path, with_real: bool, out_dir: Path = RESULTS_DIR
         "seed": seed,
         "prereg_sha": pre["git_sha"],
         "thresholds": pre["thresholds"],
-        "splits": splits,
+        "splits": results,
+        "in_sample_splits": [name for name in splits if name in IN_SAMPLE],
         "optimism_gap": optimism.run(catalog, spec, OPTIMISM_CUTOFF),
         "real_data": _real(seed, warehouse, cut) if with_real else None,
     }
@@ -268,18 +292,29 @@ def run(seed: int, warehouse: Path, with_real: bool, out_dir: Path = RESULTS_DIR
     stem = f"{datetime.now(UTC):%Y%m%d}-{sha}"
     (out_dir / f"{stem}.json").write_text(json.dumps(result, indent=2, default=str) + "\n")
     (out_dir / f"{stem}.md").write_text(markdown(result), encoding="utf-8")
-    plot_roc(curves.get("holdout") or curves["dev"], out_dir / f"{stem}-roc.png")
+    plot_roc(curves[splits[-1]], out_dir / f"{stem}-roc.png")
     return out_dir / f"{stem}.json"
 
 
 def markdown(result: dict) -> str:
+    seen = [name for name in result["splits"] if name in IN_SAMPLE]
+    fresh = [name for name in result["splits"] if name not in IN_SAMPLE]
     lines = [
         f"# Leakage benchmark — {result['git_sha']} (prereg {result['prereg_sha']})",
         "",
-        f"Thresholds chosen on dev at FPR ≤ {MAX_FPR:.0%} before held-out templates existed. "
+        f"Thresholds were fit on dev at FPR ≤ {MAX_FPR:.0%} (prereg {result['prereg_sha']}). "
         "Intervals: 95% bootstrap over templates (a template's cases are resampled together).",
         "",
     ]
+    if seen:
+        lines += [
+            f"**In-sample:** {', '.join(seen)} {'was' if len(seen) == 1 else 'were'} seen while "
+            "the rules and the spec were developed, so these numbers track progress and say "
+            "nothing about unseen queries.",
+            "",
+        ]
+    if fresh:
+        lines += [f"Not seen during development: {', '.join(fresh)}.", ""]
     sections = dict(result["splits"])
     if result.get("real_data"):
         sections["real (Online Retail II)"] = result["real_data"]
@@ -375,3 +410,29 @@ def plot_roc(curves: dict[str, list], path: Path) -> None:
     fig.tight_layout()
     fig.savefig(path, facecolor=fig.get_facecolor())
     plt.close(fig)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m bench.leakage.run", description=__doc__)
+    parser.add_argument("action", choices=["prereg", "run"])
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--warehouse", type=Path, default=Path(".warehouse/bench"))
+    parser.add_argument("--out-dir", type=Path, default=RESULTS_DIR)
+    parser.add_argument("--real", action="store_true", help="also run on Online Retail II")
+    parser.add_argument(
+        "--splits",
+        nargs="+",
+        default=list(DEFAULT_SPLITS),
+        choices=SPLITS,
+        help="template splits to score (default: dev dev_v1b)",
+    )
+    args = parser.parse_args(argv)
+    if args.action == "prereg":
+        print(f"pre-registration written to {prereg(args.seed, args.warehouse, args.out_dir)}")
+    else:
+        path = run(args.seed, args.warehouse, args.real, args.out_dir, tuple(args.splits))
+        print(f"results written to {path}")
+
+
+if __name__ == "__main__":
+    main()
