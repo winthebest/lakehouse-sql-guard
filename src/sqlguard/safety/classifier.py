@@ -483,7 +483,7 @@ def _collect_tables(
             continue
         name = _table_name(table, namespace)
         is_write = any(table is node for node in write_nodes)
-        if not is_write and _is_cte_reference(table):
+        if not is_write and is_cte_reference(table):
             continue
         tables.append(name)
         if is_write:
@@ -508,17 +508,38 @@ def _write_target_nodes(ast: exp.Expression) -> list[exp.Table]:
     return targets
 
 
-def _is_cte_reference(table: exp.Table) -> bool:
-    """True for an unqualified name that refers to a visible CTE rather than a real table."""
+def is_cte_reference(table: exp.Table) -> bool:
+    """True for an unqualified name that refers to a CTE visible at this point of the query.
+
+    A CTE is visible in the body of the query that owns its WITH (and in the CTEs written after
+    it in the same WITH), never outside that query: a name defined inside a subquery means
+    nothing in the enclosing scope, where the same bare name is a real table. A CTE's own name
+    inside its body is a real table too, except under WITH RECURSIVE.
+    """
     if table.args.get("db") is not None or table.args.get("catalog") is not None:
         return False
-    name = _ident(table.args.get("this"))
-    inside_own_cte = any(
-        cte.alias.lower() == name for cte in _ancestors(table) if isinstance(cte, exp.CTE)
-    )
-    if inside_own_cte:
+    name = table.name.lower()
+    if not name:
         return False
-    return any(cte.alias.lower() == name for cte in table.root().find_all(exp.CTE))
+    child: exp.Expression = table
+    for node in _ancestors(table):
+        if isinstance(node, exp.With):
+            siblings = node.expressions
+            position = next((i for i, cte in enumerate(siblings) if cte is child), None)
+            if position is not None:  # written inside one of this WITH's CTEs
+                end = position + (1 if node.args.get("recursive") else 0)
+                if any(cte.alias.lower() == name for cte in siblings[:end]):
+                    return True
+        else:
+            owned = node.args.get("with_")
+            if (
+                isinstance(owned, exp.With)
+                and child is not owned  # the query body, not the WITH itself
+                and any(cte.alias.lower() == name for cte in owned.expressions)
+            ):
+                return True
+        child = node
+    return False
 
 
 def _ancestors(node: exp.Expression):

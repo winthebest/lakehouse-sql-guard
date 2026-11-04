@@ -57,6 +57,7 @@ from sqlguard.safety.actions import (
     RemoveOrphanFiles,
     RollbackToSnapshot,
 )
+from sqlguard.safety.classifier import is_cte_reference
 from sqlguard.safety.executor.base import (
     BranchDiff,
     BranchDiverged,
@@ -195,13 +196,12 @@ def trino_statement(
     """
     tree = ast.copy()
     known = {t.lower(): t for t in readable}
-    ctes = {cte.alias.lower() for cte in tree.find_all(exp.CTE) if cte.alias}
     for node in list(tree.find_all(exp.Table)):
         if not isinstance(node.this, exp.Identifier):
             # A table function (TABLE(...), system.query, table_changes, read_parquet, ...) is not
             # a table of the cleared list and can reach other catalogs or tables: fail closed.
             raise ExecutionError(f"table function {node.sql()} is not supported")
-        if not node.db and not node.catalog and node.name.lower() in ctes:
+        if is_cte_reference(node):
             continue
         if node.catalog:
             raise ExecutionError(f"catalog-qualified table {node.sql()} is not supported")
