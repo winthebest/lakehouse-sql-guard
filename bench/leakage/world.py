@@ -75,6 +75,7 @@ class WorldConfig:
     label_end_day: int = 30
     midnight_label_rate: float = 0.3
     horizon_days: int = 14
+    fade_days: int = 10
 
 
 @dataclass(frozen=True)
@@ -124,7 +125,7 @@ def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) ->
     rates = {u: rng.uniform(0.2, 2.0) for u in users}
     churn_day = {
         u: rng.randint(cfg.label_start_day + 1, cfg.n_days - 1)
-        if rng.random() < cfg.churn_rate
+        if rng.random() < cfg.churn_rate * 2 * (2.0 - rates[u]) / 1.8  # low activity churns more
         else None
         for u in users
     }
@@ -145,7 +146,11 @@ def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) ->
         for u in users:
             if churn_day[u] is not None and day >= churn_day[u]:
                 continue
-            for _ in range(_poisson(rng, rates[u])):
+            rate = rates[u]
+            if churn_day[u] is not None and churn_day[u] - day <= cfg.fade_days:
+                # Churners fade out before leaving, so past behavior carries real signal.
+                rate *= (churn_day[u] - day) / (cfg.fade_days + 1)
+            for _ in range(_poisson(rng, rate)):
                 late = rng.random() < cfg.late_rate
                 ingest_day = day + 1 + (rng.randint(1, 7) if late else 0)
                 n_events += 1

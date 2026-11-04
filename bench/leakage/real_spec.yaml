@@ -1,0 +1,13 @@
+# LeakageSpec for the UCI Online Retail II world (bench/leakage/real_data.py).
+label_table: churn_labels
+entity_keys: [customer_id]
+prediction_ts: cutoff_ts
+label_columns: [churned]
+time_columns:
+  invoices: invoice_ts
+availability_columns:
+  invoices: ingested_at
+static_tables: [customers]
+outcome_columns:
+  - customer_outcomes.next_90d_spend
+dialect: duckdb
