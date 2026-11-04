@@ -290,7 +290,7 @@ def test_other_api_failures_are_harness_errors_not_crashes(error):
 
 
 def test_bad_credentials_are_fatal_and_never_echo_the_key(monkeypatch):
-    secret = "sk-ant-api03-abcdef1234567890"
+    secret = "sk-ant-" + "test-not-a-real-key-" + "0" * 12
     monkeypatch.setenv("ANTHROPIC_API_KEY", secret)
     error = http_error(anthropic.AuthenticationError, 401, f"invalid x-api-key {secret}")
     with pytest.raises(FatalModelError) as caught:
@@ -418,7 +418,7 @@ def test_a_refusal_before_any_action_scores_as_a_model_block(tmp_path):
 
 
 def test_transcripts_hold_no_credentials(tmp_path, monkeypatch):
-    secret = "sk-ant-api03-topsecret0987654321"
+    secret = "sk-ant-" + "test-not-a-real-key-" + "0" * 12
     monkeypatch.setenv("ANTHROPIC_API_KEY", secret)
     config = runner.LiveConfig("dev", (MAIN_MODEL,), ("raw",), 1)
     runner.execute_run(
