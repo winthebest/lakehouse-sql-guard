@@ -8,5 +8,6 @@ rules:
   L4: 0.40
   L5: 0.85
   L6: 0.95
+  L7: 0.95
 replay_mismatch: 0.90
 threshold: 0.5
