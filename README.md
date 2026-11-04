@@ -225,7 +225,10 @@ ambiguous request meant, and it stops changes, not reads, of protected tables; t
 uv sync --all-extras
 uv run ruff check . && uv run ruff format --check .
 uv run pytest -q                 # Spark tests: uv run pytest -m spark (needs the Docker stack)
-uv run sqlguard-bench leakage run --seed 42 --real
+uv run sqlguard-bench leakage run --seed 42 --real   # current rules on dev + dev_v1b (in-sample)
 ```
+
+The v1 result files under `results/` were produced at tag `v0.1.1`; check out that tag to
+reproduce them exactly.
 
 License: Apache-2.0.
