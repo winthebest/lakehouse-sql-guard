@@ -37,7 +37,7 @@ flowchart LR
 |---|---|
 | `parsing.py` | Parse SQL with sqlglot into statements; parse errors raise `SqlParseError`. |
 | `lineage.py` | Qualify a query against a schema and compute column-level lineage. |
-| `catalog.py` | Local PyIceberg `SqlCatalog`; snapshot history with a *logical* visibility time (`sqlguard.logical-ts` summary property, falling back to commit time); main-branch time travel; detection of expired history. |
+| `catalog.py` | `LakehouseCatalog.local` (file-based `SqlCatalog`) or `from_config` (any PyIceberg catalog: REST, Glue, SQL, configured by `~/.pyiceberg.yaml` or `PYICEBERG_CATALOG__*`); the shared `--catalog` / `--warehouse` flags; snapshot history with a *logical* visibility time (`sqlguard.logical-ts` summary property, falling back to commit time); main-branch time travel; detection of expired history. |
 | `duck.py` | In-memory DuckDB over Arrow tables. File and network access are disabled and the setting is locked, so untrusted SQL only sees the tables it is given. |
 | `findings.py` | `Finding`, `Severity`, `Decision` shared by both modules. |
 
@@ -102,7 +102,8 @@ AST and the catalog state. `EXPLAIN` of a read-only query is a read of the same 
    schema changes) is measured and invariants (`max_delete_pct`, `not_null`,
    `unique_key`, ...) are checked before publishing.
 3. The policy is re-applied with the measured impact; an approver sees the impact report.
-4. Publishing is a compare-and-swap of main's head; a diverged main is refused.
+4. Publishing is a compare-and-swap of main's head to the snapshot that was measured; a
+   diverged main is refused (see *Publish by snapshot id*).
 5. Post-publish invariants run on the published snapshot; failure rolls back, but only if
    main still points at that snapshot.
 6. Every decision is written to an append-only JSONL audit log.
@@ -112,6 +113,55 @@ planned as a dry run first. Expiring snapshots removes time travel; deleting orp
 afterwards removes the data physically, so both are irreversible and need approval.
 `remove_orphan_files` only deletes files under the table location that no retained
 snapshot or ref references, re-checked against fresh metadata at deletion time.
+
+### Executor capabilities
+
+Every adapter (`executor/base.py`) carries an `engine` name and a frozen `Capabilities`:
+`branch_write`, `publish`, `rollback`, `expire`, `orphan_cleanup`, `changelog`. All default
+to `False`; an engine opts in. The Guard consults `branch_write` before it lets a write
+near the engine: a SQL write on an engine that cannot run DML on an isolated branch is
+denied up front with the reason `no isolated rehearsal on <engine>` (also when the policy
+would only have asked for approval), because the rehearsal is what makes a write safe to
+publish. Reads and policy denials are unaffected. An adapter without a `capabilities`
+attribute is treated as fully capable. `DuckDBIcebergAdapter` and `SparkIcebergAdapter`
+declare everything except `changelog`.
+
+### Publish by snapshot id
+
+`ExecutorAdapter.publish(branch, expected_head)` moves main to the snapshot `expected_head`
+and nothing else. The Guard obtains it from `diff()`, which returns a `BranchHandle` whose
+`head_snapshot_id` is the head it measured; the same snapshot is the one an approver is
+shown. Anything written to the branch afterwards is not published, which a ref-based
+fast-forward (Iceberg's `fast_forward` procedure, `fast_forward_branch`) cannot guarantee.
+
+Steps, identical for every adapter because Spark publishes through the same PyIceberg
+code against the same catalog: reload the table; main must still be the branch's base
+(`BranchDiverged` otherwise); `expected_head == base` is a no-op; the base must be an
+ancestor of `expected_head`; `set_current_snapshot(snapshot_id=expected_head)`, whose
+commit carries the catalog's own assertion on the main ref (a writer that slips in makes
+it fail with `BranchDiverged`); finally main must sit on `expected_head`, else
+`PublishMismatch` (an `ExecutionError` carrying where main is now). After a
+`PublishMismatch` main has moved, so the Guard rolls it back to the base and reports
+`rolled_back` with `published=False`. The approved fast-forward *maintenance action* moves
+main to the snapshot recorded in its plan the same way.
+
+A SQL catalog stores every table under the catalog name it was created with, so a
+warehouse written by `LakehouseCatalog.local` (name `sqlguard`) is opened by
+`from_config("sqlguard", ...)`.
+
+### CLI registry
+
+`sqlguard` (`src/sqlguard/cli/`) is a package: `__init__.py` owns the root parser, `main`
+and the registry; each command group is a module that calls
+`register(name, add_parser, handler)` when imported. `add_parser(subparsers)` builds the
+group's parser and returns it; `handler(args)` runs the chosen command and returns the exit
+code (`main` turns `OSError` / `ValueError` into exit code 2). `build_parser` imports the
+group modules (`leakage`, `safety`, `approvals`) and mounts whatever registered, in
+registration order, so a new group needs its own module and no edit to another group's.
+`approvals.py` is reserved and registers nothing yet. Catalog flags come from
+`core.catalog.add_catalog_args` / `catalog_from_args` and are shared by the groups that
+open a lakehouse (`--catalog NAME` or `--warehouse PATH`, plus `--catalog-namespace`);
+`sqlguard-mcp` takes `--catalog` / `SQLGUARD_CATALOG` as an alternative to `--warehouse`.
 
 ## Benchmarks (`bench/`)
 
