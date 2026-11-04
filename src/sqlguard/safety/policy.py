@@ -32,6 +32,7 @@ from sqlguard.safety.classifier import (
     ReversibilityClass,
     StatementClass,
 )
+from sqlguard.safety.invariants import InvariantConfigError, InvariantsConfig
 
 C = ReversibilityClass
 
@@ -53,6 +54,7 @@ _TOP_LEVEL_KEYS = {
     "retention",
     "thresholds",
     "task_scope",
+    "invariants",
 }
 
 
@@ -130,6 +132,7 @@ class Policy:
     table_retention: dict[str, RetentionRule] = field(default_factory=dict)
     thresholds: Thresholds = field(default_factory=Thresholds)
     task_scope: TaskScope | None = None
+    invariants: InvariantsConfig = field(default_factory=InvariantsConfig)
 
     def __post_init__(self) -> None:
         decisions = self.class_decisions
@@ -199,6 +202,7 @@ class Policy:
             table_retention=table_rules,
             thresholds=_thresholds(_mapping(data, "thresholds")),
             task_scope=scope,
+            invariants=_invariants(data.get("invariants"), namespace),
         )
 
     # -- decisions -----------------------------------------------------------------------------
@@ -358,6 +362,13 @@ def _retention_rule(cfg: Mapping[str, Any], base: RetentionRule) -> RetentionRul
             cfg.get("min_orphan_age_days", base.min_orphan_age_days), "min_orphan_age_days"
         ),
     )
+
+
+def _invariants(cfg: Any, namespace: str) -> InvariantsConfig:
+    try:
+        return InvariantsConfig.from_dict(cfg, namespace)
+    except InvariantConfigError as err:
+        raise PolicyError(str(err)) from err
 
 
 def _thresholds(cfg: Mapping[str, Any]) -> Thresholds:
