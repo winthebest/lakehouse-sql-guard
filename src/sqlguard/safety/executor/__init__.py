@@ -20,6 +20,7 @@ from sqlguard.safety.executor.orphan_files import (
     find_orphans,
     referenced_paths,
 )
+from sqlguard.safety.executor.spark_iceberg import SparkIcebergAdapter
 
 __all__ = [
     "BranchDiff",
@@ -34,6 +35,7 @@ __all__ = [
     "OrphanSafetyError",
     "PlannedSnapshot",
     "PublishResult",
+    "SparkIcebergAdapter",
     "UnsupportedAction",
     "delete_orphans",
     "find_orphans",
