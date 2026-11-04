@@ -57,6 +57,14 @@ event time only, which only replay over snapshot history can settle). Exit code 
 "do not merge". The second prints `ASK (risky_write)`: a `DELETE` without `WHERE` needs a
 human.
 
+Add `--suggest-fix` to get a point-in-time rewrite of each leaky query as a unified diff
+(files are never written; `--json` adds a `fixes` list). Each fix carries two labels:
+`verification` says whether the repaired query was re-checked statically and, with
+`--replay`, over snapshot history; `semantics` says whether it provably still computes the
+same thing (`preserved`) or changes it (`changed`, with a caveat saying how). See
+[examples/leakage/fix-demo](examples/leakage/fix-demo) and
+[docs/limitations.md](docs/limitations.md#leakage-fix-suggestions).
+
 You describe time in a small YAML spec; nothing is inferred from column names:
 
 ```yaml

@@ -116,8 +116,10 @@ Reported unverifiable rather than checked:
 16. Replay needs snapshot history covering the sampled prediction times. If it was expired,
     the result is unverifiable, never clean. A prediction time that precedes the first
     main-branch snapshot of a table the query reads (a seed or one-off load) is left out and
-    the remaining times decide; the reason notes how many were skipped. If all are skipped, or
-    skipping leaves too little evidence, the result is unverifiable and blocks the query.
+    the sample is drawn from the covered range; if that range gives fewer than 20 rows or 3
+    times, the result is unverifiable and blocks the query, never clean. A leak that is only
+    visible before a table's first snapshot cannot be seen, so a PASS says nothing about
+    those times.
     A snapshot is visible at its `sqlguard.logical-ts` property, else its commit time. Static
     tables are pinned like any other and read as they are now only when their history starts
     late; outcome tables are empty before they exist.
@@ -186,3 +188,34 @@ Reported unverifiable rather than checked:
     a classifier gap.
 31. The integration matrix runs on Lakekeeper, the Iceberg REST fixture and Polaris. AWS Glue
     is expected to work through PyIceberg's Glue catalog but is untested.
+
+## Leakage: fix suggestions
+
+32. A fix is a rewrite of the query; formatting is normalized in the diff and comments are
+    kept. Files are never written. Rewritten: missing bounds (join `ON` or correlated
+    `WHERE`), availability bounds, inclusive and shifted bounds, frames and windows that read
+    later rows, a `LEAD` output column, the latest-prediction filter, and latest-row
+    subqueries (ASOF join for a table with one time column in DuckDB and Snowflake,
+    `ROW_NUMBER` otherwise). Explained only: L6, L7, an aggregate CTE or derived table
+    grouped by entity alone (it needs the prediction time as an input), label-table cutoffs,
+    timezone mismatches and calendar-unit offsets.
+33. `verification` is about leaks only: `static_only` means the validator no longer reports
+    the finding and the rewrite adds none; `static_and_replay` adds a replay PASS and a clean
+    verdict; `unverified` means the checker still reports it or replay disagrees. Replay
+    cannot tell whether a fix computes the same thing: it runs the same query pinned and
+    unpinned, so a rewrite that computes another quantity also passes.
+34. `semantics` is decided from the query text and is the same with or without `--replay`.
+    `preserved` is a narrow, proven claim: the bound sits in the `ON` of the table's own
+    `LEFT JOIN` (or in a correlated scalar subquery in the projection), every read of that
+    table is an aggregate that is NULL (0 for a count of a column) for a row with no match,
+    with NULL-strict arguments and `FILTER`, and the values leave the query only through
+    plain pass-through wrappers. The check runs on the sqlglot-qualified query; select
+    aliases, ordinals, unresolved `*`, column alias lists and anything else it does not
+    model make the fix `changed` with `rows may drop:`. Read the caveats of a `changed`
+    fix before applying it (a mirrored window, `LEFT` instead of `INNER JOIN`, `COUNT` of
+    the joined key, a removed filter).
+35. Mirrored windows and flipped `MIN`/`ASC` orderings are guesses about intent that replay
+    cannot confirm; their caveat asks you to confirm the span.
+36. Snowflake's `ASOF JOIN ... MATCH_CONDITION` is written by hand and checked in its `ON`
+    form; it has not been run on Snowflake. Spark and Trino get the `ROW_NUMBER` form; the
+    rewrites have not been run on those engines.
