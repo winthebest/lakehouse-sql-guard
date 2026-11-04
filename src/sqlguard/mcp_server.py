@@ -1,18 +1,23 @@
 """MCP server: the guarded lakehouse tools, plus a training-SQL leakage check, over stdio.
 
     sqlguard-mcp --warehouse ./warehouse --policy policy.yaml --audit-log audit.jsonl \\
-        --scope-table db.orders --spec-dir ./specs
-    sqlguard-mcp --catalog prod --namespace sales --audit-log audit.jsonl --scope-table sales.orders
+        --store ./actions.db --scope-table db.orders --spec-dir ./specs
+    sqlguard-mcp --catalog prod --namespace sales --audit-log audit.jsonl --store ./actions.db \\
+        --scope-table sales.orders
 
 Every data tool of `sqlguard.safety.tools` (`list_tables`, `describe_table`, `run_sql`,
 `expire_snapshots`, `remove_orphan_files`, `rollback`) is served through the GUARDED backend
 only: each call goes through `Guard.submit`, so classification, policy, branch rehearsal,
 invariants and the audit log apply. There is no raw backend here and no switch to get one.
 
-No human is attached to this server, so an action the policy marks "ask" is never approved:
-the client gets the decision, the reasons and the measured impact (or the maintenance plan) back
-as a `needs_approval` result, and nothing is published. Approving it is an out-of-band step by an
-operator (for example `Guard.submit(..., approver=...)` in their own tooling).
+No human is attached to this server. An action the policy marks "ask" is rehearsed on a branch,
+saved in the action store (`--store`) and reported as `pending_approval` with its `action_id`, a
+short summary and when it expires; nothing is published. The agent can follow it with
+`get_action_status(action_id)`, which reports a state and can decide nothing: this process holds
+no proof verifier and no approver, so it cannot resolve an action. A person decides it out of band
+with `sqlguard serve` or `sqlguard approvals`, started with the same `--store`, `--policy` and
+catalog. On startup the server settles publishes a crash left half-way (`Guard.reconcile`) and
+expires actions nobody decided (`Guard.expire_pending`).
 
 `check_training_sql` runs the leakage validator. Its `spec_path` must be a YAML file inside
 `--spec-dir`, and `warehouse` (when given) must be the server's own warehouse, so a client cannot
@@ -23,15 +28,21 @@ Limit: the default executor rehearses a write by loading the whole table into me
 rewriting it on a branch. That suits warehouses of benchmark size; do not point `--catalog` at a
 large production table until an engine-backed executor is selectable.
 
-Configuration comes from flags or, when a flag is absent, environment variables:
+Catalog credentials belong in the `env` of the MCP server entry of the host, never in a file the
+agent can read. Configuration comes from flags or, when a flag is absent, environment variables:
 
     --warehouse        SQLGUARD_WAREHOUSE        existing local Iceberg warehouse (or --catalog)
     --catalog          SQLGUARD_CATALOG          PyIceberg catalog name from ~/.pyiceberg.yaml or
                                                  PYICEBERG_CATALOG__* variables (this or
-                                                 --warehouse); --audit-log is then required
+                                                 --warehouse); --audit-log and --store are then
+                                                 required
     --namespace        SQLGUARD_NAMESPACE        default namespace for bare table names (db)
     --policy           SQLGUARD_POLICY           policy YAML (default: strict built-in policy)
     --audit-log        SQLGUARD_AUDIT_LOG        audit JSONL (<warehouse>/sqlguard-audit.jsonl)
+    --store            SQLGUARD_STORE            action store (<warehouse>/sqlguard-actions.db)
+    --review-url       SQLGUARD_REVIEW_URL       where the person reviews, echoed to the agent
+    --requester        SQLGUARD_REQUESTER        fixed label on every action this server queues
+                                                 (mcp); the per-requester queue limit counts it
     --scope-table      SQLGUARD_SCOPE_TABLES     tables the task may touch (comma-separated)
     --scope-namespace  SQLGUARD_SCOPE_NAMESPACES namespaces the task may touch (comma-separated)
     --spec-dir         SQLGUARD_SPEC_DIR         directory holding leakage specs (default: cwd)
@@ -52,6 +63,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import anyio
 import anyio.to_thread
@@ -70,10 +82,13 @@ from mcp.types import (
 from sqlguard.core.catalog import DEFAULT_NAMESPACE, LakehouseCatalog
 from sqlguard.leakage.spec import LeakageSpec, SpecError
 from sqlguard.leakage.validator import validate
-from sqlguard.safety import ApprovalRequest, Guard, Policy, PolicyError, TaskScope
+from sqlguard.safety import Guard, Policy, PolicyError, TaskScope
 from sqlguard.safety.audit import AuditError
+from sqlguard.safety.store import ActionStore, StoreError
 from sqlguard.safety.tools import (
     DEFAULT_MAX_ROWS,
+    STATUS_SPEC,
+    STATUS_TOOL,
     TOOL_SPECS,
     GuardedBackend,
     ToolResult,
@@ -92,10 +107,13 @@ INSTRUCTIONS = (
     "Lakehouse tools guarded by sqlguard. Every query and change is classified and checked "
     "against a policy before it runs; writes are rehearsed on an Iceberg branch and published "
     "only when the policy and the data-quality checks allow it. A result with status "
-    "'needs_approval' means a human reviewer must approve the action: nothing was executed. "
-    "Report the reasons and impact to the user and wait; do not retry or reshape the action to "
-    "get around the check. check_training_sql validates a training-set SELECT for temporal "
-    "feature leakage before it is used."
+    "'pending_approval' means a person must approve the action first: nothing was changed. "
+    "Tell the user its action_id and summary, and where to review it if review_url is given, "
+    "then wait; do not retry, reword or split the action to get around the check. "
+    "get_action_status(action_id) shows whether it was decided; it cannot approve anything, so "
+    "call it when the user asks or once after they say they decided, not in a loop. "
+    "check_training_sql validates a training-set SELECT for temporal feature leakage before it "
+    "is used."
 )
 
 _LEAKAGE_SPEC = ToolSpec(
@@ -127,7 +145,9 @@ _LEAKAGE_SPEC = ToolSpec(
         "additionalProperties": False,
     },
 )
-_READ_ONLY_TOOLS = frozenset({"list_tables", "describe_table", LEAKAGE_TOOL})
+_READ_ONLY_TOOLS = frozenset({"list_tables", "describe_table", STATUS_TOOL, LEAKAGE_TOOL})
+DEFAULT_REQUESTER = "mcp"
+_MAX_REQUESTER_CHARS = 64
 
 
 class ConfigError(ValueError):
@@ -141,39 +161,22 @@ class ServerConfig:
     namespace: str = DEFAULT_NAMESPACE
     policy: Path | None = None
     audit_log: Path | None = None
+    store: Path | None = None  # action store; default <warehouse>/sqlguard-actions.db
+    review_url: str | None = None
+    requester: str = DEFAULT_REQUESTER
     scope_tables: tuple[str, ...] = ()
     scope_namespaces: tuple[str, ...] = ()
     spec_dir: Path | None = None
     max_rows: int = DEFAULT_MAX_ROWS
 
 
-class _NoReviewer:
-    """Approver for a server with no human attached: it never approves.
-
-    Declining (instead of leaving the approver out) makes the guard rehearse a write on an audit
-    branch first, so the client still gets the measured impact. `deferred` tells the server that
-    the decline means "nobody to ask", which it reports as `needs_approval`, not as a rejection.
-    """
-
-    approver_id = "sqlguard-mcp:no-reviewer"
-
-    def __init__(self) -> None:
-        self.deferred = False
-
-    def __call__(self, request: ApprovalRequest) -> bool:
-        self.deferred = True
-        return False
-
-
-_NO_REVIEWER_REASON = "approval is required and no human reviewer is attached to this server"
-
-
 class LakehouseTools:
     """The server's tool surface: the guarded backend plus the leakage check.
 
     Calls are serialized: the guard rehearses and publishes against one catalog, and two
-    concurrent submissions would race on the same table pointers. Build the backend with
-    `LakehouseTools.create`, which attaches the no-reviewer approver.
+    concurrent submissions would race on the same table pointers. Build it with
+    `LakehouseTools.create`. The backend has no approver, so an action that needs one is queued
+    in the Guard's store and never decided here.
     """
 
     def __init__(
@@ -181,12 +184,12 @@ class LakehouseTools:
         backend: GuardedBackend,
         spec_dir: Path,
         warehouse: Path | None,
-        reviewer: _NoReviewer | None = None,
+        review_url: str | None = None,
     ) -> None:
         self.backend = backend
         self.spec_dir = spec_dir.resolve()
         self.warehouse = warehouse.resolve() if warehouse is not None else None
-        self._reviewer = reviewer or _NoReviewer()
+        self.review_url = review_url
         self._lock = threading.Lock()
 
     @classmethod
@@ -197,19 +200,23 @@ class LakehouseTools:
         spec_dir: Path,
         warehouse: Path | None,
         max_rows: int = DEFAULT_MAX_ROWS,
+        review_url: str | None = None,
     ) -> LakehouseTools:
-        reviewer = _NoReviewer()
-        backend = GuardedBackend(guard, scope, approver=reviewer, max_rows=max_rows)
-        return cls(backend, spec_dir, warehouse, reviewer)
+        backend = GuardedBackend(guard, scope, approver=None, max_rows=max_rows)
+        return cls(backend, spec_dir, warehouse, review_url)
+
+    @property
+    def tool_specs(self) -> tuple[ToolSpec, ...]:
+        status = (STATUS_SPEC,) if self.backend.supports_status else ()
+        return (*TOOL_SPECS, *status, _LEAKAGE_SPEC)
 
     def call(self, name: str, arguments: Mapping[str, Any]) -> ToolResult:
         with self._lock:
             if name == LEAKAGE_TOOL:
                 return self._check_training_sql(arguments)
-            self._reviewer.deferred = False
             result = self.backend.call(name, arguments)
-            if result.status == "approval_rejected" and self._reviewer.deferred:
-                return _awaiting_approval(result)
+            if result.status == "pending_approval" and self.review_url:
+                return replace(result, payload={**result.payload, "review_url": self.review_url})
             return result
 
     # -- leakage ---------------------------------------------------------------------------------
@@ -268,32 +275,6 @@ class LakehouseTools:
         return self.backend.catalog
 
 
-def _awaiting_approval(result: ToolResult) -> ToolResult:
-    """Report a decline by `_NoReviewer` as what it is: the action is held, not rejected."""
-    payload = {
-        **result.payload,
-        "status": "needs_approval",
-        "outcome": "awaiting_approval",
-        "message": (
-            "Not run: the action needs a human reviewer's approval and none is attached to this "
-            "server. Show the reasons and impact to the user; an operator must approve it "
-            "outside this session."
-        ),
-        "reasons": [
-            _NO_REVIEWER_REASON if "approver rejected" in reason else reason
-            for reason in result.payload.get("reasons", [])
-        ],
-    }
-    guard = dict(result.guard) if result.guard else None
-    if guard is not None:
-        guard["outcome"] = "awaiting_approval"
-        guard["reasons"] = [
-            _NO_REVIEWER_REASON if "approver rejected" in reason else reason
-            for reason in guard.get("reasons", [])
-        ]
-    return replace(result, status="needs_approval", payload=payload, guard=guard)
-
-
 def _failure(name: str, message: str) -> ToolResult:
     return ToolResult(name, "error", {"status": "error", "error": message})
 
@@ -311,7 +292,7 @@ def _annotations(spec: ToolSpec) -> ToolAnnotations:
     )
 
 
-def _tools() -> list[Tool]:
+def _tools(specs: Sequence[ToolSpec]) -> list[Tool]:
     return [
         Tool(
             name=spec.name,
@@ -319,7 +300,7 @@ def _tools() -> list[Tool]:
             input_schema=dict(spec.parameters),
             annotations=_annotations(spec),
         )
-        for spec in (*TOOL_SPECS, _LEAKAGE_SPEC)
+        for spec in specs
     ]
 
 
@@ -333,7 +314,7 @@ def _to_call_result(result: ToolResult) -> CallToolResult:
 
 def build_server(tools: LakehouseTools) -> Server:
     """A low-level MCP server whose tool list and schemas are exactly the ones in `tools.py`."""
-    listed = _tools()
+    listed = _tools(tools.tool_specs)
 
     async def list_tools(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
@@ -364,6 +345,24 @@ def _split(value: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in (value or "").split(",") if part.strip())
 
 
+def _review_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    parts = urlsplit(value.strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ConfigError("--review-url must be an http(s) URL")
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise ConfigError("--review-url must not carry credentials, a query or a fragment")
+    return value.strip().rstrip("/")
+
+
+def _requester(value: str) -> str:
+    label = value.strip()
+    if not label or len(label) > _MAX_REQUESTER_CHARS or not label.isprintable():
+        raise ConfigError(f"--requester must be 1 to {_MAX_REQUESTER_CHARS} printable characters")
+    return label
+
+
 def build_config(
     argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 ) -> ServerConfig:
@@ -374,6 +373,9 @@ def build_config(
     parser.add_argument("--namespace", default=env.get("SQLGUARD_NAMESPACE", DEFAULT_NAMESPACE))
     parser.add_argument("--policy", default=env.get("SQLGUARD_POLICY"))
     parser.add_argument("--audit-log", default=env.get("SQLGUARD_AUDIT_LOG"))
+    parser.add_argument("--store", default=env.get("SQLGUARD_STORE"))
+    parser.add_argument("--review-url", default=env.get("SQLGUARD_REVIEW_URL"))
+    parser.add_argument("--requester", default=env.get("SQLGUARD_REQUESTER") or DEFAULT_REQUESTER)
     parser.add_argument("--scope-table", action="append", default=None)
     parser.add_argument("--scope-namespace", action="append", default=None)
     parser.add_argument("--spec-dir", default=env.get("SQLGUARD_SPEC_DIR"))
@@ -384,12 +386,20 @@ def build_config(
     catalog = args.catalog or (None if args.warehouse else env.get("SQLGUARD_CATALOG"))
     if bool(warehouse) == bool(catalog):
         parser.error("exactly one of --warehouse (SQLGUARD_WAREHOUSE) or --catalog is required")
+    try:
+        review_url = _review_url(args.review_url)
+        requester = _requester(args.requester)
+    except ConfigError as err:
+        parser.error(str(err))
     return ServerConfig(
         warehouse=Path(warehouse).expanduser() if warehouse else None,
         catalog=catalog or None,
         namespace=args.namespace,
         policy=Path(args.policy).expanduser() if args.policy else None,
         audit_log=Path(args.audit_log).expanduser() if args.audit_log else None,
+        store=Path(args.store).expanduser() if args.store else None,
+        review_url=review_url,
+        requester=requester,
         scope_tables=tuple(args.scope_table or _split(env.get("SQLGUARD_SCOPE_TABLES"))),
         scope_namespaces=tuple(
             args.scope_namespace or _split(env.get("SQLGUARD_SCOPE_NAMESPACES"))
@@ -400,7 +410,11 @@ def build_config(
 
 
 def build_tools(config: ServerConfig) -> LakehouseTools:
-    """Open the lakehouse and wire policy, audit log and scope into a guarded backend."""
+    """Open the lakehouse and wire policy, audit log, store and scope into a guarded backend.
+
+    The Guard gets the action store and a fixed requester label, and neither an approver nor a
+    proof verifier: this process can queue an action and read its status, never decide it.
+    """
     warehouse = config.warehouse.resolve() if config.warehouse is not None else None
     if config.catalog is None:
         if warehouse is None:
@@ -425,12 +439,22 @@ def build_tools(config: ServerConfig) -> LakehouseTools:
     else:
         raise ConfigError("a warehouse or a catalog name is required")
     audit_path = config.audit_log or (warehouse / "sqlguard-audit.jsonl" if warehouse else None)
+    store_path = config.store or (warehouse / "sqlguard-actions.db" if warehouse else None)
     if audit_path is None:
         raise ConfigError("--audit-log is required with --catalog")
+    if store_path is None:
+        raise ConfigError("--store is required with --catalog")
     try:
-        guard = Guard(catalog, policy, audit_path=audit_path)
+        store = ActionStore(store_path)
+    except StoreError as err:
+        raise ConfigError(str(err)) from err
+    try:
+        guard = Guard(
+            catalog, policy, audit_path=audit_path, store=store, requester=config.requester
+        )
     except (OSError, AuditError) as err:
         raise ConfigError(f"cannot open the audit log {audit_path}: {err}") from err
+    _settle(guard)
     scope = None
     if config.scope_tables or config.scope_namespaces:
         scope = TaskScope.of(
@@ -439,8 +463,30 @@ def build_tools(config: ServerConfig) -> LakehouseTools:
             default_namespace=config.namespace,
         )
     return LakehouseTools.create(
-        guard, scope, config.spec_dir or Path.cwd(), warehouse, max_rows=config.max_rows
+        guard,
+        scope,
+        config.spec_dir or Path.cwd(),
+        warehouse,
+        max_rows=config.max_rows,
+        review_url=config.review_url,
     )
+
+
+def _settle(guard: Guard) -> None:
+    """Settle what a previous run left behind: half-finished publishes, then late actions.
+
+    A failure is logged, not fatal: the tools still work, and `sqlguard serve` repeats this on
+    its own schedule.
+    """
+    try:
+        for settled in guard.reconcile():
+            _log.warning(
+                "settled action %s as %s: %s", settled.action_id, settled.state, settled.reason
+            )
+        for action_id in guard.expire_pending():
+            _log.info("expired action %s", action_id)
+    except Exception:  # noqa: BLE001 - startup housekeeping must not keep the tools from serving
+        _log.warning("could not settle earlier actions; serving anyway", exc_info=True)
 
 
 async def serve(server: Server) -> None:
@@ -458,7 +504,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(2) from err
     _log.info(
         "serving %s tools over stdio (%s, audit log %s)",
-        len(TOOL_SPECS) + 1,
+        len(tools.tool_specs),
         f"catalog {config.catalog}" if config.catalog else f"warehouse {tools.warehouse}",
         tools.backend.guard.audit.path,
     )
@@ -472,6 +518,7 @@ if __name__ == "__main__":
 __all__ = [
     "INSTRUCTIONS",
     "LEAKAGE_TOOL",
+    "DEFAULT_REQUESTER",
     "ConfigError",
     "LakehouseTools",
     "ServerConfig",
