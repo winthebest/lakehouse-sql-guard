@@ -437,3 +437,29 @@ def test_an_asof_direction_flip_is_not_described_as_a_window():
     assert "ASOF match now picks the latest row before the prediction time" in text
     assert "mirrored" not in text
     assert fix.semantics is Semantics.CHANGED
+
+
+def test_a_bound_tightened_inside_an_inner_join_condition_says_rows_may_drop():
+    """The validity range of a version includes its start instant: making it strict removes the
+    version that started exactly at the prediction time, and the INNER JOIN drops the row."""
+    conn = duckdb.connect()
+    conn.execute(
+        "CREATE TABLE labels AS "
+        "SELECT 1 AS user_id, TIMESTAMP '2026-02-01' AS label_ts, 0 AS churned"
+    )
+    conn.execute(
+        "CREATE TABLE user_stats AS SELECT * FROM (VALUES "
+        "(1, TIMESTAMP '2026-01-01', 1.0, 1), (1, TIMESTAMP '2026-02-01', 2.0, 2)) "
+        "t(user_id, updated_at, total_spend, n_orders)"
+    )
+    sql = (
+        "WITH versions AS (SELECT user_id, total_spend, updated_at AS valid_from, "
+        "LEAD(updated_at) OVER (PARTITION BY user_id ORDER BY updated_at) AS valid_to "
+        "FROM user_stats) "
+        f"{SEL}, v.total_spend AS feat FROM labels l JOIN versions v ON v.user_id = l.user_id "
+        "AND l.label_ts >= v.valid_from AND (l.label_ts < v.valid_to OR v.valid_to IS NULL)"
+    )
+    fix = last(sql)
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+    assert len(rows(conn, sql)) == 1 and len(rows(conn, fix.after_sql)) == 0

@@ -737,7 +737,13 @@ def _elsewhere_caveats(
             continue
         select = node.find_ancestor(exp.Select)
         clause = _clause_of(node, select) if select is not None else ""
-        if clause in ("where", "having", "qualify"):
+        other = node.find_ancestor(exp.Join)
+        if other is not None and other is not own_join and _inner(other):
+            caveats.append(
+                f"{ROWS_MAY_DROP}the bound is in the ON of the INNER JOIN to "
+                f"{other.alias_or_name}, so spine rows with no match under it drop"
+            )
+        elif clause in ("where", "having", "qualify"):
             caveats.append(
                 f"{ROWS_MAY_DROP}the bound is in the {clause.upper()}, so which spine rows pass "
                 f"it changes with the {ref.table} rows"
