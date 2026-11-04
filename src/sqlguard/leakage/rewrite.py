@@ -63,10 +63,24 @@ class Edit:
     explanation: str
     caveats: list[str] = field(default_factory=list)
     semantics: Semantics | None = None
+    # the id (see `tag_tree`) of the table the edit is about, for the proof in `proof.py`
+    proof_tag: int | None = None
+    proof_local: bool = True  # False: an edit that is not a bound on the table's own join
 
     def __post_init__(self) -> None:
         if self.semantics is None:  # a repair that says nothing else changed is only a bound
             self.semantics = Semantics.CHANGED if self.caveats else Semantics.PRESERVED
+
+    def not_shown(self, reason: str, table: str) -> None:
+        """The edit could not be shown to change only values: it is `changed`, and since a clause
+        the rewriter does not model may filter, limit or merge rows, it says rows may drop."""
+        self.semantics = Semantics.CHANGED
+        if not any(c.startswith(ROWS_MAY_DROP) for c in self.caveats):
+            self.caveats.append(
+                f"{ROWS_MAY_DROP}it cannot be shown that only the bound changed: {reason}; a "
+                f"clause that reads values derived from {table} may filter, limit or merge "
+                "spine rows"
+            )
 
 
 def tag_tree(tree: exp.Expression) -> dict[int, exp.Expression]:
@@ -317,6 +331,7 @@ def add_bounds(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         f"{'the join condition' if join is not None else 'the WHERE'}, so each prediction "
         "only sees facts that had already landed.",
         caveats,
+        proof_tag=table.meta[TAG],
     )
 
 
@@ -921,6 +936,7 @@ def tighten(ctx: Context, ref: TableRef) -> Edit | None:
         "Make the upper bound strict (`<`, no offset) so facts stamped at the prediction time, "
         "or shifted past it by a timezone, are not read.",
         list(dict.fromkeys(caveats)),
+        proof_tag=table.meta[TAG],
     )
 
 
@@ -1080,6 +1096,7 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
         "prediction time, over the same span.",
         list(dict.fromkeys(caveats)),
         Semantics.CHANGED,
+        proof_tag=table.meta[TAG],
     )
 
 
@@ -1155,6 +1172,8 @@ def fix_window(ctx: Context, issue: WindowIssue) -> Edit | None:
         f"The frame {old_text} reached rows after the current one; it is now {new_text} ({how}).",
         list(dict.fromkeys(caveats)),
         Semantics.CHANGED,
+        proof_tag=table.meta[TAG] if table is not None else None,
+        proof_local=False,
     )
 
 
@@ -1402,6 +1421,7 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
     alias = latest.alias
     table = fresh(latest.table)
     table.set("alias", exp.TableAlias(this=exp.to_identifier(alias)))
+    table.meta[TAG] = max(ctx.nodes, default=0) + 1
     extra = [_requalify(fresh(where.this), alias)] if where is not None else []
     join = latest.join
     caveats = [
@@ -1499,6 +1519,8 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         f"prediction time among rows known before it ({how}).",
         caveats,
         Semantics.CHANGED,
+        proof_tag=table.meta[TAG],
+        proof_local=False,
     )
 
 

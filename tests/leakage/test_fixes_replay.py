@@ -132,6 +132,29 @@ SHAPES = {
         f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
         "GROUP BY 1, 2, 3 ORDER BY MAX(e.amount) DESC LIMIT 50"
     ),
+    "alias in HAVING": (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3 HAVING a > 0"
+    ),
+    "alias in ORDER BY with LIMIT": (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3 ORDER BY a DESC LIMIT 50"
+    ),
+    "ordinal in ORDER BY with LIMIT": (f"SELECT * FROM ({AGG}) t ORDER BY 4 DESC LIMIT 50"),
+    "column alias list": (
+        f"SELECT u AS user_id, ts AS label_ts, b FROM ({AGG}) t(u, ts, c, b) WHERE b > 0"
+    ),
+    "REPLACE to another name": (
+        f"SELECT * FROM (SELECT * REPLACE (a AS churned) FROM ({AGG}) t) s WHERE churned > 0"
+    ),
+    "scalar subquery in an outer WHERE": (
+        f"WITH t AS ({AGG}) SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE "
+        "(SELECT t.a FROM t WHERE t.user_id = l.user_id AND t.label_ts = l.label_ts) > 0"
+    ),
+    "struct field": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, {{'v': a}} s FROM ({AGG}) t) q "
+        "WHERE q.s.v > 0"
+    ),
     "plain bound": EVENT_TIME_ONLY,
     "count star": (
         f"{SEL}, COUNT(*) n FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "

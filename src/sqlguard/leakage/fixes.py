@@ -30,7 +30,7 @@ from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Finding
 from sqlguard.core.lineage import Schema
 from sqlguard.core.parsing import parse_single
-from sqlguard.leakage import rewrite
+from sqlguard.leakage import proof, rewrite
 from sqlguard.leakage.analysis import QueryAnalysis, analyze_tree
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
@@ -225,6 +225,10 @@ def _repair(
         if after == text or _dangling(trial):
             skipped.add(_key(finding))
             continue
+        if edit.proof_tag is not None:
+            reason = proof.unproven(trial, edit.proof_tag, schema, spec.dialect, edit.proof_local)
+            if reason:
+                edit.not_shown(reason, finding.location.split(" AS ")[0])
         checked = static_findings(after, spec, schema)
         before_keys = Counter(_key(f) for f in findings)
         after_keys = Counter(_key(f) for f in checked)

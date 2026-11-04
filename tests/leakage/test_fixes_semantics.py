@@ -538,27 +538,49 @@ def test_a_deduplication_over_the_bounded_values_says_rows_may_drop(sql):
 
 
 PLAIN_UP = {
+    "no wrapper at all": f"{SEL}, SUM(e.amount) a {LJ} {G}",
     "derived table, nothing done with it": f"SELECT * FROM ({AGG}) t",
-    "two levels, plain outputs and arithmetic": (
-        f"SELECT * FROM (SELECT user_id, label_ts, churned, a * 2 AS b FROM "
+    "derived table, explicit columns": f"SELECT user_id, label_ts, churned, a FROM ({AGG}) t",
+    "pass-through with a rename, two levels": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, a AS b FROM "
         f"(SELECT * FROM ({AGG}) t1) t2) t3"
     ),
     "cte read once": f"WITH t AS ({AGG}) SELECT user_id, label_ts, churned, a FROM t",
-    "union all of the aggregate": f"SELECT * FROM ({AGG}) t UNION ALL {SPINE}",
-    "order by the aggregate without a limit": f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY a DESC",
+    "cte chain of pass-throughs": (
+        f"WITH t AS ({AGG}), u AS (SELECT user_id, label_ts, churned, a AS b FROM t) "
+        "SELECT * FROM u"
+    ),
 }
 
 
 @pytest.mark.parametrize("sql", PLAIN_UP.values(), ids=PLAIN_UP.keys())
-def test_a_value_that_only_travels_up_as_an_output_keeps_the_meaning(db, sql):
+def test_a_value_that_only_passes_through_plain_wrappers_keeps_the_meaning(db, sql):
     fix = last(sql)
     assert fix.semantics is Semantics.PRESERVED and fix.caveats == []
     assert key_counts_of(db, sql) == key_counts_of(db, fix.after_sql)
 
 
-def test_a_filter_on_an_unrelated_column_of_the_same_scope_is_not_blamed(db):
-    sql = f"SELECT * FROM ({AGG}) t WHERE churned = 0"
-    assert last(sql).semantics is Semantics.PRESERVED
+# Not wrong, just not shown: the allowlist is narrow on purpose (see proof.py). Each of these is
+# `changed` with `rows may drop:` whether or not it would drop a row on the data at hand.
+NOT_SHOWN = {
+    "arithmetic on the value in a wrapper": (
+        f"SELECT user_id, label_ts, churned, a * 2 AS b FROM ({AGG}) t"
+    ),
+    "union all with the value": f"SELECT * FROM ({AGG}) t UNION ALL {SPINE}",
+    "order by an alias, no limit": f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY a DESC",
+    "a filter on an unrelated column above": f"SELECT * FROM ({AGG}) t WHERE churned = 0",
+    "the value joined back, no condition on it": (
+        f"WITH t AS ({AGG}) SELECT l.user_id, l.label_ts, l.churned, t.a FROM labels l "
+        "LEFT JOIN t ON t.user_id = l.user_id AND t.label_ts = l.label_ts"
+    ),
+}
+
+
+@pytest.mark.parametrize("sql", NOT_SHOWN.values(), ids=NOT_SHOWN.keys())
+def test_what_the_allowlist_does_not_recognize_is_not_preserved(sql):
+    fix = last(sql)
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
 
 
 def test_a_table_joined_twice_names_the_fan_out_not_a_value_of_its_own():
@@ -598,3 +620,122 @@ def test_removing_the_latest_prediction_filter_has_a_row_caveat_with_a_prefix():
         "QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) = 1"
     )
     assert any(c.startswith(ROWS_CHANGE) for c in fix.caveats)
+
+
+# --- references that are not made by plain name -------------------------------------------------
+# Each of these filters, limits or merges rows through something other than a column named like
+# the aggregate: a select alias, an ordinal, a column alias list, `* REPLACE`, a struct field, a
+# subquery in an outer WHERE. None may be `preserved`, with or without replay.
+
+T_AGG = AGG
+Z_SPINE = "SELECT l.user_id, l.label_ts, l.churned, CAST(NULL AS DOUBLE) AS z FROM labels l"
+BY_ALIAS_AND_POSITION = {
+    "alias in HAVING": f"{SEL}, SUM(e.amount) a {LJ} {G} HAVING a > 0",
+    "alias in QUALIFY": f"{SEL}, SUM(e.amount) a {LJ} {G} QUALIFY a > 0",
+    "alias in ORDER BY with LIMIT": f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY a DESC LIMIT 2",
+    "ordinal in ORDER BY with LIMIT": f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY 4 DESC LIMIT 2",
+    "ordinal in ORDER BY with LIMIT, outer": f"SELECT * FROM ({T_AGG}) t ORDER BY 4 DESC LIMIT 2",
+    "ordinal in ORDER BY with LIMIT, inside a cte": (
+        f"WITH t AS ({T_AGG} ORDER BY 4 DESC LIMIT 2) SELECT * FROM t"
+    ),
+    "column alias list on a derived table": (
+        f"SELECT u AS user_id, ts AS label_ts, b FROM ({T_AGG}) t(u, ts, c, b) WHERE b > 0"
+    ),
+    "column alias list on a cte": (
+        f"WITH t(u, ts, c, b) AS ({T_AGG}) SELECT u AS user_id, ts AS label_ts, b FROM t "
+        "WHERE b > 0"
+    ),
+    "REPLACE to another name": (
+        f"SELECT * FROM (SELECT * REPLACE (a AS churned) FROM ({T_AGG}) t) s WHERE churned > 0"
+    ),
+    "REPLACE with arithmetic": (
+        f"SELECT * FROM (SELECT * REPLACE (a * 2 AS a) FROM ({T_AGG}) t) s WHERE a > 0"
+    ),
+    "EXCLUDE then rename": (
+        f"SELECT * FROM (SELECT * EXCLUDE (a), a AS b FROM ({T_AGG}) t) s WHERE b > 0"
+    ),
+    "scalar subquery in an outer WHERE": (
+        f"WITH t AS ({T_AGG}) SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE "
+        "(SELECT t.a FROM t WHERE t.user_id = l.user_id AND t.label_ts = l.label_ts) > 0"
+    ),
+    "scalar subquery in an outer WHERE, inside an expression": (
+        f"WITH t AS ({T_AGG}) SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE "
+        "COALESCE((SELECT MAX(t.a) FROM t WHERE t.user_id = l.user_id), 0) > 0"
+    ),
+    "scalar subquery in an outer HAVING": (
+        f"WITH t AS ({T_AGG}) SELECT l.user_id, l.label_ts, MAX(l.churned) c FROM labels l "
+        "GROUP BY 1, 2 HAVING MAX((SELECT t.a FROM t WHERE t.user_id = l.user_id "
+        "AND t.label_ts = l.label_ts)) > 0"
+    ),
+    "IN over the cte": (
+        f"WITH t AS ({T_AGG}) SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE "
+        "(l.user_id, l.label_ts) IN (SELECT user_id, label_ts FROM t WHERE a > 0)"
+    ),
+    "EXISTS over the cte": (
+        f"WITH t AS ({T_AGG}) SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE EXISTS "
+        "(SELECT 1 FROM t WHERE t.user_id = l.user_id AND t.label_ts = l.label_ts AND t.a > 0)"
+    ),
+    "struct field": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, {{'v': a}} s FROM ({T_AGG}) t) q "
+        "WHERE q.s.v > 0"
+    ),
+    "positional union renames the column": (
+        f"SELECT * FROM ({Z_SPINE} WHERE l.user_id < 0 UNION ALL {T_AGG}) x WHERE z > 0"
+    ),
+    "positional union in a cte": (
+        f"WITH x AS ({Z_SPINE} WHERE l.user_id < 0 UNION ALL SELECT * FROM ({T_AGG}) t) "
+        "SELECT * FROM x WHERE z IS NOT NULL"
+    ),
+    "outer QUALIFY over the value": (
+        f"SELECT * FROM ({T_AGG}) t QUALIFY ROW_NUMBER() OVER (PARTITION BY user_id "
+        "ORDER BY a DESC NULLS LAST) = 1"
+    ),
+    "lateral subquery filtered outside": (
+        f"{SEL}, x.a FROM labels l, LATERAL (SELECT SUM(e.amount) a FROM events e "
+        "WHERE e.user_id = l.user_id) x WHERE x.a > 0"
+    ),
+    "same name, other table, joined": (
+        f"WITH t AS ({T_AGG}), o AS (SELECT user_id, 1.0 a FROM entities) "
+        "SELECT t.user_id, t.label_ts, t.churned, t.a FROM t JOIN o ON o.user_id = t.user_id "
+        "WHERE o.a > 0"
+    ),
+    "filtered cte joined back with USING": (
+        f"WITH t AS ({T_AGG}), pos AS (SELECT user_id, label_ts FROM t WHERE a > 0) "
+        "SELECT l.user_id, l.label_ts, l.churned FROM labels l JOIN pos USING (user_id, label_ts)"
+    ),
+}
+
+
+@pytest.mark.parametrize("sql", BY_ALIAS_AND_POSITION.values(), ids=BY_ALIAS_AND_POSITION.keys())
+def test_a_reference_not_made_by_plain_name_is_not_preserved(sql):
+    rewrites = [f for f in fixes_of(sql) if f.rewrites]  # schema only: no replay
+    for fix in rewrites:
+        assert fix.semantics is Semantics.CHANGED, fix.caveats
+        assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+
+
+def _all_queries() -> list[str]:
+    from . import test_fixes
+
+    found = [sql for sql, _rule, _snippets in test_fixes.REPAIRS.values()]
+    for table in (UPWARD, PLAIN_UP, NOT_SHOWN, BY_ALIAS_AND_POSITION, POSSIBLE):
+        found += list(table.values())
+    found += [sql for sql, _kept in DROPPING.values()]
+    found += [f"{SEL}, {agg} x {LJ} {G}" for agg in [*PRESERVING, *NOT_PRESERVING]]
+    return found
+
+
+def test_whenever_a_fix_is_preserved_the_prediction_rows_are_identical_before_and_after(db):
+    """The claim itself, checked on data for every query in these tests."""
+    preserved = 0
+    for sql in _all_queries():
+        fixes = [f for f in fixes_of(sql) if f.rewrites]
+        if not fixes or not all(f.semantics is Semantics.PRESERVED for f in fixes):
+            continue
+        try:
+            before, after = key_counts_of(db, sql), key_counts_of(db, fixes[-1].after_sql)
+        except duckdb.Error:
+            continue  # uses a table or column the fixture does not have
+        preserved += 1
+        assert before == after, sql
+    assert preserved >= 15

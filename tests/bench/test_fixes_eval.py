@@ -31,6 +31,9 @@ def test_most_leaky_dev_cases_get_a_replayed_rewrite(world, sample):
     # both paths: the label and the row-loss caveats do not depend on replay
     assert result["static_path"]["lost_rows_without_caveat"] == []
     assert result["semantics_differs"] == []
+    # on current data no `preserved` fix changed which prediction rows come back, or how often
+    assert result["preserved_but_rows_changed"] == []
+    assert result["changed_rows_without_caveat"] == []
     assert result["static_path"]["rates"]["static_and_replay"] == 0  # nothing is replayed
     # the meaning of a rewrite is counted apart from its level
     assert result["semantics_counts"]["preserved"] > 0 and result["semantics_counts"]["changed"] > 0
