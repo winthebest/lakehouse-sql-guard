@@ -432,7 +432,9 @@ class Replayer:
             f"; {len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}" if skipped else ""
         )
 
-        def result(status: ReplayStatus, reason: str = "") -> ReplayResult:
+        def result(
+            status: ReplayStatus, reason: str = "", insufficient: bool | None = None
+        ) -> ReplayResult:
             return ReplayResult(
                 status,
                 len(points) - len(skipped),
@@ -441,7 +443,9 @@ class Replayer:
                 dict(columns),
                 reason + note if reason or skipped else "",
                 timestamps,
-                insufficient_evidence=status is ReplayStatus.UNVERIFIABLE,
+                insufficient_evidence=(
+                    status is ReplayStatus.UNVERIFIABLE if insufficient is None else insufficient
+                ),
             )
 
         if mismatched:
@@ -451,5 +455,8 @@ class Replayer:
                 ReplayStatus.UNVERIFIABLE,
                 f"replay compared {compared} row(s) at {timestamps} prediction time(s); a pass "
                 f"needs at least {self.min_rows} rows at {self.min_points} times",
+                # Points left out for lack of history make this a gap in coverage, not just a
+                # small sample: it must keep blocking, as a table with expired history does.
+                insufficient=not skipped,
             )
         return result(ReplayStatus.PASS)

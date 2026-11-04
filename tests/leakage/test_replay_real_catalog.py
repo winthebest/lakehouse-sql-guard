@@ -383,3 +383,19 @@ def test_a_clean_query_with_some_points_skipped_needs_enough_of_the_rest(tmp_pat
     assert few.status is ReplayStatus.UNVERIFIABLE and "skipped" in few.reason
     enough = Replayer(catalog, BASE, min_rows=1, min_points=1).run(query)
     assert enough.status is ReplayStatus.PASS and "skipped" in enough.reason
+
+
+def test_history_covering_only_the_last_prediction_never_reads_as_clean(tmp_path):
+    """Most points predate the table: the few that remain are too thin to pass, and that gap
+    must keep blocking (a clean verdict would hide whatever static analysis missed)."""
+    catalog = history_from(tmp_path, first_day=8)
+    replayer = Replayer(catalog, BASE)
+    report = validate(sql(), BASE, catalog=catalog, replay=replayer)
+    assert report.replay.status is ReplayStatus.UNVERIFIABLE
+    assert "skipped" in report.replay.reason and not report.replay.insufficient_evidence
+    assert report.verdict == "unverifiable"
+    # a plain small sample (nothing skipped) still does not block a query static cleared
+    full = history_from(tmp_path / "full", first_day=0)
+    small = Replayer(full, BASE, min_rows=10_000)
+    again = validate(sql(), BASE, catalog=full, replay=small)
+    assert again.replay.insufficient_evidence and again.verdict == "clean"
