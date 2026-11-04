@@ -53,7 +53,11 @@ def test_ground_truth_of_dev_cases(replayer):
     cases = generate_cases()
     for case in cases:
         if not case.is_leaky:
-            assert replayer.run(case.sql).status is ReplayStatus.PASS, case.case_id
+            result = replayer.run(case.sql)
+            if replayer.current().sql(case.sql).fetchall():
+                assert result.status is ReplayStatus.PASS, case.case_id
+            else:  # a query that keeps no rows has nothing to compare: never a PASS
+                assert result.status is ReplayStatus.UNVERIFIABLE, case.case_id
     leaky = [c for c in cases if c.is_leaky]
     manifested = sum(replayer.run(c.sql).status is ReplayStatus.MISMATCH for c in leaky)
     assert manifested / len(leaky) >= 0.95

@@ -1,12 +1,16 @@
 """Point-in-time replay over Iceberg snapshot history.
 
-For a sample of prediction timestamps `t`, every non-label table is pinned to the snapshot
-that was visible strictly before `t`, the label spine is restricted to rows at `t`, and the
-query is re-run. Values that differ from the normal (current-data) run were not knowable at
-prediction time: that is leakage, whatever SQL pattern caused it.
+For a sample of prediction timestamps `t` taken from the query's own output, every non-label
+table is pinned to the snapshot that was visible strictly before `t`, the label spine is
+restricted to rows at `t`, and the query is re-run. Values that differ from the normal
+(current-data) run were not knowable at prediction time: that is leakage, whatever SQL
+pattern caused it.
 
 This is what catches late-arriving data (L4): the SQL can look perfectly time-correct while
 the source table still received rows for the past after the prediction was made.
+
+A PASS needs evidence: at least `min_rows` compared rows spread over `min_points` prediction
+times. A query that keeps no rows, or too few, is UNVERIFIABLE rather than clean.
 
 User SQL runs in a sandboxed in-memory DuckDB (no file or network access), and only SELECT
 queries are replayed.
@@ -18,7 +22,7 @@ import math
 import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 import duckdb
@@ -26,12 +30,16 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from sqlglot import exp
 
-from sqlguard.core.catalog import HistoryGap, LakehouseCatalog
+from sqlguard.core.catalog import HistoryGap, LakehouseCatalog, naive_utc
 from sqlguard.core.duck import connect
 from sqlguard.core.parsing import parse_single
 from sqlguard.leakage.spec import LeakageSpec
 
 _STRICT = timedelta(microseconds=1)
+# A PASS must rest on enough evidence: a query that keeps few rows, or rows of one or two
+# prediction times, proves nothing about the other times it will run for.
+MIN_ROWS = 20
+MIN_POINTS = 3
 _ROW = "<row>"  # pseudo-column for rows present in only one of the two runs
 
 
@@ -49,6 +57,7 @@ class ReplayResult:
     rows_mismatched: int = 0
     mismatched_columns: dict[str, int] = field(default_factory=dict)
     reason: str = ""
+    timestamps_compared: int = 0  # distinct prediction times that had rows to compare
 
     @property
     def mismatch_rate(self) -> float:
@@ -62,19 +71,24 @@ def _normalize(value: object) -> object:
     return value
 
 
-def _naive_utc(ts: datetime) -> datetime:
-    return ts.astimezone(UTC).replace(tzinfo=None) if ts.tzinfo else ts
-
-
 def sample_points(stamps: Counter, max_points: int, seed: int) -> list[datetime]:
-    """Half the budget goes to the busiest timestamps (where boundary leaks concentrate,
-    e.g. batch-aligned midnights), the rest is a seeded random sample of the others."""
+    """Pick up to `max_points` prediction times.
+
+    Timestamps shared by several rows come first (up to half the budget): batch-aligned
+    instants such as midnights are where boundary leaks concentrate. The rest of the budget is
+    spread evenly over the time range, one seeded random pick per stratum, so that when every
+    timestamp is unique the sample covers old and recent predictions alike.
+    """
     if len(stamps) <= max_points:
         return sorted(stamps)
-    busiest = [ts for ts, _ in sorted(stamps.items(), key=lambda kv: (-kv[1], kv[0]))]
-    chosen = busiest[: max_points // 2]
+    shared = sorted((ts for ts, n in stamps.items() if n > 1), key=lambda ts: (-stamps[ts], ts))
+    chosen = shared[: max_points // 2]
     rest = sorted(set(stamps) - set(chosen))
-    chosen += random.Random(seed).sample(rest, max_points - len(chosen))
+    budget = max_points - len(chosen)
+    rng = random.Random(seed)
+    for i in range(budget):  # stratum i of `budget` equal slices of the remaining timestamps
+        low, high = i * len(rest) // budget, (i + 1) * len(rest) // budget
+        chosen.append(rest[rng.randrange(low, high)])
     return sorted(chosen)
 
 
@@ -82,13 +96,24 @@ class Replayer:
     """Replays many queries against one catalog, caching pinned connections per timestamp."""
 
     def __init__(
-        self, catalog: LakehouseCatalog, spec: LeakageSpec, max_points: int = 24, seed: int = 0
+        self,
+        catalog: LakehouseCatalog,
+        spec: LeakageSpec,
+        max_points: int = 24,
+        seed: int = 0,
+        min_rows: int = MIN_ROWS,
+        min_points: int = MIN_POINTS,
     ) -> None:
         self.catalog = catalog
         self.spec = spec
+        self.max_points, self.seed = max_points, seed
+        self.min_rows, self.min_points = min_rows, min_points
         self.tables = catalog.table_names()
         self.labels = catalog.read(spec.label_table)
         counts = Counter(self.labels.column(spec.prediction_ts).to_pylist())
+        # every label timestamp, in the label column's own representation, by naive-UTC value
+        self._label_stamps = {naive_utc(ts): ts for ts in counts if isinstance(ts, datetime)}
+        # a query-independent sample over all labels (the point set `run` draws from its output)
         self.points: list[datetime] = sample_points(counts, max_points, seed)
         self._current: duckdb.DuckDBPyConnection | None = None
         self._pinned: dict[datetime, duckdb.DuckDBPyConnection | HistoryGap] = {}
@@ -113,7 +138,7 @@ class Replayer:
         """Connection where every table looks as it did just before `ts`."""
         if ts not in self._pinned:
             try:
-                before = _naive_utc(ts) - _STRICT
+                before = naive_utc(ts) - _STRICT
                 data = {
                     t: self._read(t, self.catalog.snapshot_as_of(t, before, strict_history=True))
                     for t in self.tables
@@ -167,11 +192,28 @@ class Replayer:
         # Every non-key column is compared, labels included: a "label" that changes between
         # runs is not the label.
         value_cols = [c for c in full.column_names if c not in key_cols]
-        full_rows = self._rows_by_key(full, key_cols, value_cols)
+        full_by_ts: dict[datetime, dict[tuple, list[tuple]]] = defaultdict(dict)
+        for key, rows in self._rows_by_key(full, key_cols, value_cols).items():
+            if isinstance(key[-1], datetime):
+                full_by_ts[naive_utc(key[-1])][key] = rows
 
-        compared = mismatched = 0
+        # Replay the prediction times the query actually produced, not arbitrary label times.
+        produced = Counter(
+            {ts: sum(len(r) for r in rows.values()) for ts, rows in full_by_ts.items()}
+        )
+        usable = Counter({ts: n for ts, n in produced.items() if ts in self._label_stamps})
+        points = [
+            self._label_stamps[ts] for ts in sample_points(usable, self.max_points, self.seed)
+        ]
+        if not points:
+            return ReplayResult(
+                ReplayStatus.UNVERIFIABLE,
+                reason="no label prediction time appears in the query output",
+            )
+
+        compared = mismatched = timestamps = 0
         columns: Counter[str] = Counter()
-        for ts in self.points:
+        for ts in points:
             try:
                 replayed = self.pinned(ts).sql(sql).to_arrow_table()
             except HistoryGap as err:
@@ -179,8 +221,10 @@ class Replayer:
             except duckdb.Error as err:
                 return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=f"replay failed: {err}")
             past_rows = self._rows_by_key(replayed, key_cols, value_cols)
-            now_rows = {k: v for k, v in full_rows.items() if k[-1] == ts}
-            for key in now_rows.keys() | past_rows.keys():
+            now_rows = full_by_ts.get(naive_utc(ts), {})
+            keys = now_rows.keys() | past_rows.keys()
+            timestamps += bool(keys)
+            for key in keys:
                 compared += 1
                 now, past = now_rows.get(key), past_rows.get(key)
                 if now == past:
@@ -192,5 +236,18 @@ class Replayer:
                 for i, col in enumerate(value_cols):
                     if any(a[i] != b[i] for a, b in zip(now, past, strict=True)):
                         columns[col] += 1
-        status = ReplayStatus.MISMATCH if mismatched else ReplayStatus.PASS
-        return ReplayResult(status, len(self.points), compared, mismatched, dict(columns))
+
+        def result(status: ReplayStatus, reason: str = "") -> ReplayResult:
+            return ReplayResult(
+                status, len(points), compared, mismatched, dict(columns), reason, timestamps
+            )
+
+        if mismatched:
+            return result(ReplayStatus.MISMATCH)
+        if compared < self.min_rows or timestamps < self.min_points:
+            return result(
+                ReplayStatus.UNVERIFIABLE,
+                f"replay compared {compared} row(s) at {timestamps} prediction time(s); a pass "
+                f"needs at least {self.min_rows} rows at {self.min_points} times",
+            )
+        return result(ReplayStatus.PASS)

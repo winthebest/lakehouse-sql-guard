@@ -2,7 +2,8 @@
 
 Verdicts: `leaky` (score >= threshold), `unverifiable` (the guard could not check part of
 the query: unparseable or non-SELECT input, undeclared tables, spec/schema mismatch,
-lineage failure, or expired snapshot history), otherwise `clean`. Never `clean` by default.
+lineage failure, expired snapshot history, or too little replay evidence), otherwise `clean`.
+Never `clean` by default.
 """
 
 from __future__ import annotations
