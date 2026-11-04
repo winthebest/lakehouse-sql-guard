@@ -237,7 +237,10 @@ class LakehouseCatalog:
         return self.catalog.create_table(self.identifier(table), schema=schema)
 
     def snapshots(self, table: str) -> list[SnapshotInfo]:
-        """Snapshots in commit order."""
+        """Snapshots in the order the catalog lists them, which is not always commit order.
+
+        Callers that need an order use lineage (`snapshot_as_of`) or `visible_at`, never position.
+        """
         infos = []
         for s in self.table(table).snapshots():
             committed = datetime.fromtimestamp(s.timestamp_ms / 1000, tz=UTC).replace(tzinfo=None)

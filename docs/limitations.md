@@ -151,3 +151,38 @@ Reported unverifiable rather than checked:
     `SELECT` on a protected table inside the task scope is allowed; keeping sensitive
     columns away from an agent is the job of the catalog's access control. `EXPLAIN` is
     allowed only for read-only queries (`EXPLAIN ANALYZE` runs the statement).
+26. Approvals wait in a local SQLite store (`--store`). An approval is bound to a hash of the
+    action (statement, table, catalog, engine, base and rehearsed snapshots, policy digest,
+    row-diff digest, scope); if any of these changed when it is decided, the action ends
+    `stale` and nothing is published. The approver name is a label, not authentication. An
+    agent that runs as the same OS user as the person approving can read the store and its
+    secret, or run the approval commands itself, unless the host denies it those permissions.
+27. The reviewed row diff is computed from the full base and rehearsed snapshots, so it shows
+    exactly what publishing changes, but it is bounded (1M rows or 256 MB by default; larger
+    tables are refused, not sampled). Without an Iceberg identifier field or a `unique_key`
+    the diff is unkeyed and shows deleted and added rows instead of updates. Values of types
+    other than plain numbers, strings, booleans and dates are displayed as text (time zones in
+    UTC). `0.0` and `-0.0` are equal everywhere, so a change between them is invisible.
+28. A publish interrupted by a crash keeps its five-minute lease, so the next reconcile
+    skips it. A publisher is judged gone only on Linux when host, boot id and PID namespace
+    match and the pid no longer exists. Everywhere else (macOS, another container or host)
+    an interrupted publish whose effect cannot be proven ends `needs_attention`, with its
+    branch kept, never `failed`. A publisher suspended for longer than its lease on such a
+    host can still land its commit after reconcile settled the row; the row then says
+    `needs_attention`, not `published`.
+29. Trino is a read and verification engine. It cannot rehearse writes in isolation, so
+    every write through it is denied; use it as the read side of a composite adapter with
+    PyIceberg or Spark for writes. Its `rollback_to_snapshot` has no compare-and-swap: the
+    adapter checks `main` before and after and restores a commit that raced it. Its
+    `expire_snapshots` has no dry run and also drops aged branches and tags, so it is used
+    only when `main` is the table's only ref and no retention property is set; any other
+    table is expired through PyIceberg, which removes exactly the approved snapshots. A ref
+    another writer creates between that check and Trino's run cannot be seen. Orphan-file
+    cleanup never runs through Trino. Reads may not use table functions (`TABLE(...)`,
+    `system.query`, `table_changes`).
+30. A CTE name defined inside a subquery is also trusted in outer scopes when tables are
+    classified, so an outer reference with that name is not checked against the task scope.
+    On Trino such a reference fails because the connection has no default schema, but it is
+    a classifier gap.
+31. The integration matrix runs on Lakekeeper, the Iceberg REST fixture and Polaris. AWS Glue
+    is expected to work through PyIceberg's Glue catalog but is untested.

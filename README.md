@@ -108,10 +108,12 @@ returned with their measured impact; nothing is approved automatically. Client c
 
 ### Spark demo
 
-`docker compose -f docker/docker-compose.yml up -d && docker/demo.sh` starts Spark 4 with
-an Iceberg REST catalog and S3-compatible storage, then shows a wrong `DELETE` held for
+`docker/demo.sh` starts Spark 4 on a Lakekeeper REST catalog with S3-compatible storage
+(`docker/compose.lakehouse.yml`), shows a wrong `DELETE` held for
 approval and an approved change published by moving `main` to the exact snapshot that was
-rehearsed and approved (a compare-and-swap on the catalog).
+rehearsed and approved (a compare-and-swap on the catalog), and removes the stack afterwards.
+`docker/run-integration.sh` runs the integration tests on Lakekeeper, the Iceberg REST
+fixture, Polaris and Trino the same way.
 
 ## Results
 
