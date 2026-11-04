@@ -261,6 +261,22 @@ def _dangling(tree: exp.Expression) -> bool:
     )
 
 
+def key_counts(replayer: Replayer | None, spec: LeakageSpec, sql: str) -> Counter | None:
+    """How many times each prediction row (entity keys, prediction time) is returned on the
+    current data, or None when it cannot be run or the keys are not in the output."""
+    if replayer is None:
+        return None
+    try:
+        table = replayer.current().sql(sql).to_arrow_table()
+    except (duckdb.Error, ValueError):
+        return None
+    names = {c.lower(): c for c in table.column_names}
+    if any(c not in names for c in spec.key_columns):
+        return None
+    columns = [table.column(names[c]).to_pylist() for c in spec.key_columns]
+    return Counter(zip(*columns, strict=True))
+
+
 def _row_count(replayer: Replayer | None, sql: str) -> int | None:
     if replayer is None:
         return None
@@ -394,6 +410,24 @@ def _replay_level(
             f"{lead}on the current data the repaired query returns {after_rows} rows instead "
             f"of {before_rows}"
         )
+    # the same number of rows can be other rows: compare the keys, and how often each appears
+    keys_before = key_counts(replayer, spec, original)
+    keys_after = key_counts(replayer, spec, after)
+    if keys_before is not None and keys_after is not None and keys_before != keys_after:
+        lost = keys_before.keys() - keys_after.keys()
+        gained = keys_after.keys() - keys_before.keys()
+        if lost:
+            caveats.append(
+                f"{rewrite.ROWS_MAY_DROP}on the current data {len(lost)} prediction row(s) of "
+                "the original no longer appear in the repaired query"
+            )
+        elif not caveats:
+            caveats.append(
+                f"{rewrite.ROWS_CHANGE}on the current data the repaired query has "
+                f"{len(gained)} prediction row(s) the original did not, or returns some more "
+                "or fewer times"
+            )
+        rows_changed = True
     report = validate(after, spec, schema=schema, replay=replayer, weights=weights)
     result = report.replay
     if result is None or result.status is ReplayStatus.UNVERIFIABLE:

@@ -308,7 +308,7 @@ def add_bounds(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             "spine row only when no history lay after the prediction time, which the join "
             "condition now guarantees; rows without any history now stay with NULL features"
         )
-    caveats += _context_caveats(select, ref)
+    caveats += _context_caveats(select, ref, alias)
     names = " and ".join(wanted)
     return Edit(
         rule,
@@ -539,6 +539,19 @@ def _value_effects(
         if own_join is not None and own_join.args.get("on") is not None
         else set()
     )
+    # the same table joined again: its rows multiply every aggregate of the SELECT
+    twins = {
+        j.alias_or_name
+        for j in select.args.get("joins") or []
+        if j is not own_join and isinstance(j.this, exp.Table) and j.this.name == ref.table
+    }
+    if twins:
+        caveats.append(
+            f"{ref.table} is joined again as {', '.join(sorted(twins))}: each aggregate is "
+            f"multiplied by the matches of the other join, so bounding {alias} alone changes "
+            "the values"
+        )
+    limited = _has_limit(select)
     in_aggregate: set[int] = set()
     for agg in select.find_all(exp.AggFunc):
         if agg.find_ancestor(exp.Select) is not select:
@@ -546,11 +559,16 @@ def _value_effects(
         in_aggregate |= {id(c) for c in agg.find_all(exp.Column)}
         clause = _clause_of(agg, select)
         text = agg.sql()
-        if clause in ("having", "qualify"):
+        if clause in ("having", "qualify") or (clause == "order" and limited):
+            where = "ORDER BY ... LIMIT" if clause == "order" else clause.upper()
             caveats.append(
-                f"{ROWS_MAY_DROP}the {clause.upper()} reads {text}, which depends on the joined "
+                f"{ROWS_MAY_DROP}the {where} reads {text}, which depends on the joined "
                 f"{ref.table} rows, so bounding them changes which spine rows survive"
             )
+        elif twins and not _reads(agg, alias) and any(_reads(agg, t) for t in twins):
+            continue  # said once above
+        elif clause == "order":
+            continue  # an order of the result, no row is added or removed
         elif agg.find_ancestor(exp.Window) is not None:
             caveats.append(
                 f"{text} is a window over the joined {ref.table} rows: its value changes"
@@ -569,38 +587,220 @@ def _value_effects(
         clause = _clause_of(column, select)
         if clause in ("where", "having", "qualify"):
             continue  # said by the row check
+        if clause == "order" and _has_limit(select):
+            caveats.append(
+                f"{ROWS_MAY_DROP}ORDER BY {alias}.{column.name} ... LIMIT picks the spine rows "
+                f"by a {ref.table} value, so bounding it changes which rows come back"
+            )
+            continue
         caveats.append(
-            f"{alias}.{column.name} is read outside an aggregate ({clause}), so the query has a "
-            f"row per joined {ref.table} row and the bound changes how many rows there are"
+            f"{ROWS_CHANGE}{alias}.{column.name} is read outside an aggregate ({clause}), so the "
+            f"query has a row per joined {ref.table} row and the bound changes how many rows "
+            "there are"
         )
     return caveats
 
 
-def _context_caveats(select: exp.Select, ref: TableRef) -> list[str]:
-    """A bound inside a subquery that decides which spine rows exist (`WHERE EXISTS (...)`,
-    `IN (...)`, a comparison with a scalar subquery, an INNER JOIN LATERAL) changes the rows."""
+def _has_limit(select: exp.Select) -> bool:
+    return any(select.args.get(k) for k in ("limit", "offset", "fetch"))
+
+
+def _context_caveats(select: exp.Select, ref: TableRef, alias: str) -> list[str]:
+    """What the bound does to the query around its SELECT.
+
+    A bound inside a subquery that decides which spine rows exist (`WHERE EXISTS (...)`, `IN
+    (...)`, a comparison with a scalar subquery, an INNER JOIN LATERAL) changes the rows. A value
+    derived from the bounded table that an enclosing scope filters, joins on, groups, ranks,
+    deduplicates or limits by does too (see `_upward_effects`).
+    """
     child, node, join = select, select.parent, None
     while node is not None and not isinstance(node, exp.Select):
         join = node if isinstance(node, exp.Join) else join
         child, node = node, node.parent
-    if node is None:
-        return []
-    key = next(
-        (
-            k
-            for k, v in node.args.items()
-            if v is child or (isinstance(v, list) and any(i is child for i in v))
-        ),
-        "",
-    )
-    if key in ("where", "having", "qualify") or (
-        key == "joins" and join is not None and _inner(join)
-    ):
-        return [
-            f"{ROWS_MAY_DROP}the bound is inside a subquery in the outer {key.upper()}, so spine "
-            f"rows whose {ref.table} rows all lie after the prediction time now fail it"
-        ]
-    return []
+    caveats = []
+    if node is not None:
+        key = next(
+            (
+                k
+                for k, v in node.args.items()
+                if v is child or (isinstance(v, list) and any(i is child for i in v))
+            ),
+            "",
+        )
+        if key in ("where", "having", "qualify") or (
+            key == "joins" and join is not None and _inner(join)
+        ):
+            caveats.append(
+                f"{ROWS_MAY_DROP}the bound is inside a subquery in the outer {key.upper()}, so "
+                f"spine rows whose {ref.table} rows all lie after the prediction time now fail it"
+            )
+    return caveats + _upward_effects(select, ref, alias, node, child)
+
+
+def _set_operation_of(select: exp.Select) -> exp.SetOperation | None:
+    node, found = select, None
+    while node.parent is not None and isinstance(node.parent, exp.SetOperation | exp.Paren):
+        node = node.parent
+        found = node if isinstance(node, exp.SetOperation) else found
+    return found
+
+
+def _upward_effects(
+    select: exp.Select,
+    ref: TableRef,
+    alias: str,
+    outer: exp.Select | None,
+    outer_child: exp.Expression | None,
+) -> list[str]:
+    """Follow what the bounded table feeds out of its SELECT, through derived tables, CTEs,
+    subqueries and set operations, up to the top.
+
+    A column the table feeds is tainted by its output name, and a SELECT that outputs tainted
+    values is a carrier (one that projects `*` from a carrier is one too). Wherever else in the
+    query a column of a tainted name is read, the read is classified: as a plain output (or
+    arithmetic on it) it just carries the taint one scope further; in a WHERE, HAVING, QUALIFY,
+    INNER JOIN condition, ORDER BY with a LIMIT, behind DISTINCT, or in a UNION that removes
+    duplicates, it decides which spine rows exist; anywhere else (GROUP BY, an aggregate or window
+    above, a LEFT JOIN condition) it changes values. Names are matched without regard to which
+    table they belong to, so a name shared with an unrelated column can only add a caveat, never
+    hide one.
+    """
+    caveats: list[str] = []
+    tainted: set[str] = set()
+    carriers: set[int] = set()
+    root = select.root()
+    ctes = {c.alias_or_name.lower(): c for c in root.find_all(exp.CTE)}
+
+    def taint(item: exp.Expression) -> bool:
+        name = item.alias_or_name.lower()
+        if name and name not in tainted:
+            tainted.add(name)
+            return True
+        return False
+
+    def carries(node: exp.Expression | None) -> bool:
+        node = node.unnest() if node is not None else None
+        if isinstance(node, exp.SetOperation):
+            return carries(node.left) or carries(node.right)
+        return isinstance(node, exp.Select) and id(node) in carriers
+
+    def source_carries(source: exp.Expression) -> bool:
+        if isinstance(source, exp.Subquery):
+            return carries(source.this)
+        if isinstance(source, exp.Table) and not source.db:
+            cte = ctes.get(source.name.lower())
+            return cte is not None and carries(cte.this)
+        return False
+
+    def becomes_carrier(sel: exp.Select) -> None:
+        if id(sel) in carriers:
+            return
+        carriers.add(id(sel))
+        if sel.args.get("distinct"):
+            caveats.append(
+                f"{ROWS_MAY_DROP}SELECT DISTINCT over values derived from the bounded "
+                f"{ref.table} rows can merge spine rows"
+            )
+        op = _set_operation_of(sel)
+        if op is not None:
+            for name in op.named_selects:
+                tainted.add(name.lower())
+            if not (isinstance(op, exp.Union) and op.args.get("distinct") is False):
+                caveats.append(
+                    f"{ROWS_MAY_DROP}a {type(op).__name__.upper()} that removes duplicates "
+                    f"combines values from the bounded {ref.table} rows, so spine rows can "
+                    "merge or vanish"
+                )
+
+    for item in select.expressions:
+        if _reads(item, alias):
+            taint(item)
+    if outer is not None and any(i is outer_child for i in outer.expressions):
+        taint(outer_child)
+    becomes_carrier(select)
+    inside = {id(n) for n in select.walk()}
+    done: set[int] = set()
+    progress = True
+    while progress:
+        progress = False
+        for column in root.find_all(exp.Column):
+            if id(column) in inside or id(column) in done or column.name.lower() not in tainted:
+                continue
+            done.add(id(column))
+            sel = column.find_ancestor(exp.Select)
+            if sel is None:
+                continue
+            name = column.sql()
+            clause = _clause_of(column, sel)
+            if clause == "expressions":
+                item = _child_of(column, sel)
+                if any(
+                    isinstance(a, exp.AggFunc | exp.Window) for a in _ancestors_until(column, item)
+                ):
+                    caveats.append(
+                        f"{name} (derived from the bounded {ref.table} rows) is aggregated or "
+                        "windowed further out: its value changes"
+                    )
+                if item is not None and taint(item):
+                    progress = True
+                if id(sel) not in carriers:
+                    becomes_carrier(sel)
+                    progress = True
+            elif clause in ("where", "having", "qualify"):
+                caveats.append(
+                    f"{ROWS_MAY_DROP}the {clause.upper()} reads {name}, derived from the bounded "
+                    f"{ref.table} rows, so bounding them changes which spine rows pass it"
+                )
+            elif clause == "joins":
+                join = column.find_ancestor(exp.Join)
+                if join is not None and str(join.args.get("side") or "").upper() == "LEFT":
+                    caveats.append(
+                        f"a join condition reads {name}, derived from the bounded {ref.table} "
+                        "rows: the matches, and so the values, change"
+                    )
+                else:
+                    caveats.append(
+                        f"{ROWS_MAY_DROP}a join condition reads {name}, derived from the bounded "
+                        f"{ref.table} rows, so spine rows can lose their match"
+                    )
+            elif clause == "order":
+                if _has_limit(sel):
+                    caveats.append(
+                        f"{ROWS_MAY_DROP}ORDER BY {name} ... LIMIT picks spine rows by a value "
+                        f"derived from the bounded {ref.table} rows"
+                    )
+            else:
+                caveats.append(
+                    f"{name}, derived from the bounded {ref.table} rows, is read in the "
+                    f"{clause}: the result changes"
+                )
+        # a SELECT that projects `*` from a carrier passes the values on without naming them
+        for sel in root.find_all(exp.Select):
+            if id(sel) in carriers or id(sel) in inside:
+                continue
+            if not any(isinstance(p.unalias(), exp.Star) or p.name == "*" for p in sel.expressions):
+                continue
+            sources = [sel.args["from_"].this] if sel.args.get("from_") is not None else []
+            sources += [j.this for j in sel.args.get("joins") or []]
+            if any(source_carries(src) for src in sources):
+                becomes_carrier(sel)
+                progress = True
+    return list(dict.fromkeys(caveats))
+
+
+def _child_of(node: exp.Expression, select: exp.Select) -> exp.Expression | None:
+    """The direct child of `select` (a projection item, a clause) that holds `node`."""
+    child, parent = node, node.parent
+    while parent is not None and parent is not select:
+        child, parent = parent, parent.parent
+    return child if parent is select else None
+
+
+def _ancestors_until(node: exp.Expression, stop: exp.Expression | None):
+    parent = node.parent
+    while parent is not None and parent is not stop:
+        yield parent
+        parent = parent.parent
 
 
 def _drop_having_bound(select: exp.Select, alias: str, ref: TableRef, spine: exp.Column) -> bool:
@@ -714,7 +914,7 @@ def tighten(ctx: Context, ref: TableRef) -> Edit | None:
         caveats += _keep_spine_rows(ctx, *joined, _alias(table), ref)
     placed = _select_of(table)
     if placed:
-        caveats += _context_caveats(placed[0], ref)
+        caveats += _context_caveats(placed[0], ref, _alias(table))
     return Edit(
         "L5",
         ref.describe(),
@@ -868,7 +1068,7 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
     if joined:
         caveats += _keep_spine_rows(ctx, *joined, alias, ref)
     if select:
-        caveats += _context_caveats(select[0], ref)
+        caveats += _context_caveats(select[0], ref, alias)
     if flipped:
         caveats.append(
             "MIN / ascending order became MAX / descending: the row picked is the last before"
@@ -936,14 +1136,24 @@ def fix_window(ctx: Context, issue: WindowIssue) -> Edit | None:
     old_text, new_text = _frame_text(frame), _frame_text(new)
     window.set("spec", _frame_spec(*new))
     how = "mirrored to the same width behind" if start >= 0 else "cut off at the current row"
+    caveats = [
+        f"the frame changes from {old_text} to {new_text}: the feature is computed over "
+        "different rows, confirm that is what you meant"
+    ]
+    host = window.find_ancestor(exp.Select)
+    table = ctx.orig(issue.ref.node)
+    if host is not None and table is not None:
+        if host.args.get("distinct") or host.args.get("group"):
+            caveats.append(
+                f"{ROWS_CHANGE}DISTINCT / GROUP BY over a window whose values change returns a "
+                "different number of rows"
+            )
+        caveats += _context_caveats(host, issue.ref, _alias(table))
     return Edit(
         "L1",
         where,
         f"The frame {old_text} reached rows after the current one; it is now {new_text} ({how}).",
-        [
-            f"the frame changes from {old_text} to {new_text}: the feature is computed over "
-            "different rows, confirm that is what you meant"
-        ],
+        list(dict.fromkeys(caveats)),
         Semantics.CHANGED,
     )
 
@@ -1032,7 +1242,7 @@ def _drop_latest_prediction_filter(window: exp.Window, where: str) -> Edit | Non
         where,
         "Keeping only each entity's latest prediction decides which rows exist from predictions "
         "made later; the filter is removed so every prediction time is a training row.",
-        ["the result has one row per prediction time instead of one per entity"],
+        [f"{ROWS_CHANGE}the result has one row per prediction time instead of one per entity"],
     )
 
 
@@ -1259,6 +1469,7 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             "spine: duplicate spine rows with the same key collapse into one"
         )
         how = "ROW_NUMBER over the entity and prediction time"
+    caveats += _context_caveats(outer, ref, alias)
     if was_inner:
         snowflake_asof = as_asof and ctx.dialect == "snowflake"
         target = "ASOF JOIN" if snowflake_asof else "LEFT JOIN"

@@ -14,8 +14,10 @@ made strict; `changed`: something else changes, with a caveat; `unknown`: nothin
 It is independent of the level: a replay PASS shows a repaired query is point-in-time, not that it
 computes the same thing.
 
-Also checked on the current data: no repaired query loses a row the original returned unless a
-row-loss caveat (`rows may drop: ...`) says so; a caveat about something else does not count.
+Also checked on the current data, as the set of prediction rows and how often each comes back: a
+repaired query that loses a row the original returned needs a `rows may drop:` caveat, one that
+gains rows or repeats them differently needs a row caveat, and a `preserved` fix may not change
+the rows at all. This is checked on both CLI paths, with and without replay.
 
 `dev` and `dev_v1b` were both seen while the rewrites were written, so the rates are in-sample.
 
@@ -30,46 +32,40 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import duckdb
-
 from bench.leakage.cases import SPLITS, LeakCase, generate_cases
 from bench.leakage.run import SYNTHETIC_SPEC, synthetic_world
 from sqlguard.core.catalog import LakehouseCatalog
-from sqlguard.leakage.fixes import Semantics, Verification, suggest_fix
+from sqlguard.leakage.fixes import Semantics, Verification, key_counts, suggest_fix
 from sqlguard.leakage.replay import Replayer
-from sqlguard.leakage.rewrite import ROWS_MAY_DROP
+from sqlguard.leakage.rewrite import ROWS_CHANGE, ROWS_KEPT, ROWS_MAY_DROP
 from sqlguard.leakage.spec import LeakageSpec
 from sqlguard.leakage.validator import Weights, validate
 
 LEVELS = (*[v.value for v in Verification], "none")
 SEMANTICS = tuple(v.value for v in Semantics)
 NOT_REWRITTEN = ("L6", "L7")
-
-
-def _keys(replayer: Replayer, spec: LeakageSpec, sql: str) -> set[tuple] | None:
-    """Prediction rows (entity keys, prediction time) the query returns on the current data."""
-    try:
-        table = replayer.current().sql(sql).to_arrow_table()
-    except duckdb.Error:
-        return None
-    names = {c.lower(): c for c in table.column_names}
-    if any(c not in names for c in spec.key_columns):
-        return None
-    columns = [table.column(names[c]).to_pylist() for c in spec.key_columns]
-    return set(zip(*columns, strict=True))
+ROW_CAVEATS = (ROWS_MAY_DROP, ROWS_CHANGE, ROWS_KEPT)
 
 
 def _outcome(fixes: list, case: LeakCase, spec: LeakageSpec, replayer: Replayer) -> dict:
-    """Level, meaning and row-loss check of one case on one path."""
+    """Level, meaning and row check of one case on one path.
+
+    Compared on the current data: which prediction rows come back, and how many times. Losing a
+    row needs a `rows may drop:` caveat; gaining one or returning rows a different number of times
+    needs some row caveat; and any change at all means the fix cannot be `preserved`.
+    """
     rewrites = [f for f in fixes if f.rewrites]
-    lost_without_caveat = False
+    lost_without_caveat = changed_without_caveat = preserved_but_changed = False
     if rewrites:
-        before = _keys(replayer, spec, case.sql)
-        after = _keys(replayer, spec, rewrites[-1].after_sql)
-        if before is not None and after is not None and before - after:
-            lost_without_caveat = not any(
-                c.startswith(ROWS_MAY_DROP) for f in rewrites for c in f.caveats
-            )
+        before = key_counts(replayer, spec, case.sql)
+        after = key_counts(replayer, spec, rewrites[-1].after_sql)
+        caveats = [c for f in rewrites for c in f.caveats]
+        if before is not None and after is not None and before != after:
+            if before.keys() - after.keys():
+                lost_without_caveat = not any(c.startswith(ROWS_MAY_DROP) for c in caveats)
+            else:
+                changed_without_caveat = not any(c.startswith(ROW_CAVEATS) for c in caveats)
+            preserved_but_changed = all(f.semantics is Semantics.PRESERVED for f in rewrites)
     if not rewrites:
         semantics = Semantics.UNKNOWN
     elif any(f.semantics is Semantics.CHANGED for f in rewrites):
@@ -81,6 +77,8 @@ def _outcome(fixes: list, case: LeakCase, spec: LeakageSpec, replayer: Replayer)
         "semantics": semantics.value,
         "rewrites": len(rewrites),
         "lost_rows_without_caveat": lost_without_caveat,
+        "changed_rows_without_caveat": changed_without_caveat,
+        "preserved_but_rows_changed": preserved_but_changed,
     }
 
 
@@ -127,6 +125,12 @@ def _summary(records: list[dict]) -> dict:
         "lost_rows_without_caveat": [
             r["case_id"] for r in records if r["lost_rows_without_caveat"]
         ],
+        "changed_rows_without_caveat": [
+            r["case_id"] for r in records if r["changed_rows_without_caveat"]
+        ],
+        "preserved_but_rows_changed": [
+            r["case_id"] for r in records if r["preserved_but_rows_changed"]
+        ],
     }
 
 
@@ -148,9 +152,15 @@ def evaluate(
         **with_replay,  # the replay path, as before
         "static_path": without_replay,
         # a drop on either path without a row-loss caveat
-        "lost_rows_without_caveat": sorted(
-            {*with_replay["lost_rows_without_caveat"], *without_replay["lost_rows_without_caveat"]}
-        ),
+        # a failure on either path
+        **{
+            key: sorted({*with_replay[key], *without_replay[key]})
+            for key in (
+                "lost_rows_without_caveat",
+                "changed_rows_without_caveat",
+                "preserved_but_rows_changed",
+            )
+        },
         "semantics_differs": [r["case_id"] for r in records if r["semantics_differs"]],
         "not_fully_verified": sorted(
             {r["template_id"] for r in records if r["level"] != Verification.STATIC_AND_REPLAY}
@@ -203,8 +213,14 @@ def markdown(result: dict) -> str:
         ]
         lines += [
             "",
-            "Rows lost without a row-loss caveat (either path): "
+            "Rows lost without a `rows may drop:` caveat (either path): "
             + (", ".join(r["lost_rows_without_caveat"]) or "none"),
+            "",
+            "Rows gained or repeated differently without a row caveat (either path): "
+            + (", ".join(r["changed_rows_without_caveat"]) or "none"),
+            "",
+            "`preserved` fixes whose rows changed (either path): "
+            + (", ".join(r["preserved_but_rows_changed"]) or "none"),
             "",
             "Semantics differs between the paths: " + (", ".join(r["semantics_differs"]) or "none"),
         ]

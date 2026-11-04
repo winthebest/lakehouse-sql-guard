@@ -8,7 +8,7 @@ import pytest
 from bench.leakage import fixes_eval
 from bench.leakage.cases import LeakCase, generate_cases
 from bench.leakage.run import SYNTHETIC_SPEC
-from sqlguard.leakage.fixes import Fix, Verification
+from sqlguard.leakage.fixes import Fix, Semantics, Verification
 from sqlguard.leakage.replay import Replayer
 from sqlguard.leakage.spec import LeakageSpec
 
@@ -63,6 +63,8 @@ def test_the_report_names_the_levels():
                     "semantics_counts": dict.fromkeys(fixes_eval.SEMANTICS, 3),
                 },
                 "semantics_differs": [],
+                "changed_rows_without_caveat": [],
+                "preserved_but_rows_changed": [],
                 "lost_rows_without_caveat": [],
                 "not_fully_verified": ["t1"],
             }
@@ -112,3 +114,32 @@ def test_a_drop_that_only_the_replay_path_warns_about_fails_the_static_path(worl
     record = fixes_eval.evaluate_case(case, catalog, spec, replayer)
     assert not record["lost_rows_without_caveat"]
     assert record["static"]["lost_rows_without_caveat"]
+
+
+def test_a_preserved_fix_that_changes_the_rows_fails_and_so_does_a_change_without_a_caveat(
+    world, monkeypatch
+):
+    catalog, _ = world
+    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    replayer = Replayer(catalog, spec, seed=42)
+    case = LeakCase(
+        "c", "t", "dev", "leaky", "L3", {}, "SELECT l.user_id, l.label_ts, l.churned FROM labels l"
+    )
+    # same number of rows, other rows: the count cannot see it, the key set does
+    swapped = "SELECT l.user_id + 1000 AS user_id, l.label_ts, l.churned FROM labels l"
+
+    def fake(semantics, caveats):
+        return lambda *a, **k: [
+            Fix(
+                "L3", "labels", case.sql, swapped, "x", caveats, Verification.STATIC_ONLY, semantics
+            )
+        ]
+
+    monkeypatch.setattr(fixes_eval, "suggest_fix", fake(Semantics.PRESERVED, []))
+    record = fixes_eval.evaluate_case(case, catalog, spec, replayer)
+    assert record["static"]["preserved_but_rows_changed"] and record["preserved_but_rows_changed"]
+    assert record["static"]["lost_rows_without_caveat"]
+    monkeypatch.setattr(fixes_eval, "suggest_fix", fake(Semantics.CHANGED, ["rows may drop: x"]))
+    record = fixes_eval.evaluate_case(case, catalog, spec, replayer)
+    assert not record["static"]["preserved_but_rows_changed"]
+    assert not record["static"]["lost_rows_without_caveat"]

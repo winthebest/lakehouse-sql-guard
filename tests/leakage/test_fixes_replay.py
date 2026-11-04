@@ -7,7 +7,7 @@ from bench.leakage.world import WorldConfig, build_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage import fixes as fixes_module
 from sqlguard.leakage import rewrite
-from sqlguard.leakage.fixes import Verification, suggest_fix
+from sqlguard.leakage.fixes import Semantics, Verification, suggest_fix
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
 from sqlguard.leakage.validator import validate
@@ -103,6 +103,10 @@ def test_an_unsettled_leak_next_to_a_fixed_one_is_not_certified_by_replay(world,
     assert all(f.verification is not Verification.STATIC_AND_REPLAY for f in fixes)
 
 
+AGG = (
+    f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+    "GROUP BY 1, 2, 3"
+)
 SHAPES = {
     "where on the joined table": (
         f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
@@ -118,6 +122,15 @@ SHAPES = {
     ),
     "exists subquery": (
         f"{SEL} FROM labels l WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = l.user_id)"
+    ),
+    "derived table filtered on the aggregate": (f"SELECT * FROM ({AGG}) t WHERE a > 0"),
+    "cte filtered on the aggregate": f"WITH t AS ({AGG}) SELECT * FROM t WHERE a IS NOT NULL",
+    "two levels, renamed, filtered": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, a AS b FROM ({AGG}) t1) t2 WHERE b > 0"
+    ),
+    "order by the aggregate with a limit": (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3 ORDER BY MAX(e.amount) DESC LIMIT 50"
     ),
     "plain bound": EVENT_TIME_ONLY,
     "count star": (
@@ -143,3 +156,16 @@ def test_replay_adds_evidence_but_never_decides_the_label_or_the_row_caveats(sql
     warned_statically = any(c.startswith(rewrite.ROWS_MAY_DROP) for f in static for c in f.caveats)
     # a drop that replay's row count confirms must already have been said without replay
     assert warned_statically or not found_by_replay
+
+
+def test_replay_compares_the_prediction_rows_not_only_how_many(world, replayer):
+    """Fifty rows before, fifty after, but other rows: the key set shows it, the count does not."""
+    sql = (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3 ORDER BY MAX(e.amount) DESC LIMIT 50"
+    )
+    fix = [f for f in suggest_fix(sql, SPEC, catalog=world, replay=replayer) if f.rewrites][-1]
+    text = " ".join(fix.caveats)
+    assert "instead of" not in text  # the count is the same
+    assert "no longer appear in the repaired query" in text
+    assert fix.semantics is Semantics.CHANGED

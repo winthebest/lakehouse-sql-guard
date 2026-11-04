@@ -4,13 +4,14 @@ Replay and the static check say the repaired query reads nothing from the future
 it still computes the same thing: both runs would compute the same wrong value. So each Fix also
 carries `semantics`, and these tests execute the original and the repaired SQL on a fixture."""
 
+from collections import Counter
 from datetime import datetime
 
 import duckdb
 import pytest
 
 from sqlguard.leakage.fixes import Fix, Semantics, Verification, suggest_fix
-from sqlguard.leakage.rewrite import ROWS_KEPT, ROWS_MAY_DROP
+from sqlguard.leakage.rewrite import ROWS_CHANGE, ROWS_KEPT, ROWS_MAY_DROP
 from sqlguard.leakage.spec import LeakageSpec
 from sqlguard.leakage.validator import LeakageReport, validate
 
@@ -463,3 +464,137 @@ def test_a_bound_tightened_inside_an_inner_join_condition_says_rows_may_drop():
     assert fix.semantics is Semantics.CHANGED
     assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
     assert len(rows(conn, sql)) == 1 and len(rows(conn, fix.after_sql)) == 0
+
+
+# --- what the bounded table feeds, followed up to the top of the query -------------------------
+
+AGG = (
+    "SELECT l.user_id, l.label_ts, l.churned, SUM(e.amount) a "
+    "FROM labels l LEFT JOIN events e ON e.user_id = l.user_id GROUP BY 1, 2, 3"
+)
+SPINE = "SELECT l.user_id, l.label_ts, l.churned, NULL FROM labels l WHERE 1 = 0"
+
+
+def key_counts_of(db, sql: str) -> dict:
+    return dict(Counter(db.sql(f"SELECT user_id, label_ts FROM ({sql})").fetchall()))
+
+
+UPWARD = {
+    "derived table filtered on the aggregate": (
+        f"SELECT user_id, label_ts, churned, a FROM ({AGG}) t WHERE a > 0"
+    ),
+    "cte filtered on IS NOT NULL": f"WITH t AS ({AGG}) SELECT * FROM t WHERE a IS NOT NULL",
+    "cte joined back on the aggregate": (
+        f"WITH t AS ({AGG}) SELECT l.user_id, l.label_ts, l.churned, t.a FROM labels l "
+        "JOIN t ON t.user_id = l.user_id AND t.label_ts = l.label_ts AND t.a > 0"
+    ),
+    "filter inside a union branch": (f"SELECT * FROM ({AGG}) t WHERE t.a > 0 UNION ALL {SPINE}"),
+    "two levels of derived tables": (
+        f"SELECT * FROM (SELECT * FROM (SELECT user_id, label_ts, churned, a FROM ({AGG}) t1) t2) "
+        "t3 WHERE a > 0"
+    ),
+    "renamed on the way up": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, a AS b FROM ({AGG}) t1) t2 WHERE b > 0"
+    ),
+    "computed on the way up, two ctes": (
+        f"WITH t AS ({AGG}), u AS (SELECT user_id, label_ts, churned, a * 2 AS b FROM t) "
+        "SELECT * FROM u WHERE b > 0"
+    ),
+    "limit over the aggregate one level out": (f"SELECT * FROM ({AGG}) t ORDER BY a DESC LIMIT 2"),
+    "order by the aggregate with a limit": (
+        f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY MAX(e.amount) DESC LIMIT 2"
+    ),
+    "order by a joined column with a limit, no group by": (
+        f"{SEL} {LJ} ORDER BY e.amount DESC LIMIT 3"
+    ),
+}
+
+
+@pytest.mark.parametrize("sql", UPWARD.values(), ids=UPWARD.keys())
+def test_a_value_the_bound_changes_that_decides_rows_further_out_is_not_preserved(db, sql):
+    fix = last(sql)  # schema only: nothing replayed
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+    assert key_counts_of(db, sql) != key_counts_of(db, fix.after_sql)  # the rows really change
+
+
+POSSIBLE = {
+    "distinct over the aggregate one level out": (
+        f"SELECT DISTINCT user_id, label_ts, churned, a FROM ({AGG}) t"
+    ),
+    "distinct star over the aggregate": f"SELECT DISTINCT * FROM ({AGG}) t",
+    "union that removes duplicates": f"SELECT * FROM ({AGG}) t UNION {SPINE}",
+    "union that removes duplicates, in a cte": (
+        f"WITH t AS ({AGG}), u AS (SELECT * FROM t UNION {SPINE}) SELECT * FROM u"
+    ),
+}
+
+
+@pytest.mark.parametrize("sql", POSSIBLE.values(), ids=POSSIBLE.keys())
+def test_a_deduplication_over_the_bounded_values_says_rows_may_drop(sql):
+    fix = last(sql)
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+
+
+PLAIN_UP = {
+    "derived table, nothing done with it": f"SELECT * FROM ({AGG}) t",
+    "two levels, plain outputs and arithmetic": (
+        f"SELECT * FROM (SELECT user_id, label_ts, churned, a * 2 AS b FROM "
+        f"(SELECT * FROM ({AGG}) t1) t2) t3"
+    ),
+    "cte read once": f"WITH t AS ({AGG}) SELECT user_id, label_ts, churned, a FROM t",
+    "union all of the aggregate": f"SELECT * FROM ({AGG}) t UNION ALL {SPINE}",
+    "order by the aggregate without a limit": f"{SEL}, SUM(e.amount) a {LJ} {G} ORDER BY a DESC",
+}
+
+
+@pytest.mark.parametrize("sql", PLAIN_UP.values(), ids=PLAIN_UP.keys())
+def test_a_value_that_only_travels_up_as_an_output_keeps_the_meaning(db, sql):
+    fix = last(sql)
+    assert fix.semantics is Semantics.PRESERVED and fix.caveats == []
+    assert key_counts_of(db, sql) == key_counts_of(db, fix.after_sql)
+
+
+def test_a_filter_on_an_unrelated_column_of_the_same_scope_is_not_blamed(db):
+    sql = f"SELECT * FROM ({AGG}) t WHERE churned = 0"
+    assert last(sql).semantics is Semantics.PRESERVED
+
+
+def test_a_table_joined_twice_names_the_fan_out_not_a_value_of_its_own():
+    fixes = [
+        f
+        for f in fixes_of(
+            f"{SEL}, SUM(e.amount) a, COUNT(e2.event_id) n FROM labels l "
+            "LEFT JOIN events e ON e.user_id = l.user_id "
+            f"LEFT JOIN events e2 ON e2.user_id = l.user_id {G}"
+        )
+        if f.rewrites
+    ]
+    text = " ".join(c for f in fixes for c in f.caveats)
+    assert all(f.semantics is Semantics.CHANGED for f in fixes)
+    assert "joined again as e2" in text and "multiplied by the matches" in text
+    assert "value of its own" not in text
+
+
+def test_a_frame_changed_under_distinct_says_the_row_count_changes(db):
+    sql = (
+        "WITH cur AS (SELECT DISTINCT user_id, LAST_VALUE(total_spend) OVER (PARTITION BY user_id "
+        "ORDER BY updated_at ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) "
+        "AS cur_spend FROM user_stats) "
+        "SELECT lab.user_id, lab.label_ts, lab.churned, c.cur_spend FROM labels lab "
+        "LEFT JOIN cur c USING (user_id)"
+    )
+    fix = [f for f in fixes_of(sql) if f.rewrites][0]
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_CHANGE) for c in fix.caveats), fix.caveats
+    assert key_counts_of(db, sql) != key_counts_of(db, fix.after_sql)  # user 1 comes back 5 times
+
+
+def test_removing_the_latest_prediction_filter_has_a_row_caveat_with_a_prefix():
+    fix = last(
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "AND e.ingested_at < l.label_ts GROUP BY 1, 2, 3 "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) = 1"
+    )
+    assert any(c.startswith(ROWS_CHANGE) for c in fix.caveats)
