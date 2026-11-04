@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true}'>
+<title>{% block title %}Approvals{% endblock %} - sqlguard</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <strong class="brand">sqlguard</strong>
+  <nav><a href="/">Queue</a> <a href="/audit">Audit log</a></nav>
+  <span class="who">Deciding as <b>{{ approver }}</b> <small>(a label, not a login)</small></span>
+</header>
+<main>
+{% for kind, text in flashes %}
+  <p class="flash {{ kind }}">{{ text }}</p>
+{% endfor %}
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Action {{ view.record.id | short(8) }}{% endblock %}
+{% macro value(v) %}{% if v is none %}<i class="null">NULL</i>{% else %}{{ v | cell }}{% endif %}{% endmacro %}
+{% macro fields(row, only=none) %}
+  {% for name, v in row.items() %}
+    {% if only is none or name in only %}<span class="field"><b>{{ name }}</b> {{ value(v) }}</span>{% endif %}
+  {% endfor %}
+{% endmacro %}
+{% block body %}
+{% set r = view.record %}
+<p><a href="/">&larr; Queue</a></p>
+<h1>Action <code>{{ r.id | short(8) }}</code> <span class="pill {{ r.state.value }}">{{ r.state.value }}</span></h1>
+
+{% if r.state.value == "needs_attention" %}
+<section class="attention" role="alert">
+  <h2>Needs attention</h2>
+  {% for line in view.help %}<p>{{ line }}</p>{% endfor %}
+  {% if r.outcome_data %}<p><b>Reason:</b> {{ r.outcome_data.get("reason", "") }}</p>{% endif %}
+  <p>Base snapshot (main before the change): <code>{{ r.base_snapshot_id }}</code>
+     {% if r.head_snapshot_id %}&middot; target: <code>{{ r.head_snapshot_id }}</code>{% endif %}
+     {% if r.branch %}&middot; audit branch kept: <code>{{ r.branch }}</code>{% endif %}</p>
+</section>
+{% endif %}
+
+{% if view.problems %}
+<section class="attention" role="alert">
+  <h2>Approval is blocked</h2>
+  <ul>{% for p in view.problems %}<li>{{ p }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<dl class="facts">
+  <dt>Table</dt><dd>{{ r.table }}</dd>
+  <dt>Kind</dt><dd>{{ r.kind }}</dd>
+  <dt>Requested by</dt><dd>{{ r.requester }} at {{ r.created_at | ts }}</dd>
+  <dt>Deadline</dt><dd>{{ r.expires_at | ts }}</dd>
+  <dt>Action hash</dt><dd><code>{{ r.action_hash | short(16) }}</code>
+      <small>(the first 8 characters are what the CLI asks you to retype)</small></dd>
+  <dt>Snapshots</dt><dd>base <code>{{ r.base_snapshot_id }}</code> &rarr; head <code>{{ r.head_snapshot_id }}</code></dd>
+  {% if r.approver %}<dt>Decided by</dt><dd>{{ r.approver }} at {{ r.decided_at | ts }}</dd>{% endif %}
+</dl>
+
+<h2>Statement</h2>
+<pre class="sql">{{ view.sql }}</pre>
+<p class="muted">Literals are replaced by <code>?</code>; the rows below show what the statement changes.</p>
+
+<h2>Why it needs a decision</h2>
+{% set reasons = r.reasons %}
+{% if reasons %}<ul>{% for reason in reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">The policy recorded no reasons.</p>{% endif %}
+
+<h2>Checks</h2>
+{% if view.invariants %}
+<p>Invariants configured for this table (checked again when you approve; a failure ends the action as stale):</p>
+<ul>{% for name, v in view.invariants.items() %}<li><code>{{ name }}</code>: {{ v }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">No invariants are configured for this table.</p>{% endif %}
+
+<h2>Row diff {% if view.diff %}<small>(recomputed from the snapshots just now)</small>{% endif %}</h2>
+{% if view.counts %}
+  {% set c = view.counts %}
+  <p class="counts"><b>{{ c.added }}</b> added &middot; <b>{{ c.deleted }}</b> deleted &middot;
+     {% if c.modified is none %}<b>unkeyed</b> (a modified row is a delete plus an add){% else %}<b>{{ c.modified }}</b> modified{% endif %}
+     &middot; mode {{ view.diff.mode }}{% if view.diff.key %} on <code>{{ view.diff.key | join(", ") }}</code>{% endif %}</p>
+  {% if view.diff.key_note %}<p class="muted">{{ view.diff.key_note }}</p>{% endif %}
+  {% if view.reviewed and (view.reviewed.added, view.reviewed.deleted, view.reviewed.modified) != (c.added, c.deleted, c.modified) %}
+    <p class="warn-text">The counts stored when it was queued were {{ view.reviewed.text }}.</p>
+  {% endif %}
+  {% if not view.diff.schema_diff.empty %}
+    <p><b>Schema changes:</b> {{ view.diff.schema_diff.added | join(", ") }} {{ view.diff.schema_diff.removed | join(", ") }} {{ view.diff.schema_diff.changed | join(", ") }}</p>
+  {% endif %}
+  {% if view.diff.truncated %}<p class="muted">Only the first {{ view.diff.rows | length }} of {{ view.diff.rows_changed }} changed rows are listed; the counts and the digest cover all of them.</p>{% endif %}
+  {% if view.rows %}
+  <table class="grid diff">
+    <thead><tr><th>Change</th><th>Key</th><th>Row</th></tr></thead>
+    <tbody>
+    {% for change in view.rows %}
+      <tr class="change-{{ change.change }}">
+        <td>{{ change.change }}</td>
+        <td>{% if change.key %}{{ fields(change.key) }}{% else %}<span class="muted">-</span>{% endif %}</td>
+        <td>
+          {% if change.change == "added" %}{{ fields(change.after) }}
+          {% elif change.change == "deleted" %}{{ fields(change.before) }}
+          {% else %}
+            {% for col in change.changed_columns %}
+              <span class="field"><b>{{ col }}</b> {{ value(change.before.get(col)) }} &rarr; {{ value(change.after.get(col)) }}</span>
+            {% endfor %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if view.pages > 1 %}
+  <p class="pager">Page {{ view.page }} of {{ view.pages }}
+    {% if view.page > 1 %}<a href="/a/{{ r.id }}?page={{ view.page - 1 }}">previous</a>{% endif %}
+    {% if view.page < view.pages %}<a href="/a/{{ r.id }}?page={{ view.page + 1 }}">next</a>{% endif %}
+  </p>
+  {% endif %}
+  {% else %}<p class="muted">The statement changes no rows.</p>{% endif %}
+{% elif view.reviewed %}
+  <p>As reviewed when it was queued: <code>{{ view.reviewed.text }}</code>
+     <small>({{ "not recomputed: the action is no longer pending" if not view.can_decide else "could not be recomputed" }})</small></p>
+{% elif r.kind != "sql" %}
+  {% set plan = r.impact_data.get("plan") %}
+  <p>This is a maintenance action; approving re-plans it against the live table and refuses (stale) if the plan differs from the reviewed one.</p>
+  {% if plan %}<pre class="sql">{{ plan | tojson(indent=2) }}</pre>{% endif %}
+{% else %}
+  <p class="muted">No row diff is available.</p>
+{% endif %}
+
+{% if view.can_decide %}
+<h2>Decision</h2>
+<div class="decide">
+  <form method="post" action="/a/{{ r.id }}/approve" class="approve">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if view.approve_proof %}<input type="hidden" name="proof" value="{{ view.approve_proof }}">{% endif %}
+    <label>Note (optional)<textarea name="note" maxlength="1000" rows="2"></textarea></label>
+    <button type="submit" class="primary" {% if not view.can_approve %}disabled{% endif %}>Approve</button>
+  </form>
+  <form method="post" action="/a/{{ r.id }}/reject" class="reject">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="proof" value="{{ view.reject_proof }}">
+    <label>Reason for rejecting (required)<textarea name="note" maxlength="1000" rows="2" required></textarea></label>
+    <button type="submit" class="danger">Reject</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
