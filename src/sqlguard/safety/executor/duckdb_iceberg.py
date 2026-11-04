@@ -56,10 +56,16 @@ from sqlguard.safety.executor.base import (
     PublishResult,
     UnsupportedAction,
 )
-from sqlguard.safety.executor.orphan_files import delete_orphans, find_orphans
+from sqlguard.safety.executor.orphan_files import (
+    OrphanSafetyError,
+    delete_orphans,
+    find_orphans,
+    locations_overlap,
+)
 from sqlguard.safety.impact import compute_table_impact, quote_ident
 
 MAIN = "main"
+AUDIT_BRANCH_PREFIX = "sqlguard-"  # branches the guard creates; never valid publish targets
 _BRANCH_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _RUNNABLE = (exp.Insert, exp.Update, exp.Delete, exp.Merge)
 _READ_ONLY = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe)
@@ -129,7 +135,7 @@ class DuckDBIcebergAdapter:
     # -- branches --------------------------------------------------------------------------------
 
     def create_branch(self, table: str, name: str | None = None) -> BranchHandle:
-        branch = name or f"sqlguard-{uuid.uuid4().hex[:10]}"
+        branch = name or f"{AUDIT_BRANCH_PREFIX}{uuid.uuid4().hex[:10]}"
         if branch == MAIN or not _BRANCH_NAME.match(branch):
             raise ExecutionError(f"invalid branch name {branch!r}")
         iceberg = self._load(table)
@@ -227,10 +233,20 @@ class DuckDBIcebergAdapter:
         if branch.name in iceberg.refs():
             iceberg.manage_snapshots().remove_branch(branch.name).commit()
 
-    def rollback(self, table: str, snapshot_id: int) -> None:
+    def rollback(self, table: str, snapshot_id: int, expected_current: int | None = None) -> None:
+        # One load, one commit: PyIceberg pins its main-ref assertion to this very Table object,
+        # so a writer that commits after the check below makes the commit fail instead of being
+        # silently discarded.
+        iceberg = self._load(table)
+        if expected_current is not None and self._current_id(iceberg) != expected_current:
+            raise BranchDiverged(
+                f"main of {table} is at {self._current_id(iceberg)}, expected {expected_current}"
+            )
         try:
-            self._load(table).manage_snapshots().rollback_to_snapshot(snapshot_id).commit()
-        except (ValueError, CommitFailedException) as err:
+            iceberg.manage_snapshots().rollback_to_snapshot(snapshot_id).commit()
+        except CommitFailedException as err:
+            raise BranchDiverged(f"main of {table} changed during rollback: {err}") from err
+        except ValueError as err:
             raise ExecutionError(str(err)) from err
 
     # -- maintenance -----------------------------------------------------------------------------
@@ -256,8 +272,13 @@ class DuckDBIcebergAdapter:
         if plan.kind == "expire_snapshots":
             return self._apply_expire(iceberg, plan, before)
         if plan.kind == "remove_orphan_files":
-            assert isinstance(action, RemoveOrphanFiles) and action.older_than is not None
-            removed = delete_orphans(iceberg, plan.orphan_files, action.older_than)
+            if not isinstance(action, RemoveOrphanFiles) or action.older_than is None:
+                raise ExecutionError("remove_orphan_files needs an explicit older_than")
+            self._ensure_exclusive_location(iceberg)
+            try:
+                removed = delete_orphans(iceberg, plan.orphan_files, action.older_than)
+            except OrphanSafetyError as err:
+                raise ExecutionError(str(err)) from err
             return MaintenanceResult(
                 plan, before, before, deleted_files=tuple(f.location for f in removed)
             )
@@ -278,6 +299,39 @@ class DuckDBIcebergAdapter:
         except (ValueError, CommitFailedException) as err:
             raise ExecutionError(str(err)) from err
         return MaintenanceResult(plan, before, self._current_id(self._load(plan.table)))
+
+    @staticmethod
+    def _require_publishable_ref(name: str) -> None:
+        """Audit branches may hold unverified or unapproved changes; main must never point there."""
+        if name.startswith(AUDIT_BRANCH_PREFIX):
+            raise ExecutionError(
+                f"ref {name!r} is an internal audit branch and cannot be a publish target"
+            )
+
+    def _ensure_exclusive_location(self, iceberg: Table) -> None:
+        """Refuse orphan cleanup when any other table's location overlaps this one's.
+
+        Files of a table nested inside (or containing) this location are unreferenced by *this*
+        table's metadata, so listing the directory would call them orphans.
+        """
+        catalog = self.catalog.catalog
+        own = tuple(iceberg.name())
+        for namespace in catalog.list_namespaces():
+            for identifier in catalog.list_tables(namespace):
+                if tuple(identifier) == own:
+                    continue
+                try:
+                    other = catalog.load_table(identifier).location()
+                except Exception as err:  # an unreadable table might own files here
+                    raise ExecutionError(
+                        f"cannot verify that table {'.'.join(identifier)} does not overlap "
+                        f"{'.'.join(own)}: {err}"
+                    ) from err
+                if locations_overlap(iceberg.location(), other):
+                    raise ExecutionError(
+                        f"orphan cleanup refused: location of {'.'.join(identifier)} ({other}) "
+                        f"overlaps {iceberg.location()}"
+                    )
 
     @staticmethod
     def _current_id(iceberg: Table) -> int | None:
@@ -336,11 +390,16 @@ class DuckDBIcebergAdapter:
         if action.older_than is None:
             raise ExecutionError("remove_orphan_files needs an explicit older_than")
         iceberg = self._load(action.table)
+        self._ensure_exclusive_location(iceberg)
+        try:
+            orphans = find_orphans(iceberg, action.older_than)
+        except OrphanSafetyError as err:
+            raise ExecutionError(str(err)) from err
         return MaintenancePlan(
             kind="remove_orphan_files",
             table=self._qualified(action.table),
             irreversible=True,
-            orphan_files=tuple(find_orphans(iceberg, action.older_than)),
+            orphan_files=tuple(orphans),
             remaining_snapshots=len(iceberg.snapshots()),
             current_snapshot_id=self._current_id(iceberg),
         )
@@ -351,11 +410,18 @@ class DuckDBIcebergAdapter:
         if len(given) != 1:
             raise ExecutionError("rollback needs exactly one of snapshot_id, as_of, or ref")
         current = self._current_id(iceberg)
+        warnings: tuple[str, ...] = ()
         if action.ref is not None:
+            self._require_publishable_ref(action.ref)
             ref = iceberg.refs().get(action.ref)
             if ref is None:
                 raise ExecutionError(f"unknown ref {action.ref!r}")
             target = ref.snapshot_id
+            if target not in self._ancestry(iceberg, current):
+                warnings = (
+                    f"ref {action.ref!r} is not part of main's history; moving main there "
+                    "publishes content main never contained",
+                )
         elif action.snapshot_id is not None:
             if iceberg.snapshot_by_id(action.snapshot_id) is None:
                 raise ExecutionError(
@@ -363,7 +429,8 @@ class DuckDBIcebergAdapter:
                 )
             target = action.snapshot_id
         else:
-            assert action.as_of is not None
+            if action.as_of is None:
+                raise ExecutionError("rollback needs exactly one of snapshot_id, as_of, or ref")
             cutoff = _millis(action.as_of)
             eligible = [
                 i
@@ -384,12 +451,15 @@ class DuckDBIcebergAdapter:
             remaining_snapshots=len(iceberg.snapshots()),
             current_snapshot_id=current,
             target_snapshot_id=target,
+            warnings=warnings,
+            requires_approval=bool(warnings),
         )
 
     def _plan_fast_forward(self, action: FastForward) -> MaintenancePlan:
         if action.branch != MAIN:
             raise UnsupportedAction("only fast-forwarding main is supported")
         iceberg = self._load(action.table)
+        self._require_publishable_ref(action.to)
         ref = iceberg.refs().get(action.to)
         if ref is None:
             raise ExecutionError(f"unknown ref {action.to!r}")

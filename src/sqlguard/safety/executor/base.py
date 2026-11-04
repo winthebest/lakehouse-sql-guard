@@ -79,6 +79,9 @@ class MaintenancePlan:
     orphan_files: tuple[OrphanFile, ...] = ()
     current_snapshot_id: int | None = None
     target_snapshot_id: int | None = None
+    # extra reasons an approver must see, and whether approval is needed whatever the policy says
+    warnings: tuple[str, ...] = ()
+    requires_approval: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -92,6 +95,7 @@ class MaintenancePlan:
             "orphan_files": [f.location for f in self.orphan_files],
             "current_snapshot_id": self.current_snapshot_id,
             "target_snapshot_id": self.target_snapshot_id,
+            "warnings": list(self.warnings),
         }
 
 
@@ -135,8 +139,12 @@ class ExecutorAdapter(Protocol):
 
     def drop_branch(self, branch: BranchHandle) -> None: ...
 
-    def rollback(self, table: str, snapshot_id: int) -> None:
-        """Point main back at an earlier snapshot of its own history."""
+    def rollback(self, table: str, snapshot_id: int, expected_current: int | None = None) -> None:
+        """Point main back at an earlier snapshot of its own history.
+
+        When `expected_current` is given, raises BranchDiverged unless main is exactly there at
+        commit time, so a concurrent writer's commit is never discarded.
+        """
         ...
 
     def plan_maintenance(self, action: MaintenanceAction) -> MaintenancePlan: ...

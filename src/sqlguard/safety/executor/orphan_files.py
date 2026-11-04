@@ -14,6 +14,12 @@ turns metadata-only history loss into physical data loss.
 
 `find_orphans` is read-only and is the dry run; `delete_orphans` re-verifies every file against
 fresh table metadata before removing it.
+
+Paths are compared exactly as the FileIO resolves them: the URI path, never percent-decoded.
+PyIceberg writes partition directories percent-encoded (`city=H%C3%A0+N%E1%BB%99i`) and keeps
+those characters literal on disk, so decoding only one side would make live files look orphaned.
+As a second line of defense, any candidate whose file name equals the name of a referenced file
+(names embed a UUID) aborts the operation with `OrphanSafetyError`.
 """
 
 from __future__ import annotations
@@ -22,10 +28,14 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import pyarrow.fs as pafs
 from pyiceberg.table import Table
+
+
+class OrphanSafetyError(RuntimeError):
+    """The orphan computation looks wrong (a referenced file would be deleted); nothing was done."""
 
 
 @dataclass(frozen=True)
@@ -42,12 +52,18 @@ def _aware(moment: datetime) -> datetime:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
-def _path_of(uri: str) -> str:
-    """Scheme-less path used to compare listed files with metadata references."""
+def path_of(uri: str) -> str:
+    """Scheme-less path (not percent-decoded) used to compare listed files with references."""
     parsed = urlparse(uri)
     if parsed.scheme in ("", "file"):
-        return os.path.normpath(unquote(parsed.path))
-    return f"{parsed.netloc}{unquote(parsed.path)}".rstrip("/")
+        return os.path.normpath(parsed.path)
+    return f"{parsed.netloc}{parsed.path}".rstrip("/")
+
+
+def locations_overlap(first: str, second: str) -> bool:
+    """True when two table locations are equal or one is nested inside the other."""
+    a, b = path_of(first).rstrip("/") + "/", path_of(second).rstrip("/") + "/"
+    return a.startswith(b) or b.startswith(a)
 
 
 def _is_local(uri: str) -> bool:
@@ -72,17 +88,24 @@ def referenced_paths(table: Table) -> set[str]:
             refs.add(manifest.manifest_path)
             for entry in manifest.fetch_manifest_entry(table.io, discard_deleted=True):
                 refs.add(entry.data_file.file_path)
-    return {_path_of(ref) for ref in refs if ref}
+    return {path_of(ref) for ref in refs if ref}
 
 
 def _contained(path: str, location_path: str) -> bool:
     return path.startswith(location_path.rstrip("/") + "/")
 
 
+def _basename(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
 def find_orphans(table: Table, older_than: datetime) -> list[OrphanFile]:
-    """Dry run: unreferenced files under the table location last modified before `older_than`."""
+    """Dry run: unreferenced files under the table location last modified before `older_than`.
+
+    Raises OrphanSafetyError if a candidate shares its file name with a referenced file.
+    """
     location = table.location()
-    location_path = _path_of(location)
+    location_path = path_of(location)
     cutoff = _aware(older_than)
     referenced = referenced_paths(table)
 
@@ -105,7 +128,18 @@ def find_orphans(table: Table, older_than: datetime) -> list[OrphanFile]:
         if modified >= cutoff:
             continue
         orphans.append(OrphanFile(_uri_for(path, location), int(info.size or 0), modified))
+    _refuse_name_clashes([path_of(o.location) for o in orphans], referenced)
     return sorted(orphans, key=lambda f: f.location)
+
+
+def _refuse_name_clashes(candidates: Iterable[str], referenced: set[str]) -> None:
+    live_names = {_basename(r) for r in referenced}
+    clashes = sorted(c for c in candidates if _basename(c) in live_names)
+    if clashes:
+        raise OrphanSafetyError(
+            f"{len(clashes)} orphan candidate(s) share a file name with a referenced file, so "
+            f"the reference comparison cannot be trusted; nothing was deleted: {clashes[:3]}"
+        )
 
 
 def _safe_local_file(path: str, location_path: str) -> bool:
@@ -124,9 +158,11 @@ def delete_orphans(
     since the dry run, moved outside the table directory, or is no longer old enough is skipped.
     Returns the files actually removed.
     """
+    requested = list(files)
     still_orphans = {f.location: f for f in find_orphans(table, older_than)}
+    _refuse_name_clashes([path_of(f.location) for f in requested], referenced_paths(table))
     removed: list[OrphanFile] = []
-    for candidate in files:
+    for candidate in requested:
         verified = still_orphans.get(candidate.location)
         if verified is None:
             continue

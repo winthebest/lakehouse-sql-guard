@@ -15,6 +15,7 @@ from sqlguard.safety.executor.base import (
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
 from sqlguard.safety.executor.orphan_files import (
     OrphanFile,
+    OrphanSafetyError,
     delete_orphans,
     find_orphans,
     referenced_paths,
@@ -30,6 +31,7 @@ __all__ = [
     "MaintenancePlan",
     "MaintenanceResult",
     "OrphanFile",
+    "OrphanSafetyError",
     "PlannedSnapshot",
     "PublishResult",
     "UnsupportedAction",

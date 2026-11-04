@@ -10,7 +10,14 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pytest
 
-from sqlguard.safety.executor import OrphanFile, delete_orphans, find_orphans, referenced_paths
+from sqlguard.safety.executor import (
+    OrphanFile,
+    OrphanSafetyError,
+    delete_orphans,
+    find_orphans,
+    referenced_paths,
+)
+from tests.safety.conftest import CITIES, age_files
 
 FUTURE = datetime.now(UTC) + timedelta(days=1)  # makes every file count as old enough
 LONG_AGO = datetime(2000, 1, 1, tzinfo=UTC)
@@ -96,7 +103,8 @@ def test_referenced_files_are_never_deleted_even_if_asked(orders):
     iceberg = orders.table("orders")
     data_file = next(p for p in all_files(iceberg) if p.suffix == ".parquet")
     forged = OrphanFile(f"file://{data_file}", 1, LONG_AGO)
-    assert delete_orphans(iceberg, [forged], FUTURE) == []
+    with pytest.raises(OrphanSafetyError):
+        delete_orphans(iceberg, [forged], FUTURE)
     assert data_file.exists()
     assert orders.read("orders").num_rows == 20
 
@@ -160,6 +168,7 @@ def test_files_of_unreferenced_snapshots_stay_until_those_snapshots_expire(order
 
 def test_expire_then_delete_orphans_loses_old_data_but_keeps_current_state(orders):
     first = orders.table("orders").current_snapshot().snapshot_id
+    first_files = {p.name for p in all_files(orders.table("orders")) if p.suffix == ".parquet"}
     orders.table("orders").overwrite(one_row(500))
     orders.table("orders").overwrite(one_row(501))
     iceberg = orders.table("orders")
@@ -178,7 +187,8 @@ def test_expire_then_delete_orphans_loses_old_data_but_keeps_current_state(order
     assert len(removed) == len(orphans) and not any(p.exists() for p in paths(removed))
     assert find_orphans(iceberg, FUTURE) == []
     assert orders.read("orders").column("id").to_pylist() == [501]
-    with pytest.raises(Exception):  # noqa: B017, PT011  # the original data is physically gone
+    assert not first_files & {p.name for p in all_files(iceberg)}  # the original data is gone
+    with pytest.raises(ValueError, match="Snapshot not found"):
         orders.read("orders", first)
 
 
@@ -190,3 +200,145 @@ def test_unreadable_metadata_aborts_instead_of_guessing(table):
         find_orphans(table, FUTURE)
     with pytest.raises(OSError):
         delete_orphans(table, [OrphanFile("file:///x", 1, LONG_AGO)], FUTURE)
+
+
+# -- partitioned tables: partition directories are percent-encoded on disk -----------------------
+
+
+def partition_dirs(orders_like, table_name: str = "cities") -> list[str]:
+    root = location(orders_like.table(table_name))
+    return sorted(p.name for p in (root / "data").iterdir() if p.is_dir())
+
+
+def test_partition_values_that_need_encoding_really_are_percent_encoded_on_disk(cities):
+    names = partition_dirs(cities)
+    assert "city=H%C3%A0+N%E1%BB%99i" in names and "city=a%2Fb" in names
+
+
+def test_live_files_of_a_partitioned_table_are_not_orphans(cities):
+    iceberg = cities.table("cities")
+    assert find_orphans(iceberg, FUTURE) == []
+    assert {str(p) for p in all_files(iceberg)} <= referenced_paths(iceberg)
+
+
+def test_only_the_real_orphan_of_a_partitioned_table_is_deleted(cities):
+    iceberg = cities.table("cities")
+    live = all_files(iceberg)
+    lost = stray(iceberg, "data/city=Hà Nội/leftover.parquet")
+    found = find_orphans(iceberg, FUTURE)
+    assert paths(found) == {lost}
+    delete_orphans(iceberg, found, FUTURE)
+    assert all_files(iceberg) == live
+    assert cities.read("cities").num_rows == len(CITIES)
+
+
+def test_guard_orphan_cleanup_keeps_a_partitioned_table_readable(make_guard, cities, scope):
+    from sqlguard.safety import RemoveOrphanFiles
+    from sqlguard.safety.guard import Outcome
+
+    root = location(cities.table("cities"))
+    lost = stray(cities.table("cities"), "data/leftover.parquet")
+    age_files(root, 60)
+    guard = make_guard(clock=lambda: datetime.now(UTC))
+    action = RemoveOrphanFiles("cities", older_than=datetime.now(UTC) - timedelta(days=30))
+
+    result = guard.submit(action, scope, lambda request: True)
+
+    assert result.outcome is Outcome.MAINTENANCE_DONE
+    assert [Path(urlparse(f.location).path) for f in result.plan.orphan_files] == [lost]
+    assert not lost.exists()
+    assert sorted(cities.read("cities").column("city").to_pylist()) == sorted(CITIES)
+
+
+def test_a_name_clash_with_a_referenced_file_aborts_instead_of_deleting(cities):
+    iceberg = cities.table("cities")
+    live = next(p for p in all_files(iceberg) if p.suffix == ".parquet")
+    clone = location(iceberg) / "data" / "elsewhere" / live.name
+    clone.parent.mkdir(parents=True)
+    clone.write_bytes(b"same name, different place")
+    os.utime(clone, (0, 0))
+    with pytest.raises(OrphanSafetyError):
+        find_orphans(iceberg, FUTURE)
+    forged = OrphanFile(f"file://{clone}", 1, LONG_AGO)
+    with pytest.raises(OrphanSafetyError):
+        delete_orphans(iceberg, [forged], FUTURE)
+    assert clone.exists() and live.exists()
+
+
+def test_a_broken_reference_comparison_is_caught_by_the_name_check(cities, monkeypatch):
+    """If path normalization regresses to decoding only one side, nothing may be deleted."""
+    from urllib.parse import unquote
+
+    from sqlguard.safety.executor import orphan_files
+
+    def decoding_path_of(uri: str) -> str:
+        return os.path.normpath(unquote(urlparse(uri).path))
+
+    monkeypatch.setattr(orphan_files, "path_of", decoding_path_of)
+    iceberg = cities.table("cities")
+    with pytest.raises(OrphanSafetyError):
+        find_orphans(iceberg, FUTURE)
+    with pytest.raises(OrphanSafetyError):
+        delete_orphans(iceberg, [], FUTURE)
+    assert cities.read("cities").num_rows == len(CITIES)
+
+
+# -- tables whose locations overlap --------------------------------------------------------------
+
+
+@pytest.fixture
+def nested(catalog):
+    """`db.parent` rooted at wh/shared and `db.child` rooted inside it."""
+    warehouse = catalog.catalog.properties["warehouse"]
+    schema = pa.schema([("id", pa.int64())])
+    for name, where in (("parent", "shared"), ("child", "shared/child")):
+        table = catalog.catalog.create_table(
+            catalog.identifier(name), schema=schema, location=f"{warehouse}/{where}"
+        )
+        table.append(pa.table({"id": pa.array([1, 2], pa.int64())}))
+    return catalog
+
+
+def test_orphan_cleanup_is_refused_when_another_table_lives_inside(nested):
+    from sqlguard.safety import RemoveOrphanFiles
+    from sqlguard.safety.executor import DuckDBIcebergAdapter, ExecutionError
+
+    adapter = DuckDBIcebergAdapter(nested)
+    for name in ("parent", "child"):  # nested inside, and containing, are both refused
+        with pytest.raises(ExecutionError, match="overlaps"):
+            adapter.plan_maintenance(RemoveOrphanFiles(name, older_than=FUTURE))
+
+
+def test_guard_never_touches_the_files_of_an_overlapping_table(make_guard, nested, scope):
+    from sqlguard.safety import RemoveOrphanFiles
+    from sqlguard.safety.guard import Outcome
+
+    parent_dir = location(nested.table("parent"))
+    before = all_files(nested.table("parent"))
+    age_files(parent_dir, 60)
+    guard = make_guard(clock=lambda: datetime.now(UTC))
+    action = RemoveOrphanFiles("parent", older_than=datetime.now(UTC) - timedelta(days=30))
+
+    result = guard.submit(action, scope, lambda request: True)
+
+    assert result.outcome is Outcome.EXECUTION_FAILED and "overlaps" in result.error
+    assert all_files(nested.table("parent")) == before
+    assert nested.read("child").num_rows == 2 and nested.read("parent").num_rows == 2
+
+
+def test_apply_refuses_overlapping_tables_even_with_a_hand_made_plan(nested):
+    from sqlguard.safety import RemoveOrphanFiles
+    from sqlguard.safety.executor import DuckDBIcebergAdapter, ExecutionError, MaintenancePlan
+
+    child_file = next(p for p in all_files(nested.table("child")) if p.suffix == ".parquet")
+    plan = MaintenancePlan(
+        "remove_orphan_files",
+        "db.parent",
+        True,
+        orphan_files=(OrphanFile(f"file://{child_file}", 1, LONG_AGO),),
+    )
+    with pytest.raises(ExecutionError, match="overlaps"):
+        DuckDBIcebergAdapter(nested).apply_maintenance(
+            RemoveOrphanFiles("parent", older_than=FUTURE), plan
+        )
+    assert child_file.exists()

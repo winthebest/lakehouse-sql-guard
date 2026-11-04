@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -78,3 +80,61 @@ def order_ids(catalog: LakehouseCatalog, table: str = "orders") -> list[int]:
 
 def utc(year: int, month: int, day: int) -> datetime:
     return datetime(year, month, day, tzinfo=UTC)
+
+
+CITIES = ["Hà Nội", "a/b", "plain", "x:y", "100%", "a+b", "k=v&w"]
+
+
+@pytest.fixture
+def cities(catalog: LakehouseCatalog) -> LakehouseCatalog:
+    """`db.cities`, identity-partitioned by `city` with values that need percent-encoding."""
+    data = pa.table(
+        {"id": pa.array(range(len(CITIES)), pa.int64()), "city": pa.array(CITIES)},
+    )
+    table = catalog.catalog.create_table(catalog.identifier("cities"), schema=data.schema)
+    with table.update_spec() as spec:
+        spec.add_identity("city")
+    catalog.table("cities").append(data)
+    return catalog
+
+
+def age_files(root: Path, days: float = 60) -> None:
+    """Make every file under `root` look `days` old."""
+    old = time.time() - days * 86400
+    for path in root.rglob("*"):
+        if path.is_file():
+            os.utime(path, (old, old))
+
+
+@pytest.fixture
+def race_on_next_commit(monkeypatch, orders: LakehouseCatalog):
+    """Arm with `arm()`: the next snapshot-ref commit is preceded by a real concurrent append.
+
+    The append goes through a separate table handle, so the commit that follows fails
+    PyIceberg's main-ref assertion exactly as it would against a second process.
+    """
+    from pyiceberg.table.update.snapshot import ManageSnapshots
+
+    state = {"armed": False}
+    original = ManageSnapshots.commit
+
+    def racing_commit(self):
+        if state["armed"]:
+            state["armed"] = False
+            orders.table("orders").append(
+                pa.table(
+                    {
+                        "id": pa.array([999], pa.int64()),
+                        "customer": ["racer"],
+                        "amount": pa.array([1.0]),
+                    }
+                )
+            )
+        return original(self)
+
+    monkeypatch.setattr(ManageSnapshots, "commit", racing_commit)
+
+    def arm() -> None:
+        state["armed"] = True
+
+    return arm
