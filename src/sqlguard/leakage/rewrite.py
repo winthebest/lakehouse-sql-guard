@@ -18,6 +18,7 @@ Shapes (see the point-in-time rewrite research):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from sqlglot import exp
 
@@ -35,6 +36,24 @@ ASOF_DIALECTS = ("duckdb", "snowflake")
 _INNER = (None, "", "INNER")
 
 
+class Semantics(StrEnum):
+    """Does the repaired query still compute the same thing, apart from the leak?
+
+    Replay only shows that the result is knowable at prediction time; a rewrite that computes
+    another quantity is just as point-in-time, so this is stated separately.
+    """
+
+    PRESERVED = "preserved"  # only restricts the facts read to those known before prediction
+    CHANGED = "changed"  # also changes what is computed or which rows exist (see the caveats)
+    UNKNOWN = "unknown"  # nothing was rewritten
+
+
+# Row caveats start with one of these, so they can be told apart from the rest.
+ROWS_KEPT = "rows kept: "
+ROWS_MAY_DROP = "rows may drop: "
+ROWS_CHANGE = "row count changes: "
+
+
 @dataclass
 class Edit:
     """One repair: what was done, and what it changes besides removing the leak."""
@@ -43,6 +62,11 @@ class Edit:
     location: str
     explanation: str
     caveats: list[str] = field(default_factory=list)
+    semantics: Semantics | None = None
+
+    def __post_init__(self) -> None:
+        if self.semantics is None:  # a repair that says nothing else changed is only a bound
+            self.semantics = Semantics.CHANGED if self.caveats else Semantics.PRESERVED
 
 
 def tag_tree(tree: exp.Expression) -> dict[int, exp.Expression]:
@@ -266,7 +290,7 @@ def add_bounds(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         if on is None or not _visible(spine, select, join):
             return None
         join.set("on", conjoin(on, *preds))
-        caveats += _keep_spine_rows(ctx, select, join, alias, ref)
+        caveats += _keep_spine_rows(ctx, select, join, alias, ref, spine.table, count_rows=True)
     else:
         others = [j for j in select.args.get("joins") or [] if not _inner(j)]
         if others:
@@ -274,15 +298,15 @@ def add_bounds(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         _add_where(select, *preds)
         if spine.table in _items_before(select, None):
             caveats.append(
-                f"the bound is in the WHERE of an inner join, so spine rows with no {ref.table} "
-                "before the prediction time drop out of the result"
+                f"{ROWS_MAY_DROP}the bound is in the WHERE of an inner join, so spine rows with "
+                f"no {ref.table} before the prediction time drop out of the result"
             )
     _order_by_availability(select, alias, time, avail)
     if _drop_having_bound(select, alias, ref, spine):
         caveats.append(
-            "the HAVING MAX/MIN condition on the table's time was removed: it kept a spine row "
-            "only when no history lay after the prediction time, which the join condition now "
-            "guarantees; rows without any history now stay with NULL features"
+            f"{ROWS_KEPT}the HAVING MAX condition on the table's time was removed: it kept a "
+            "spine row only when no history lay after the prediction time, which the join "
+            "condition now guarantees; rows without any history now stay with NULL features"
         )
     names = " and ".join(wanted)
     return Edit(
@@ -306,23 +330,99 @@ def _visible(spine: exp.Column, select: exp.Select, join: exp.Join | None) -> bo
     )
 
 
+def _still_drops(select: exp.Select, join: exp.Join, alias: str) -> str | None:
+    """Why spine rows without a match in `alias` would still vanish, or None when nothing does."""
+    for other in select.args.get("joins") or []:
+        if other is join or not _inner(other):
+            continue
+        on = other.args.get("on")
+        if on is not None and any(c.table == alias for c in on.find_all(exp.Column)):
+            return (
+                f"the INNER JOIN to {other.alias_or_name} reads {alias}, so spine rows "
+                f"without a match in {alias} still drop"
+            )
+    for clause in ("where", "having"):
+        node = select.args.get(clause)
+        if node is not None and any(c.table == alias for c in node.find_all(exp.Column)):
+            return f"the {clause.upper()} reads {alias}, so spine rows without a match drop"
+    return None
+
+
 def _keep_spine_rows(
-    ctx: Context, select: exp.Select, join: exp.Join, alias: str, ref: TableRef
+    ctx: Context,
+    select: exp.Select,
+    join: exp.Join,
+    alias: str,
+    ref: TableRef,
+    spine_alias: str | None = None,
+    count_rows: bool = False,
 ) -> list[str]:
-    """An INNER JOIN whose condition changed would drop spine rows with nothing to join: make it a
-    LEFT JOIN, and keep `COUNT(*)` counting the joined side only."""
-    if not _inner(join) or (join.args.get("method") and ctx.dialect == "snowflake"):
-        return []
-    join.set("kind", None)
-    join.set("side", "LEFT")
-    caveats = [
-        "INNER JOIN became LEFT JOIN so every spine row is kept; rows with no "
-        f"{ref.table} before the prediction time now carry NULL features (the original also "
-        "dropped rows the join condition rejected)"
-    ]
-    key = _count_rows_of_joined_side(select, join, alias, ref)
-    if key:
-        caveats.append(f"COUNT(*) became COUNT({alias}.{key}) so a row without history counts 0")
+    """Row effects of changing the condition of the table's own join.
+
+    An INNER JOIN would drop spine rows with nothing to join: it becomes a LEFT JOIN (the caveat
+    says whether every spine row is then kept, or what still drops them). On a LEFT JOIN, a
+    `COUNT(*)` counts the unmatched spine row as one: it counts a column of the joined table.
+    """
+    caveats: list[str] = []
+    converted = False
+    if _inner(join) and not (join.args.get("method") and ctx.dialect == "snowflake"):
+        join.set("kind", None)
+        join.set("side", "LEFT")
+        converted = True
+        reason = _still_drops(select, join, alias)
+        if reason:
+            caveats.append(
+                f"{ROWS_MAY_DROP}INNER JOIN became LEFT JOIN, but {reason} (now also those with "
+                f"no {ref.table} before the prediction time)"
+            )
+        else:
+            caveats.append(
+                f"{ROWS_KEPT}INNER JOIN became LEFT JOIN so every spine row is kept; rows with "
+                f"no {ref.table} before the prediction time now carry NULL features, where the "
+                "original dropped them"
+            )
+    if (converted or count_rows) and str(join.args.get("side") or "").upper() == "LEFT":
+        caveats += _count_joined_rows(select, join, alias, ref, spine_alias)
+    return caveats
+
+
+def _count_joined_rows(
+    select: exp.Select, join: exp.Join, alias: str, ref: TableRef, spine_alias: str | None
+) -> list[str]:
+    """`COUNT(*)`, `COUNT(1)` and `COUNT(<spine column>)` count the unmatched row of a LEFT JOIN:
+    count a column of the joined table instead. Other aggregates over the joined rows are named."""
+    key = None
+    for eq in join.args["on"].find_all(exp.EQ):
+        for side in (eq.this, eq.expression):
+            if isinstance(side, exp.Column) and side.table == alias:
+                key = side.name
+                break
+        if key:
+            break
+    key = key or ref.time_column
+    caveats = []
+    for node in select.find_all(exp.AggFunc):
+        if node.find_ancestor(exp.Select) is not select or node.find_ancestor(exp.Window):
+            continue
+        if isinstance(node, exp.Count) and not isinstance(node.this, exp.Distinct):
+            arg = node.this
+            counts_rows = (
+                isinstance(arg, exp.Star)
+                or (isinstance(arg, exp.Literal) and not arg.is_string)
+                or (isinstance(arg, exp.Column) and spine_alias and arg.table == spine_alias)
+            )
+            if counts_rows:
+                before_text = f"COUNT({arg.sql()})"
+                node.set("this", exp.column(key, table=alias))
+                caveats.append(
+                    f"{before_text} became COUNT({alias}.{key}) so a spine row without history "
+                    "counts 0, not 1"
+                )
+        elif isinstance(node, exp.Sum) and isinstance(node.this, exp.Literal):
+            caveats.append(
+                f"SUM({node.this.sql()}) still counts the spine row itself when there is no "
+                f"{ref.table} row: use COUNT({alias}.{key})"
+            )
     return caveats
 
 
@@ -371,33 +471,6 @@ def _is_max_bound(term: exp.Expression, alias: str, ref: TableRef, spine: exp.Co
     return all(c.table == spine.table for c in other.find_all(exp.Column)) and not other.find(
         exp.Select
     )
-
-
-def _count_rows_of_joined_side(
-    select: exp.Select, join: exp.Join, alias: str, ref: TableRef
-) -> str | None:
-    """After INNER -> LEFT, `COUNT(*)` counts unmatched spine rows: count a column of the join."""
-    stars = [
-        c
-        for c in select.find_all(exp.Count)
-        if isinstance(c.this, exp.Star)
-        and c.find_ancestor(exp.Select) is select
-        and c.find_ancestor(exp.Window) is None
-    ]
-    if not stars:
-        return None
-    key = None
-    for eq in join.args["on"].find_all(exp.EQ):
-        for side in (eq.this, eq.expression):
-            if isinstance(side, exp.Column) and side.table == alias:
-                key = side.name
-                break
-        if key:
-            break
-    key = key or ref.time_column
-    for star in stars:
-        star.set("this", exp.column(key, table=alias))
-    return key
 
 
 def _order_by_availability(select: exp.Select, alias: str, time: str, avail: str | None) -> None:
@@ -580,6 +653,7 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
         f"{ref.describe()} was read from the prediction time onwards; it is now read up to the "
         "prediction time, over the same span.",
         caveats,
+        Semantics.CHANGED,
     )
 
 
@@ -625,26 +699,68 @@ def fix_window(ctx: Context, issue: WindowIssue) -> Edit | None:
     spec = window.args.get("spec")
     if spec is None or str(spec.args.get("kind") or "").upper() != "ROWS":
         return None
-    keep_start = (
-        str(spec.args.get("start_side") or "").upper() == "PRECEDING"
-        or spec.args.get("start") == "UNBOUNDED"
-    )
-    window.set(
-        "spec",
-        exp.WindowSpec(
-            kind="ROWS",
-            start=spec.args.get("start") if keep_start else "UNBOUNDED",
-            start_side="PRECEDING",
-            end=exp.Literal.number(1),
-            end_side="PRECEDING",
-        ),
-    )
+    frame = _frame(spec)
+    if frame is None or frame[1] <= 0:
+        return None
+    start, end = frame
+    # Rows after the current one are the leak. A frame that lies wholly ahead ([k, m] rows after)
+    # becomes the same width behind ([m, k] rows before); one that starts at or before the current
+    # row is cut off at the current row.
+    new = (-end, -start) if start >= 0 else (start, 0)
+    old_text, new_text = _frame_text(frame), _frame_text(new)
+    window.set("spec", _frame_spec(*new))
+    how = "mirrored to the same width behind" if start >= 0 else "cut off at the current row"
     return Edit(
         "L1",
         where,
-        "The frame reached rows after the current one; it now ends at the row before.",
-        ["the current row is no longer part of its own frame"],
+        f"The frame {old_text} reached rows after the current one; it is now {new_text} ({how}).",
+        [
+            f"the frame changes from {old_text} to {new_text}: the feature is computed over "
+            "different rows, confirm that is what you meant"
+        ],
+        Semantics.CHANGED,
     )
+
+
+_INF = float("inf")
+
+
+def _frame(spec: exp.WindowSpec) -> tuple[float, float] | None:
+    """A ROWS frame as (first, last) row offsets from the current row (negative = before)."""
+
+    def offset(edge, side) -> float | None:
+        side = str(side or "").upper()
+        if edge == "CURRENT ROW":
+            return 0
+        if edge == "UNBOUNDED":
+            return -_INF if side == "PRECEDING" else _INF
+        if not (isinstance(edge, exp.Literal) and edge.is_int):
+            return None
+        value = int(edge.name)
+        return -value if side == "PRECEDING" else value
+
+    first = offset(spec.args.get("start"), spec.args.get("start_side"))
+    last = offset(spec.args.get("end"), spec.args.get("end_side"))
+    return None if first is None or last is None else (first, last)
+
+
+def _frame_spec(first: float, last: float) -> exp.WindowSpec:
+    def edge(value: float) -> tuple[object, str | None]:
+        if value == 0:
+            return "CURRENT ROW", None
+        side = "PRECEDING" if value < 0 else "FOLLOWING"
+        if abs(value) == _INF:
+            return "UNBOUNDED", side
+        return exp.Literal.number(int(abs(value))), side
+
+    (start, start_side), (end, end_side) = edge(first), edge(last)
+    return exp.WindowSpec(
+        kind="ROWS", start=start, start_side=start_side, end=end, end_side=end_side
+    )
+
+
+def _frame_text(frame: tuple[float, float]) -> str:
+    return _frame_spec(*frame).sql().strip()
 
 
 def _drop_lead_feature(window: exp.Window, where: str) -> Edit | None:
@@ -866,14 +982,12 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         and partition == {c.name for c in keys}
         and len(order.expressions) == 1
     )
-    if _inner(join):
+    was_inner = _inner(join)
+    if was_inner:
         join.set("kind", None)
         join.set("side", "LEFT")
-        caveats.append(
-            "INNER JOIN became LEFT JOIN so every spine row is kept; the original dropped "
-            f"rows of entities without any {ref.table} row"
-        )
     column = exp.column(time, table=alias)
+    as_asof = False
     if avail is None and simple and ctx.dialect in ASOF_DIALECTS:
         on = conjoin(join.args["on"], *extra) if extra else join.args["on"]
         if not _only_equalities(on):
@@ -884,9 +998,10 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             join.set("side", None)  # Snowflake's ASOF JOIN has no LEFT form
         join.set("on", conjoin(on, asof_condition(spine, column)))
         how = "ASOF JOIN on the one time column"
+        as_asof = True
     else:
-        if _blocks_ranking(outer):
-            return None
+        if _blocks_ranking(outer) or len(outer.args.get("joins") or []) != 1:
+            return None  # another join would be multiplied or cut by the ranking
         wanted = [time] + ([avail] if avail else [])
         preds = [before(exp.column(c, table=alias), spine) for c in wanted]
         join.set("this", table)
@@ -899,6 +1014,11 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             isinstance(k.this, exp.Column) and k.this.name == avail for k in ordering
         ):
             ordering.append(exp.Ordered(this=exp.column(avail, table=alias), desc=True))
+        # rows tied on time are told apart by the table's other columns, so the pick is stable
+        used = {k.this.name.lower() for k in ordering if isinstance(k.this, exp.Column)}
+        for name in ctx.analysis.schema.get(ref.table, {}):
+            if name.lower() not in used:
+                ordering.append(exp.Ordered(this=exp.column(name, table=alias)))
         identity = [exp.column(k, table=spine.table) for k in ctx.spec.entity_keys] + [fresh(spine)]
         ranked = exp.Window(
             this=exp.RowNumber(),
@@ -909,10 +1029,26 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             "qualify", exp.Qualify(this=exp.EQ(this=ranked, expression=exp.Literal.number(1)))
         )
         caveats.append(
-            f"rows are ranked per ({', '.join(ctx.spec.key_columns)}) of the spine: duplicate "
-            "spine rows with the same key collapse into one"
+            f"{ROWS_MAY_DROP}rows are ranked per ({', '.join(ctx.spec.key_columns)}) of the "
+            "spine: duplicate spine rows with the same key collapse into one"
         )
         how = "ROW_NUMBER over the entity and prediction time"
+    if was_inner:
+        snowflake_asof = as_asof and ctx.dialect == "snowflake"
+        target = "ASOF JOIN" if snowflake_asof else "LEFT JOIN"
+        reason = _still_drops(outer, join, alias)
+        if reason:
+            caveats.append(f"{ROWS_MAY_DROP}INNER JOIN became {target}, but {reason}")
+        else:
+            note = (
+                " (Snowflake's ASOF JOIN has no LEFT form; it keeps unmatched spine rows)"
+                if snowflake_asof
+                else ""
+            )
+            caveats.append(
+                f"{ROWS_KEPT}INNER JOIN became {target}{note} so every spine row is kept; the "
+                f"original dropped rows of entities without any {ref.table} row"
+            )
     if isinstance(latest.holder, exp.CTE):
         cte = latest.holder
         clause = cte.parent
@@ -925,6 +1061,7 @@ def inline_latest(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
         f"The newest {ref.table} row was chosen over all history. It is now chosen per "
         f"prediction time among rows known before it ({how}).",
         caveats,
+        Semantics.CHANGED,
     )
 
 

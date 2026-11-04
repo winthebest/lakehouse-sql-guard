@@ -9,8 +9,13 @@ its last rewrite:
 - `unverified`: a rewrite was offered but the checker or replay disagrees;
 - `none`: nothing was rewritten (explanation only).
 
+Each case is also counted by the `semantics` of its rewrite (`preserved`: only a bound was added or
+made strict; `changed`: something else changes, with a caveat; `unknown`: nothing was rewritten).
+It is independent of the level: a replay PASS shows a repaired query is point-in-time, not that it
+computes the same thing.
+
 Also checked on the current data: no repaired query loses a row the original returned unless a
-caveat says so.
+row-loss caveat (`rows may drop: ...`) says so; a caveat about something else does not count.
 
 `dev` and `dev_v1b` were both seen while the rewrites were written, so the rates are in-sample.
 
@@ -30,12 +35,14 @@ import duckdb
 from bench.leakage.cases import SPLITS, LeakCase, generate_cases
 from bench.leakage.run import SYNTHETIC_SPEC, synthetic_world
 from sqlguard.core.catalog import LakehouseCatalog
-from sqlguard.leakage.fixes import Verification, suggest_fix
+from sqlguard.leakage.fixes import Semantics, Verification, suggest_fix
 from sqlguard.leakage.replay import Replayer
+from sqlguard.leakage.rewrite import ROWS_MAY_DROP
 from sqlguard.leakage.spec import LeakageSpec
 from sqlguard.leakage.validator import Weights, validate
 
 LEVELS = (*[v.value for v in Verification], "none")
+SEMANTICS = tuple(v.value for v in Semantics)
 NOT_REWRITTEN = ("L6", "L7")
 
 
@@ -65,12 +72,24 @@ def evaluate_case(
         before = _keys(replayer, spec, case.sql)
         after = _keys(replayer, spec, rewrites[-1].after_sql)
         if before is not None and after is not None and before - after:
-            lost_without_caveat = not any(f.caveats for f in rewrites)
+            lost_without_caveat = not any(
+                c.startswith(ROWS_MAY_DROP) for f in rewrites for c in f.caveats
+            )
     return {
         "case_id": case.case_id,
         "template_id": case.template_id,
         "leak_type": case.leak_type,
         "level": level,
+        # the whole repair: `changed` as soon as one of its rewrites is
+        "semantics": (
+            (
+                Semantics.CHANGED
+                if any(f.semantics is Semantics.CHANGED for f in rewrites)
+                else Semantics.PRESERVED
+            ).value
+            if rewrites
+            else Semantics.UNKNOWN.value
+        ),
         "rewrites": len(rewrites),
         "lost_rows_without_caveat": lost_without_caveat,
     }
@@ -86,6 +105,10 @@ def evaluate(
         if case.is_leaky and case.leak_type not in NOT_REWRITTEN
     ]
     counts = Counter(r["level"] for r in records)
+    meanings = Counter(r["semantics"] for r in records)
+    both: dict[str, Counter] = defaultdict(Counter)
+    for r in records:
+        both[r["semantics"]][r["level"]] += 1
     by_type: dict[str, Counter] = defaultdict(Counter)
     for r in records:
         by_type[r["leak_type"]][r["level"]] += 1
@@ -95,6 +118,9 @@ def evaluate(
         "suggestion_rate": round(sum(r["rewrites"] > 0 for r in records) / n, 4) if n else None,
         "rates": {lv: round(counts[lv] / n, 4) if n else None for lv in LEVELS},
         "counts": {lv: counts[lv] for lv in LEVELS},
+        "semantics_rates": {m: round(meanings[m] / n, 4) if n else None for m in SEMANTICS},
+        "semantics_counts": {m: meanings[m] for m in SEMANTICS},
+        "level_by_semantics": {m: {lv: both[m][lv] for lv in LEVELS} for m in SEMANTICS},
         "by_type": {t: {lv: c[lv] for lv in LEVELS} for t, c in sorted(by_type.items())},
         "lost_rows_without_caveat": [
             r["case_id"] for r in records if r["lost_rows_without_caveat"]
@@ -112,20 +138,36 @@ def markdown(result: dict) -> str:
         "L6 and L7 are explained, not rewritten, and are not counted. Rates are shares of the "
         "leaky L1-L5 cases by the verification of the last rewrite.",
         "",
-        "| split | cases | suggested | " + " | ".join(LEVELS) + " |",
-        "|---|---|---|" + "---|" * len(LEVELS),
+        "The level says the repaired query is point-in-time; `semantics` says whether it still",
+        "computes the same thing (`changed` always comes with a caveat).",
+        "",
+        "| split | cases | suggested | "
+        + " | ".join(LEVELS)
+        + " | "
+        + " | ".join(f"semantics {m}" for m in SEMANTICS)
+        + " |",
+        "|---|---|---|" + "---|" * (len(LEVELS) + len(SEMANTICS)),
     ]
     for split, r in result["splits"].items():
         rates = " | ".join(f"{r['rates'][lv]:.3f}" for lv in LEVELS)
-        lines.append(f"| {split} | {r['n_cases']} | {r['suggestion_rate']:.3f} | {rates} |")
+        meaning = " | ".join(f"{r['semantics_rates'][m]:.3f}" for m in SEMANTICS)
+        lines.append(
+            f"| {split} | {r['n_cases']} | {r['suggestion_rate']:.3f} | {rates} | {meaning} |"
+        )
     for split, r in result["splits"].items():
         lines += ["", f"## {split}", "", "| leak type | " + " | ".join(LEVELS) + " |"]
         lines.append("|---|" + "---|" * len(LEVELS))
         for leak, counts in r["by_type"].items():
             lines.append(f"| {leak} | " + " | ".join(str(counts[lv]) for lv in LEVELS) + " |")
+        lines += ["", "| level \\ semantics | " + " | ".join(SEMANTICS) + " |"]
+        lines.append("|---|" + "---|" * len(SEMANTICS))
+        for lv in LEVELS[:-1]:
+            row = " | ".join(str(r["level_by_semantics"][m][lv]) for m in SEMANTICS)
+            lines.append(f"| {lv} | {row} |")
         lines += [
             "",
-            "Rows lost without a caveat: " + (", ".join(r["lost_rows_without_caveat"]) or "none"),
+            "Rows lost without a row-loss caveat: "
+            + (", ".join(r["lost_rows_without_caveat"]) or "none"),
         ]
         lines += [
             "",

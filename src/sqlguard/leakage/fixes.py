@@ -81,6 +81,9 @@ _EXPLAIN = {
 }
 
 
+Semantics = rewrite.Semantics
+
+
 class Verification(StrEnum):
     STATIC_AND_REPLAY = "static_and_replay"
     STATIC_ONLY = "static_only"
@@ -98,6 +101,9 @@ class Fix:
     explanation: str
     caveats: list[str] = field(default_factory=list)
     verification: Verification = Verification.UNVERIFIED
+    # Independent of `verification`, which is only about leak-freedom: a replay PASS shows the
+    # repaired query reads nothing from the future, not that it computes the same thing.
+    semantics: Semantics = Semantics.UNKNOWN
 
     @property
     def rewrites(self) -> bool:
@@ -106,6 +112,7 @@ class Fix:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["verification"] = self.verification.value
+        data["semantics"] = self.semantics.value
         return data
 
 
@@ -312,19 +319,25 @@ def suggest_fix(
     original_shown = rewrite.render(tree, spec.dialect)
     steps, final_findings = _repair(tree, spec, schema)
     caveats_at_end: list[str] = []
+    rows_changed = False
     level = Verification.STATIC_ONLY
     if steps and all(s.verified for s in steps):
         # replay can only vouch for a query nothing static is still reporting (the L4 hint aside:
         # settling it is what replay is for)
         settled = not any(f.rule_id in LEAK_RULES and f.rule_id != "L4" for f in final_findings)
         if replayer is not None and settled:
-            level, extra = _replay_level(steps[-1].after, original, spec, schema, replayer, weights)
+            level, extra, rows_changed = _replay_level(
+                steps[-1].after, original, spec, schema, replayer, weights
+            )
             caveats_at_end += extra
 
     fixes: list[Fix] = []
     for index, step in enumerate(steps):
         last = index == len(steps) - 1
         caveats = [*step.edit.caveats, *(caveats_at_end if last else [])]
+        semantics = step.edit.semantics
+        if last and rows_changed:
+            semantics = Semantics.CHANGED
         if step.note:
             caveats.append(step.note)
         fixes.append(
@@ -336,13 +349,19 @@ def suggest_fix(
                 step.edit.explanation,
                 caveats,
                 level if step.verified else Verification.UNVERIFIED,
+                semantics,
             )
         )
     remaining = {_key(f) for f in final_findings}
     for finding in leaks:
-        if _key(finding) not in remaining:
+        if _key(finding) not in remaining and steps:
             continue  # repaired, by its own edit or as a side effect of another
         explanation = _explanation(finding, spec)
+        if _key(finding) not in remaining:  # the report flags it, the rewriter's reading does not
+            explanation += (
+                " (The rewriter, which reads the query in a normalized form, no longer sees "
+                "this finding, so no rewrite was made.)"
+            )
         fixes.append(
             Fix(
                 finding.rule_id,
@@ -364,28 +383,30 @@ def _replay_level(
     schema: Schema,
     replayer: Replayer,
     weights: Weights,
-) -> tuple[Verification, list[str]]:
+) -> tuple[Verification, list[str], bool]:
     """Replay the repaired query; also compare how many rows it returns."""
     caveats: list[str] = []
     before_rows, after_rows = _row_count(replayer, original), _row_count(replayer, after)
-    if before_rows is not None and after_rows is not None and before_rows != after_rows:
+    rows_changed = before_rows is not None and after_rows is not None and before_rows != after_rows
+    if rows_changed:
+        lead = rewrite.ROWS_MAY_DROP if after_rows < before_rows else rewrite.ROWS_CHANGE
         caveats.append(
-            f"on the current data the repaired query returns {after_rows} rows instead of "
-            f"{before_rows}"
+            f"{lead}on the current data the repaired query returns {after_rows} rows instead "
+            f"of {before_rows}"
         )
     report = validate(after, spec, schema=schema, replay=replayer, weights=weights)
     result = report.replay
     if result is None or result.status is ReplayStatus.UNVERIFIABLE:
         reason = f": {result.reason}" if result and result.reason else ""
         caveats.append(f"replay could not confirm the repaired query{reason}")
-        return Verification.STATIC_ONLY, caveats
+        return Verification.STATIC_ONLY, caveats, rows_changed
     if result.status is ReplayStatus.MISMATCH:
         caveats.append(
             f"replay still finds {result.rows_mismatched} of {result.rows_compared} rows "
             "different from what was knowable at prediction time"
         )
-        return Verification.UNVERIFIED, caveats
+        return Verification.UNVERIFIED, caveats, rows_changed
     if report.verdict != "clean":
         caveats.append(f"the validator's verdict on the repaired query is {report.verdict}")
-        return Verification.STATIC_ONLY, caveats
-    return Verification.STATIC_AND_REPLAY, caveats
+        return Verification.STATIC_ONLY, caveats, rows_changed
+    return Verification.STATIC_AND_REPLAY, caveats, rows_changed

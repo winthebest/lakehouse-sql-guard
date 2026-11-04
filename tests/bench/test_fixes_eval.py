@@ -6,8 +6,10 @@ from itertools import groupby
 import pytest
 
 from bench.leakage import fixes_eval
-from bench.leakage.cases import generate_cases
+from bench.leakage.cases import LeakCase, generate_cases
 from bench.leakage.run import SYNTHETIC_SPEC
+from sqlguard.leakage.fixes import Fix, Verification
+from sqlguard.leakage.replay import Replayer
 from sqlguard.leakage.spec import LeakageSpec
 
 
@@ -26,6 +28,9 @@ def test_most_leaky_dev_cases_get_a_replayed_rewrite(world, sample):
     assert result["rates"]["static_and_replay"] >= 0.8
     assert result["suggestion_rate"] >= result["rates"]["static_and_replay"]
     assert result["lost_rows_without_caveat"] == []
+    # the meaning of a rewrite is counted apart from its level
+    assert result["semantics_counts"]["preserved"] > 0 and result["semantics_counts"]["changed"] > 0
+    assert sum(result["semantics_counts"].values()) == result["n_cases"]
     # explained-only shapes stay explained-only
     assert {"l3_total_cte", "l3_unused_cte_sibling"} <= set(result["not_fully_verified"])
 
@@ -44,6 +49,10 @@ def test_the_report_names_the_levels():
                 "n_cases": 10,
                 "suggestion_rate": 0.9,
                 "rates": dict.fromkeys(fixes_eval.LEVELS, 0.25),
+                "semantics_rates": dict.fromkeys(fixes_eval.SEMANTICS, 0.3),
+                "level_by_semantics": {
+                    m: dict.fromkeys(fixes_eval.LEVELS, 1) for m in fixes_eval.SEMANTICS
+                },
                 "by_type": {"L1": dict.fromkeys(fixes_eval.LEVELS, 1)},
                 "lost_rows_without_caveat": [],
                 "not_fully_verified": ["t1"],
@@ -52,3 +61,24 @@ def test_the_report_names_the_levels():
     }
     text = fixes_eval.markdown(result)
     assert "static_and_replay" in text and "in-sample" in text and "t1" in text
+    assert "semantics preserved" in text and "semantics changed" in text
+
+
+def test_a_row_loss_needs_a_caveat_about_rows_not_any_caveat(world, monkeypatch):
+    catalog, _ = world
+    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    replayer = Replayer(catalog, spec, seed=42)
+    case = LeakCase(
+        "c", "t", "dev", "leaky", "L3", {}, "SELECT l.user_id, l.label_ts, l.churned FROM labels l"
+    )
+    dropping = "SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE l.user_id < 3"
+
+    def fake(caveat):
+        return lambda *a, **k: [
+            Fix("L3", "labels", case.sql, dropping, "x", [caveat], Verification.STATIC_ONLY)
+        ]
+
+    monkeypatch.setattr(fixes_eval, "suggest_fix", fake("the window is mirrored into the past"))
+    assert fixes_eval.evaluate_case(case, catalog, spec, replayer)["lost_rows_without_caveat"]
+    monkeypatch.setattr(fixes_eval, "suggest_fix", fake("rows may drop: a WHERE reads e"))
+    assert not fixes_eval.evaluate_case(case, catalog, spec, replayer)["lost_rows_without_caveat"]

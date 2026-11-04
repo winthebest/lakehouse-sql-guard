@@ -390,7 +390,10 @@ def _conjunctive_filter(node: exp.Expression) -> _Filter | None:
         return _Filter(kind="having")
     if isinstance(parent, exp.Qualify):
         return _Filter(kind="qualify")
-    if isinstance(parent, exp.Join) and parent.args.get("on") is child:
+    if isinstance(parent, exp.Join) and child in (
+        parent.args.get("on"),
+        parent.args.get("match_condition"),  # Snowflake ASOF: the inequality sits beside ON
+    ):
         return _Filter(parent, "on")
     return None
 

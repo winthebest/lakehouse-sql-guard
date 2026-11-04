@@ -21,7 +21,10 @@ def _sql_files(target: Path) -> list[Path]:
 def _print_fixes(path: Path, fixes: list) -> None:
     """The fixes as a list of what each does, then one unified diff of the whole repair."""
     for fix in fixes:
-        print(f"    fix {fix.rule:3} [{fix.verification.value}] {fix.location}: {fix.explanation}")
+        print(
+            f"    fix {fix.rule:3} [{fix.verification.value}; semantics {fix.semantics.value}] "
+            f"{fix.location}: {fix.explanation}"
+        )
         for caveat in fix.caveats:
             print(f"        caveat: {caveat}")
     rewrites = [f for f in fixes if f.rewrites]

@@ -163,7 +163,7 @@ REPAIRS = {
         f"{SEL}, f.v FROM labels l ASOF JOIN f ON f.user_id = l.user_id "
         "AND l.label_ts > f.updated_at",
         "L1",
-        ["ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"],
+        ["ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"],
     ),
     "lead as an output column is left out": (
         f"{SEL}, s.total_spend, LEAD(s.updated_at) OVER (PARTITION BY l.user_id "
@@ -491,6 +491,7 @@ def test_fix_serializes_for_json():
         "explanation",
         "caveats",
         "verification",
+        "semantics",
     }
 
 
