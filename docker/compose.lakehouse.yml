@@ -1,0 +1,268 @@
+# Real-catalog test stack: object store + three Iceberg REST catalogs + Trino + Spark + a runner.
+#
+#   docker/run-integration.sh      up -> integration tests in the runner -> down -v
+#   docker/demo.sh                 the Spark demo on Lakekeeper, in the runner
+#
+# or by hand (always with the project name, so nothing else on the machine is touched):
+#
+#   docker compose -p sqlguard-lakehouse -f docker/compose.lakehouse.yml up -d --wait
+#   docker compose -p sqlguard-lakehouse -f docker/compose.lakehouse.yml --profile polaris up -d --wait polaris-bootstrap
+#   docker compose -p sqlguard-lakehouse -f docker/compose.lakehouse.yml down -v
+#
+# Everything binds to 127.0.0.1 and uses FIXED DEMO CREDENTIALS (silo-root-user / silo-root-password,
+# polaris root:demo-polaris-secret, ...): this stack is for local testing only, never expose it.
+#
+# Clients must run inside the compose network (the `runner` service). Lakekeeper vends storage
+# credentials whose endpoint is `http://silo:9000`, a name only the compose network resolves.
+#
+# Images are pinned by tag AND digest. `pgsty/silo` replaces MinIO (the upstream minio/minio images
+# are archived); any S3-compatible server works if you change the `silo` service, the bucket
+# `lake` and the endpoint/credentials below.
+#
+# Memory: Trino (~2-3 GB), Spark (~1-2 GB), Lakekeeper, Postgres, silo and the REST fixture run
+# together; Polaris is a profile so it can run on its own, with Trino and Spark stopped.
+name: sqlguard-lakehouse
+
+x-silo-image: &silo-image pgsty/silo:RELEASE.2026-09-03T13-18-01Z@sha256:b616a0cf8cb281e7e6bb3c9b1fb53875b4016a2878223925541c18f82d6c5ca3
+x-lakekeeper-image: &lakekeeper-image quay.io/lakekeeper/catalog:v0.14.2@sha256:9ad8de17a4d291d355215791ee7410409dcaea83cee04ed9279725b6905a4b85
+x-curl-image: &curl-image curlimages/curl:8.15.0@sha256:4026b29997dc7c823b51c164b71e2b51e0fd95cce4601f78202c513d97da2922
+
+x-s3-demo-credentials: &s3-env
+  AWS_ACCESS_KEY_ID: silo-root-user
+  AWS_SECRET_ACCESS_KEY: silo-root-password
+  AWS_REGION: us-east-1
+
+x-lakekeeper-env: &lakekeeper-env
+  LAKEKEEPER__PG_ENCRYPTION_KEY: demo-only-encryption-key-not-secret
+  LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://postgres:demo-postgres@db:5432/postgres
+  LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://postgres:demo-postgres@db:5432/postgres
+
+services:
+  db:
+    image: postgres:17@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
+    environment:
+      POSTGRES_PASSWORD: demo-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # S3 + STS in one process (a MinIO fork). The bucket `lake` is created by `create-bucket`.
+  silo:
+    image: *silo-image
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: silo-root-user
+      MINIO_ROOT_PASSWORD: silo-root-password
+    ports:
+      - "127.0.0.1:19000:9000"
+      - "127.0.0.1:19001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  create-bucket:
+    image: *silo-image
+    depends_on:
+      silo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mc alias set local http://silo:9000 silo-root-user silo-root-password && mc mb --ignore-existing local/lake
+
+  lakekeeper-migrate:
+    image: *lakekeeper-image
+    environment: *lakekeeper-env
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  lakekeeper:
+    image: *lakekeeper-image
+    environment: *lakekeeper-env
+    command: ["serve"]
+    ports:
+      - "127.0.0.1:18181:8181"
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+      create-bucket:
+        condition: service_completed_successfully
+
+  # One-shot: bootstrap Lakekeeper and create the warehouse `demo` (STS-vended credentials).
+  lakekeeper-bootstrap:
+    image: *curl-image
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
+    environment:
+      LAKEKEEPER_URL: http://lakekeeper:8181
+      WAREHOUSE_NAME: demo
+      S3_ENDPOINT: http://silo:9000
+      S3_BUCKET: lake
+      S3_ACCESS_KEY: silo-root-user
+      S3_SECRET_KEY: silo-root-password
+    volumes:
+      - ./lakekeeper-bootstrap.sh:/bootstrap.sh:ro
+    restart: "no"
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+
+  # Reference REST catalog (no credential vending, no authentication): static S3 credentials.
+  rest-fixture:
+    image: apache/iceberg-rest-fixture:1.10.1@sha256:f7d679d30ac9c640bdeb2c015dff533cd3c8f1c7d491ebcb5d436f9a42db1d6f
+    environment:
+      <<: *s3-env
+      CATALOG_WAREHOUSE: s3://lake/rest/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://silo:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    ports:
+      - "127.0.0.1:18182:8181"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8181/v1/config >/dev/null"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      create-bucket:
+        condition: service_completed_successfully
+
+  # Optional (profile `polaris`). It cannot vend credentials without a real AWS STS, so its
+  # storage config says `stsUnavailable` and clients use the static silo credentials.
+  polaris:
+    profiles: ["polaris"]
+    image: apache/polaris:1.8.0@sha256:347615e736cab2c9be0d8c464552ac930be4755302bb0aeb745216bbae99ba5b
+    environment:
+      <<: *s3-env
+      POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,root,demo-polaris-secret
+    ports:
+      - "127.0.0.1:18183:8181"
+      - "127.0.0.1:18184:8182"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8182/q/health/ready >/dev/null"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    depends_on:
+      create-bucket:
+        condition: service_completed_successfully
+
+  polaris-bootstrap:
+    profiles: ["polaris"]
+    image: *curl-image
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
+    environment:
+      POLARIS_URL: http://polaris:8181
+      POLARIS_CLIENT_ID: root
+      POLARIS_CLIENT_SECRET: demo-polaris-secret
+      POLARIS_CATALOG: polaris
+      S3_ENDPOINT: http://silo:9000
+      S3_BASE_LOCATION: s3://lake/polaris
+    volumes:
+      - ./polaris-bootstrap.sh:/bootstrap.sh:ro
+    restart: "no"
+    depends_on:
+      polaris:
+        condition: service_healthy
+
+  # Trino reads (and does maintenance on) Lakekeeper's warehouse as catalog `lk`.
+  trino:
+    image: trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+    ports:
+      - "127.0.0.1:18080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "trino --execute 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    depends_on:
+      lakekeeper-bootstrap:
+        condition: service_completed_successfully
+
+  # Spark 4.0 with the Iceberg runtime, served over Spark Connect, catalog `demo` = Lakekeeper
+  # (warehouse `demo`, vended credentials).
+  spark:
+    image: apache/spark:4.0.5-scala2.13-java17-python3-ubuntu@sha256:45eb1b8261a89bc7692be05aa4664676856f1c886cecc7b97b4e10f635b45b3c
+    environment:
+      <<: *s3-env
+      SPARK_NO_DAEMONIZE: "true"
+    command:
+      - /opt/spark/sbin/start-connect-server.sh
+      - --packages
+      - org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,org.apache.iceberg:iceberg-aws-bundle:1.10.1
+      - --conf
+      - spark.jars.ivy=/tmp/ivy
+      - --conf
+      - spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+      - --conf
+      - spark.sql.catalog.demo=org.apache.iceberg.spark.SparkCatalog
+      - --conf
+      - spark.sql.catalog.demo.type=rest
+      - --conf
+      - spark.sql.catalog.demo.uri=http://lakekeeper:8181/catalog
+      - --conf
+      - spark.sql.catalog.demo.warehouse=demo
+      - --conf
+      - spark.sql.catalog.demo.header.X-Iceberg-Access-Delegation=vended-credentials
+      - --conf
+      - spark.sql.session.timeZone=UTC
+    ports:
+      - "127.0.0.1:15002:15002"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/15002"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 120s
+    depends_on:
+      lakekeeper-bootstrap:
+        condition: service_completed_successfully
+
+  # Python + uv + the project's dependencies on the same network as everything above, so the
+  # tests and the demo can reach `silo`, `lakekeeper`, `trino`... by name. The repository is
+  # mounted read-only; the virtualenv lives in the image.
+  runner:
+    build:
+      context: ..
+      dockerfile: docker/runner.Dockerfile
+    working_dir: /work
+    volumes:
+      - ..:/work:ro
+    environment:
+      SQLGUARD_INTEGRATION: "1"
+      SQLGUARD_IT_LAKEKEEPER_URI: http://lakekeeper:8181/catalog
+      SQLGUARD_IT_LAKEKEEPER_WAREHOUSE: demo
+      SQLGUARD_IT_REST_URI: http://rest-fixture:8181
+      SQLGUARD_IT_REST_S3_ENDPOINT: http://silo:9000
+      SQLGUARD_IT_S3_KEY: silo-root-user
+      SQLGUARD_IT_S3_SECRET: silo-root-password
+      SQLGUARD_IT_POLARIS_URI: http://polaris:8181/api/catalog
+      SQLGUARD_IT_POLARIS_WAREHOUSE: polaris
+      SQLGUARD_IT_POLARIS_CREDENTIAL: root:demo-polaris-secret
+      SQLGUARD_IT_TRINO_HOST: trino
+      SQLGUARD_IT_TRINO_PORT: "8080"
+      SQLGUARD_IT_TRINO_CATALOG: lk
+      # Used by tests/safety/test_spark_adapter.py (`-m spark`) and docker/demo.py.
+      SQLGUARD_SPARK_REMOTE: sc://spark:15002
+      SQLGUARD_SPARK_CATALOG: demo
+      SQLGUARD_REST_URI: http://lakekeeper:8181/catalog
+      SQLGUARD_REST_WAREHOUSE: demo
+    profiles: ["runner"]

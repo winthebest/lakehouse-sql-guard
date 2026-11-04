@@ -1,6 +1,9 @@
 """End-to-end demo of the Guard on a real Spark + Iceberg REST + S3 stack.
 
-Start the stack first (see docker/docker-compose.yml), then run `docker/demo.sh`.
+Run it with `docker/demo.sh`: that starts the stack of docker/compose.lakehouse.yml (Lakekeeper
+on an S3-compatible store, plus Spark), runs this file in the `runner` container (the catalog
+vends storage credentials for a host name only the compose network resolves) and tears the
+stack down again.
 
 The agent side uses the same tool layer the MCP server exposes (`LakehouseTools`), so what the
 agent sees here is what an MCP client sees. The reviewer side calls `Guard.submit` with an
@@ -30,10 +33,10 @@ from sqlguard.safety import ApprovalRequest, Guard, Policy, SqlAction, TaskScope
 from sqlguard.safety.executor import SparkIcebergAdapter
 from sqlguard.safety.tools import ToolResult
 
-REMOTE = os.environ.get("SQLGUARD_SPARK_REMOTE", "sc://localhost:15002")
-REST_URI = os.environ.get("SQLGUARD_REST_URI", "http://localhost:8181")
-S3_ENDPOINT = os.environ.get("SQLGUARD_S3_ENDPOINT", "http://localhost:9000")
-CATALOG = "demo"
+REMOTE = os.environ.get("SQLGUARD_SPARK_REMOTE", "sc://spark:15002")
+REST_URI = os.environ.get("SQLGUARD_REST_URI", "http://lakekeeper:8181/catalog")
+REST_WAREHOUSE = os.environ.get("SQLGUARD_REST_WAREHOUSE", "demo")
+CATALOG = os.environ.get("SQLGUARD_SPARK_CATALOG", "demo")
 NAMESPACE = "db"
 POLICY = Path(__file__).with_name("demo-policy.yaml")
 
@@ -108,23 +111,10 @@ def main() -> int:
         spark.sql("SELECT 1").collect()
     except Exception as err:  # noqa: BLE001 - any failure here means the stack is not up
         print(f"cannot reach Spark Connect at {REMOTE}: {err}", file=sys.stderr)
-        print(
-            "start it with: docker compose -f docker/docker-compose.yml up -d --wait",
-            file=sys.stderr,
-        )
+        print("run it with docker/demo.sh, which starts the stack for you", file=sys.stderr)
         return 2
 
-    rest = RestCatalog(
-        CATALOG,
-        uri=REST_URI,
-        **{
-            "s3.endpoint": S3_ENDPOINT,
-            "s3.access-key-id": "admin",
-            "s3.secret-access-key": "password",
-            "s3.region": "us-east-1",
-            "s3.path-style-access": "true",
-        },
-    )
+    rest = RestCatalog(CATALOG, uri=REST_URI, warehouse=REST_WAREHOUSE)  # vended credentials
     lake = LakehouseCatalog(rest, NAMESPACE)
     seed(spark)
 
@@ -151,7 +141,7 @@ def main() -> int:
     result = agent.call("run_sql", {"sql": FIXED_DELETE})
     show(result)
     assert result.status == "ok" and result.guard and result.guard["published"], result
-    print(f"    -> published by fast_forward: {count(lake)} rows, snapshot {snapshot(lake)}.")
+    print(f"    -> published by snapshot id: {count(lake)} rows, snapshot {snapshot(lake)}.")
 
     heading("3. Agent archives 25% of the table; a reviewer approves")
     print(f"    sql: {BULK_ARCHIVE}")
@@ -171,7 +161,7 @@ def main() -> int:
     approved = guard.submit(SqlAction(BULK_ARCHIVE), scope, approver=reviewer)
     print(f"    outcome: {approved.outcome.value}   published: {approved.published}")
     assert approved.published and snapshot(lake) != before
-    print(f"    -> published by fast_forward: snapshot {before} -> {snapshot(lake)}.")
+    print(f"    -> published by snapshot id: snapshot {before} -> {snapshot(lake)}.")
     left = [r for r in rest.load_table(f"{NAMESPACE}.orders").refs() if r != "main"]
     assert not left, f"audit branches left behind: {left}"
 

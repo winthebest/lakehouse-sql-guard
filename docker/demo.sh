@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# Run the Spark demo against the Docker stack:
+# Run the Spark demo on the lakehouse stack: starts Lakekeeper, the S3-compatible store and
+# Spark (docker/compose.lakehouse.yml), runs docker/demo.py in the `runner` container, and
+# removes the stack's containers and volumes afterwards. Needs only Docker.
 #
-#   docker compose -f docker/docker-compose.yml up -d --wait
-#   docker/demo.sh
-#   docker compose -f docker/docker-compose.yml down -v
+#   docker/demo.sh            run the demo, then clean up
+#   SQLGUARD_KEEP_STACK=1 docker/demo.sh     leave the stack running 
+#                                              (then stop it: see the last line of docker/run-integration.sh)
 #
-# Needs only `uv`; the demo runs on the host and talks to Spark over Spark Connect.
+# The compose project is `sqlguard-lakehouse`; nothing else on the machine is touched. Do not run
+# this while docker/run-integration.sh is running: they share the project.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$root"
+compose=(docker compose -p sqlguard-lakehouse -f "$root/docker/compose.lakehouse.yml")
 
-exec uv run --extra spark --extra mcp python docker/demo.py "$@"
+cleanup() {
+  if [[ "${SQLGUARD_KEEP_STACK:-0}" != "1" ]]; then
+    "${compose[@]}" --profile '*' down -v --remove-orphans
+  fi
+}
+trap cleanup EXIT
+
+"${compose[@]}" up -d --wait spark
+"${compose[@]}" run --rm runner uv run --frozen --extra spark --extra mcp python docker/demo.py "$@"
