@@ -2072,3 +2072,42 @@ def test_a_failed_live_check_gives_a_generic_stale_reason(
     assert done.outcome is Outcome.STALE
     assert "zz-secret" not in " ".join(done.reasons)
     assert b"zz-secret" not in store_bytes(pguard.store.path)
+
+
+def test_an_approved_action_that_ran_off_plan_needs_attention_and_keeps_its_state(
+    mguard, verifier, orders, history, scope, monkeypatch
+):
+    from sqlguard.safety.executor.trino_iceberg import MaintenanceNeedsAttention
+
+    result = mguard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope)
+    real = mguard.adapter.apply_maintenance
+
+    def apply_then_find_off_plan(*args, **kwargs):
+        real(*args, **kwargs)
+        raise MaintenanceNeedsAttention("tag 'audit' was removed by the engine")
+
+    monkeypatch.setattr(mguard.adapter, "apply_maintenance", apply_then_find_off_plan)
+    done = decide(mguard, verifier, result)
+
+    assert done.outcome is Outcome.ROLLBACK_BLOCKED and done.executed and done.needs_attention
+    assert "a person must look" in " ".join(done.reasons)
+    assert mguard.store.get(result.action_id).state is A.NEEDS_ATTENTION
+
+
+def test_a_direct_action_that_ran_off_plan_is_not_recorded_as_nothing_published(
+    mguard, orders, history, scope, monkeypatch
+):
+    from sqlguard.safety.executor.trino_iceberg import MaintenanceNeedsAttention
+
+    real = mguard.adapter.apply_maintenance
+
+    def apply_then_find_off_plan(*args, **kwargs):
+        real(*args, **kwargs)
+        raise MaintenanceNeedsAttention("snapshots outside the approved plan were expired")
+
+    monkeypatch.setattr(mguard.adapter, "apply_maintenance", apply_then_find_off_plan)
+    done = mguard.submit(
+        RollbackToSnapshot("orders", snapshot_id=history[0]), scope, lambda r: True
+    )
+
+    assert done.outcome is Outcome.ROLLBACK_BLOCKED and done.executed and done.needs_attention

@@ -480,7 +480,11 @@ class Guard:
             run.finish(Outcome.UNSUPPORTED, run.error)
         except ExecutionError as err:
             run.error = _clip(str(err))
-            run.finish(Outcome.EXECUTION_FAILED, run.error)
+            if getattr(err, "executed", False):  # it ran, then the table was found off-plan
+                run.executed = True
+                run.finish(Outcome.ROLLBACK_BLOCKED, _RAN_OFF_PLAN + run.error)
+            else:
+                run.finish(Outcome.EXECUTION_FAILED, run.error)
         except Exception as err:  # fail closed on anything unexpected
             run.error = _clip(f"{type(err).__name__}: {err}")
             run.finish(Outcome.ERROR, f"unexpected error: {run.error}")
@@ -1087,10 +1091,16 @@ class Guard:
             run.finish(Outcome.ERROR, run.error, "nothing was published by this call")
         except ExecutionError as err:
             run.error = _clip(str(err))
-            run.finish(Outcome.EXECUTION_FAILED, run.error)
-            if run.claimed:
-                self._finalize(run, record, ActionState.FAILED)
-                self._drop_kept_branch(run, record)
+            if getattr(err, "executed", False):  # it ran, then the table was found off-plan
+                run.executed = True
+                run.finish(Outcome.ROLLBACK_BLOCKED, _RAN_OFF_PLAN + run.error)
+                if run.claimed:  # keep any branch: a person must look before anything is dropped
+                    self._finalize(run, record, ActionState.NEEDS_ATTENTION)
+            else:
+                run.finish(Outcome.EXECUTION_FAILED, run.error)
+                if run.claimed:
+                    self._finalize(run, record, ActionState.FAILED)
+                    self._drop_kept_branch(run, record)
         except Exception as err:  # fail closed, and never guess what happened after the claim
             run.error = _clip(f"{type(err).__name__}: {err}")
             run.finish(Outcome.ERROR, f"unexpected error: {run.error}")
@@ -1843,6 +1853,9 @@ def _retention_violations(plan: MaintenancePlan, rule: RetentionRule, now: datet
                 f"{rule.min_orphan_age_days:g} days"
             )
     return problems
+
+
+_RAN_OFF_PLAN = "the action ran, but the table is not in the approved state; a person must look: "
 
 
 def _clip(text: str, limit: int = _ERROR_TEXT_LIMIT) -> str:
