@@ -17,6 +17,7 @@ bench = ["scikit-learn>=1.5", "matplotlib>=3.9", "anthropic>=2.4", "openpyxl>=3.
 mcp = ["mcp>=2.3,<3"]
 spark = ["pyspark-client>=4.0.5,<4.1"]
 trino = ["trino>=0.340,<0.341"]
+dbt = ["dbt-core>=1.8,<2", "dbt-duckdb>=1.8,<2"]
 
 [project.scripts]
 sqlguard = "sqlguard.cli:main"
