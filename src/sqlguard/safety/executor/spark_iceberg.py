@@ -8,13 +8,16 @@ Spark session, so it suits tables that do not fit in memory:
     the branch identifier `catalog.ns.table.branch_<name>`, so the statement physically cannot
     touch main. Every other table it reads is qualified to the Spark catalog; a table the caller
     did not clear for this statement is refused.
-  * `publish` is the Iceberg procedure `fast_forward`: it moves main to the branch head and
-    fails when main is no longer an ancestor of the branch, which is exactly the "main moved
-    since the branch was cut" case (`BranchDiverged`).
-  * `rollback` / `fast_forward` / `expire_snapshots` / `remove_orphan_files` are the matching
-    `CALL <catalog>.system.<procedure>` statements. Orphan cleanup is planned with the
-    procedure's `dry_run`, and the real run is refused if it would delete anything the approved
-    plan did not list.
+  * `publish(branch, expected_head)` does not use Spark. It is the PyIceberg commit
+    `set_current_snapshot(expected_head)` against the same catalog, guarded by the catalog's own
+    compare-and-swap on the main ref, so main moves to exactly the snapshot that was approved
+    (Iceberg's fast-forward procedure follows the branch ref and would take later writes too). A
+    main that moved since the branch was cut is `BranchDiverged`.
+  * `rollback` / `expire_snapshots` / `remove_orphan_files` are the matching
+    `CALL <catalog>.system.<procedure>` statements; moving main to an approved ref snapshot
+    is the same PyIceberg commit as `publish`. Orphan cleanup is planned with the procedure's
+    `dry_run`, and the real run is refused if it would delete anything the approved plan did
+    not list.
 
 Table metadata (snapshots, refs, schemas, row data for the impact report) is read through the
 PyIceberg catalog the Guard already holds, so both sides must point at the same Iceberg catalog.
@@ -62,6 +65,7 @@ from sqlguard.safety.executor.base import (
     BranchDiff,
     BranchDiverged,
     BranchHandle,
+    Capabilities,
     ExecutionError,
     MaintenancePlan,
     MaintenanceResult,
@@ -80,7 +84,6 @@ from sqlguard.safety.executor.orphan_files import (
     path_of,
     referenced_paths,
 )
-from sqlguard.safety.impact import compute_table_impact
 
 _log = logging.getLogger("sqlguard.spark")
 
@@ -288,6 +291,11 @@ def _clip(text: str) -> str:
 
 
 class SparkIcebergAdapter:
+    engine = "spark"
+    capabilities = Capabilities(
+        branch_write=True, publish=True, rollback=True, expire=True, orphan_cleanup=True
+    )
+
     def __init__(
         self,
         catalog: LakehouseCatalog,
@@ -338,11 +346,6 @@ class SparkIcebergAdapter:
     def _current_id(iceberg: Table) -> int | None:
         current = iceberg.current_snapshot()
         return current.snapshot_id if current else None
-
-    @staticmethod
-    def _branch_head(iceberg: Table, branch: BranchHandle) -> int:
-        ref = iceberg.refs().get(branch.name)
-        return ref.snapshot_id if ref else branch.base_snapshot_id
 
     # -- reads -----------------------------------------------------------------------------------
 
@@ -403,7 +406,9 @@ class SparkIcebergAdapter:
         created = self._load(table).refs().get(branch)
         if created is None or created.snapshot_id != base.snapshot_id:
             raise ExecutionError(f"branch {branch} was not created on {table} as requested")
-        return BranchHandle(self.catalog.identifier(table), branch, base.snapshot_id)
+        return BranchHandle(
+            self.catalog.identifier(table), branch, base.snapshot_id, base.snapshot_id
+        )
 
     def apply_sql(
         self,
@@ -431,39 +436,10 @@ class SparkIcebergAdapter:
             self._run(text)
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
-        iceberg = self._load(branch.table)
-        before = self.catalog.read(branch.table, branch.base_snapshot_id)
-        after = self.catalog.read(branch.table, self._branch_head(iceberg, branch))
-        return BranchDiff(before, after, compute_table_impact(branch.table, before, after, key))
+        return self._meta.diff(branch, key)
 
-    def publish(self, branch: BranchHandle) -> PublishResult:
-        iceberg = self._load(branch.table)
-        main_id = self._current_id(iceberg)
-        if main_id != branch.base_snapshot_id:
-            raise BranchDiverged(
-                f"main of {branch.table} moved from snapshot {branch.base_snapshot_id} to "
-                f"{main_id} since the branch was created"
-            )
-        head = self._branch_head(iceberg, branch)
-        if head == branch.base_snapshot_id:
-            return PublishResult(branch.table, main_id, head, changed=False)
-        if branch.base_snapshot_id not in self._meta._ancestry(iceberg, head):
-            raise ExecutionError(f"branch {branch.name} does not descend from its base snapshot")
-        try:
-            self._call("fast_forward", table=branch.table, branch=MAIN, to=branch.name)
-        except ExecutionError as err:
-            now = self._current_id(self._load(branch.table))
-            if now != main_id:
-                raise BranchDiverged(
-                    f"main of {branch.table} changed during publish: {err}"
-                ) from err
-            raise
-        after = self._current_id(self._load(branch.table))
-        if after != head:
-            raise ExecutionError(
-                f"fast_forward left {branch.table} at snapshot {after}, expected {head}"
-            )
-        return PublishResult(branch.table, main_id, head, changed=True)
+    def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
+        return self._meta.publish(branch, expected_head)
 
     def drop_branch(self, branch: BranchHandle) -> None:
         if branch.name == MAIN:
@@ -520,7 +496,7 @@ class SparkIcebergAdapter:
             raise ExecutionError("plan has no target snapshot")
         if isinstance(action, FastForward):
             self._meta._require_publishable_ref(action.to)
-            self._call("fast_forward", table=plan.table, branch=action.branch, to=action.to)
+            return self._meta.apply_maintenance(action, plan)  # PyIceberg commit, see module doc
         elif isinstance(action, RollbackToSnapshot) and action.ref is None:
             self._call("rollback_to_snapshot", table=plan.table, snapshot_id=int(target))
         elif isinstance(action, RollbackToSnapshot):

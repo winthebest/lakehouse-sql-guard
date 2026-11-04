@@ -4,6 +4,13 @@ An adapter knows how to run changes in isolation (an Iceberg branch), measure th
 to main, and perform table maintenance. The Guard never touches a table except through it, so a
 Spark adapter can replace the DuckDB one without changing the pipeline.
 
+An adapter declares what it can do in `capabilities`; the Guard refuses actions the engine cannot
+carry out safely (for example a write on an engine with no isolated branch writes) instead of
+trying them.
+
+Publishing is by snapshot id only: `publish(branch, expected_head)` moves main to exactly the
+snapshot that was measured and approved, never to "whatever the branch points at now".
+
 Adapters work on table names as the policy sees them: `ns.name`, or a bare `name` in the
 catalog's namespace.
 """
@@ -35,22 +42,69 @@ class BranchDiverged(ExecutionError):
     """Main moved since the branch was created, so publishing would overwrite someone's work."""
 
 
+class PublishMismatch(ExecutionError):
+    """Main was moved by the publish commit but does not sit on the snapshot that was approved.
+
+    Unlike other execution errors this one is raised after main changed, so the caller must
+    restore main (`actual_snapshot_id` is where it is now).
+    """
+
+    def __init__(self, message: str, actual_snapshot_id: int | None) -> None:
+        super().__init__(message)
+        self.actual_snapshot_id = actual_snapshot_id
+
+
+@dataclass(frozen=True)
+class Capabilities:
+    """What an executor can do; every field defaults to "no" so an engine opts in explicitly."""
+
+    branch_write: bool = False  # run DML on an isolated branch (needed to rehearse a write)
+    publish: bool = False  # move main to a branch snapshot
+    rollback: bool = False  # point main back at an earlier snapshot
+    expire: bool = False  # expire snapshots
+    orphan_cleanup: bool = False  # remove orphan files
+    changelog: bool = False  # row-level change feed between snapshots
+
+    @classmethod
+    def full(cls) -> Capabilities:
+        return cls(True, True, True, True, True, True)
+
+
 @dataclass(frozen=True)
 class BranchHandle:
-    """An isolated audit branch of one table and the main snapshot it was cut from."""
+    """An isolated audit branch of one table and the main snapshot it was cut from.
+
+    `head_snapshot_id` is the branch head this handle vouches for. A new branch's head is its
+    base; `ExecutorAdapter.diff` returns the handle with the head it measured, and that is the
+    snapshot to publish.
+    """
 
     table: str
     name: str
     base_snapshot_id: int
+    head_snapshot_id: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.head_snapshot_id is None:
+            object.__setattr__(self, "head_snapshot_id", self.base_snapshot_id)
+
+    @property
+    def head(self) -> int:
+        """The recorded head (never None once constructed)."""
+        return self.base_snapshot_id if self.head_snapshot_id is None else self.head_snapshot_id
 
 
 @dataclass(frozen=True)
 class BranchDiff:
-    """Main-at-branch-creation versus the branch head, as data and as measured impact."""
+    """Main-at-branch-creation versus the branch head, as data and as measured impact.
+
+    `branch` is the handle recording the head that `after` was read from.
+    """
 
     before: pa.Table
     after: pa.Table
     impact: TableImpact
+    branch: BranchHandle
 
 
 @dataclass(frozen=True)
@@ -109,6 +163,9 @@ class MaintenanceResult:
 
 
 class ExecutorAdapter(Protocol):
+    engine: str  # name used in reasons shown to users, e.g. "duckdb"
+    capabilities: Capabilities
+
     def current_snapshot_id(self, table: str) -> int | None: ...
 
     def snapshots(self, table: str) -> list[SnapshotInfo]: ...
@@ -131,10 +188,17 @@ class ExecutorAdapter(Protocol):
         """Run DML on the branch only; `read_tables` are other tables it reads from main."""
         ...
 
-    def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff: ...
+    def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
+        """Measure the branch head; `BranchDiff.branch` records which snapshot that was."""
+        ...
 
-    def publish(self, branch: BranchHandle) -> PublishResult:
-        """Move main to the branch head; raises BranchDiverged if main moved meanwhile."""
+    def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
+        """Move main to snapshot `expected_head`, which must descend from the branch's base.
+
+        Raises BranchDiverged if main is no longer at the base (or moves during the commit), and
+        PublishMismatch if main is not on `expected_head` once the commit returns. Whatever the
+        branch has been given since `expected_head` was recorded is not published.
+        """
         ...
 
     def drop_branch(self, branch: BranchHandle) -> None: ...

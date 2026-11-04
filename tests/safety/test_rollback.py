@@ -192,9 +192,9 @@ def test_a_real_concurrent_commit_during_publish_refuses_the_publish(
     make_guard, orders, scope, race_on_next_commit
 ):
     class RacyPublish(DuckDBIcebergAdapter):
-        def publish(self, branch):
+        def publish(self, branch, expected_head):
             race_on_next_commit()
-            return super().publish(branch)
+            return super().publish(branch, expected_head)
 
     result = make_guard(adapter=RacyPublish(orders)).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope

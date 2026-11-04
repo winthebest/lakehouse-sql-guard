@@ -549,8 +549,9 @@ class RawBackend(_Backend):
         branch = self.adapter.create_branch(table)
         try:
             self.adapter.apply_sql(branch, sql, read_tables=reads)
-            impact = self.adapter.diff(branch).impact
-            self.adapter.publish(branch)
+            diff = self.adapter.diff(branch)
+            impact = diff.impact
+            self.adapter.publish(diff.branch, diff.branch.head)
         finally:
             self.adapter.drop_branch(branch)
         return ToolResult(

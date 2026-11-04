@@ -9,14 +9,17 @@ Pipeline for every submission:
       DENY                  -> nothing runs
       ALLOW (reads)         -> query main, return rows
       ALLOW_VIA_BRANCH      -> run on an audit branch, measure impact, check invariants, re-decide
-                               with the measured impact, publish only if main has not moved,
-                               verify main afterwards and roll back if verification fails
+                               with the measured impact, publish the measured snapshot only if
+                               main has not moved, verify main afterwards and roll back if
+                               verification fails
       ASK                   -> nothing runs without an approver; SQL writes are first rehearsed on
                                a branch so the approver sees the measured impact
       IRREVERSIBLE actions  -> need an approver, and the live retention check must pass first
 
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
-main pointer to the already-verified branch head. Every submission appends a completion record
+main pointer to the snapshot that was measured and verified (not to whatever the branch holds by
+then). An engine that cannot run a write on an isolated branch (`Capabilities.branch_write`) is
+never given one: such writes are denied. Every submission appends a completion record
 to the audit log (denials and failures included), and anything with side effects first appends
 a "started" record. Any unexpected error fails closed (nothing published, branch
 dropped) and is reported as `Outcome.ERROR`.
@@ -49,9 +52,11 @@ from sqlguard.safety.classifier import Classification, ReversibilityClass, class
 from sqlguard.safety.executor.base import (
     BranchDiverged,
     BranchHandle,
+    Capabilities,
     ExecutionError,
     ExecutorAdapter,
     MaintenancePlan,
+    PublishMismatch,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
@@ -251,6 +256,15 @@ class Guard:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._redact = redact_sql_literals
 
+    @property
+    def _capabilities(self) -> Capabilities:
+        # an adapter written before capabilities existed is assumed to do everything it implements
+        return getattr(self.adapter, "capabilities", None) or Capabilities.full()
+
+    @property
+    def _engine(self) -> str:
+        return getattr(self.adapter, "engine", None) or type(self.adapter).__name__
+
     # -- public API ------------------------------------------------------------------------------
 
     def submit(
@@ -306,6 +320,14 @@ class Guard:
             if len(classification.statements) == 1
             else None
         )
+        if (
+            maintenance is None
+            and classification.klass is not C.READ
+            and not self._capabilities.branch_write
+        ):
+            run.decision = Decision.DENY
+            run.finish(Outcome.DENIED, f"no isolated rehearsal on {self._engine}")
+            return
         if decided.decision is Decision.ASK and approver is None:
             if maintenance is not None:
                 self._preview(run, maintenance)
@@ -527,24 +549,36 @@ class Guard:
         ):
             return
 
-        self._publish_and_verify(run, branch, table, diff.before, invariants, key)
+        self._publish_and_verify(run, diff.branch, table, diff.before, invariants, key)
 
     def _publish_and_verify(
         self,
         run: _Run,
-        branch: BranchHandle,
+        recorded: BranchHandle,
         table: str,
         before: pa.Table,
         invariants: list[Invariant],
         key: Sequence[str],
     ) -> None:
         try:
-            published = self.adapter.publish(branch)
+            published = self.adapter.publish(recorded, recorded.head)
         except BranchDiverged as err:
             run.decision = Decision.ASK
             run.finish(
                 Outcome.REFUSED_DIVERGED,
                 f"{err}; nothing was published, re-submit against the current state",
+            )
+            return
+        except PublishMismatch as err:
+            # main moved but is not on the approved snapshot: put it back where it was cut from
+            run.published = True
+            run.after[table] = err.actual_snapshot_id
+            self._roll_back(
+                run,
+                table,
+                recorded.base_snapshot_id,
+                err.actual_snapshot_id,
+                [_clip(str(err))],
             )
             return
         if not published.changed:
@@ -572,7 +606,7 @@ class Guard:
         self._roll_back(run, table, published.previous_snapshot_id, published.snapshot_id, problems)
 
     def _roll_back(
-        self, run: _Run, table: str, previous: int, published: int, problems: list[str]
+        self, run: _Run, table: str, previous: int, published: int | None, problems: list[str]
     ) -> None:
         run.reasons.extend(f"post-publish check failed: {p}" for p in problems)
         try:

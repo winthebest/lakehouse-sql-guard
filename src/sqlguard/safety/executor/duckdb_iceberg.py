@@ -7,10 +7,12 @@ How a write is executed
      This is copy-on-write of the entire table, which is fine at benchmark scale and not meant
      for large tables (a Spark adapter would handle those). DuckDB runs with external access
      disabled and only the registered Arrow tables visible.
-  3. `publish` moves main to the branch head with `set_current_snapshot` (PyIceberg has no
-     fast_forward). It first checks that main still sits on the snapshot the branch was cut from,
-     and the commit itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent
-     writer makes the publish fail instead of being overwritten.
+  3. `diff` records the branch head it measured. `publish(branch, expected_head)` moves main to
+     exactly that snapshot with `set_current_snapshot` (PyIceberg has no fast-forward, and a
+     fast-forward would follow the branch ref, taking anything written to it after approval). It
+     first checks that main still sits on the snapshot the branch was cut from, and the commit
+     itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent writer makes
+     the publish fail instead of being overwritten. Afterwards main must sit on `expected_head`.
 
 Behaviours verified against pyiceberg 0.12 and locked by tests (a version bump that changes them
 turns those tests red): branch overwrite leaves main untouched; `rollback_to_snapshot` only moves
@@ -27,6 +29,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import duckdb
@@ -49,10 +52,12 @@ from sqlguard.safety.executor.base import (
     BranchDiff,
     BranchDiverged,
     BranchHandle,
+    Capabilities,
     ExecutionError,
     MaintenancePlan,
     MaintenanceResult,
     PlannedSnapshot,
+    PublishMismatch,
     PublishResult,
     UnsupportedAction,
 )
@@ -95,6 +100,11 @@ def _connect(tables: dict[str, pa.Table], default_namespace: str) -> duckdb.Duck
 
 
 class DuckDBIcebergAdapter:
+    engine = "duckdb"
+    capabilities = Capabilities(
+        branch_write=True, publish=True, rollback=True, expire=True, orphan_cleanup=True
+    )
+
     def __init__(self, catalog: LakehouseCatalog) -> None:
         self.catalog = catalog
 
@@ -150,7 +160,7 @@ class DuckDBIcebergAdapter:
             iceberg.manage_snapshots().create_branch(base.snapshot_id, branch).commit()
         except CommitFailedException as err:
             raise ExecutionError(f"could not create branch on {table}: {err}") from err
-        return BranchHandle(self._qualified(table), branch, base.snapshot_id)
+        return BranchHandle(self._qualified(table), branch, base.snapshot_id, base.snapshot_id)
 
     def _branch_head(self, iceberg: Table, branch: BranchHandle) -> int:
         ref = iceberg.refs().get(branch.name)
@@ -202,29 +212,42 @@ class DuckDBIcebergAdapter:
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         iceberg = self._load(branch.table)
+        head = self._branch_head(iceberg, branch)  # read once: the data and the id must agree
         before = self.catalog.read(branch.table, branch.base_snapshot_id)
-        after = self.catalog.read(branch.table, self._branch_head(iceberg, branch))
-        return BranchDiff(before, after, compute_table_impact(branch.table, before, after, key))
+        after = self.catalog.read(branch.table, head)
+        return BranchDiff(
+            before,
+            after,
+            compute_table_impact(branch.table, before, after, key),
+            replace(branch, head_snapshot_id=head),
+        )
 
-    def publish(self, branch: BranchHandle) -> PublishResult:
+    def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
         iceberg = self._load(branch.table)
-        main = iceberg.current_snapshot()
-        main_id = main.snapshot_id if main else None
+        main_id = self._current_id(iceberg)
         if main_id != branch.base_snapshot_id:
             raise BranchDiverged(
                 f"main of {branch.table} moved from snapshot {branch.base_snapshot_id} to "
                 f"{main_id} since the branch was created"
             )
-        head = self._branch_head(iceberg, branch)
-        if head == branch.base_snapshot_id:
-            return PublishResult(branch.table, main_id, head, changed=False)
-        if branch.base_snapshot_id not in self._ancestry(iceberg, head):
-            raise ExecutionError(f"branch {branch.name} does not descend from its base snapshot")
+        if expected_head == branch.base_snapshot_id:
+            return PublishResult(branch.table, main_id, expected_head, changed=False)
+        if branch.base_snapshot_id not in self._ancestry(iceberg, expected_head):
+            raise ExecutionError(
+                f"snapshot {expected_head} does not descend from the base snapshot "
+                f"{branch.base_snapshot_id} of {branch.table}"
+            )
         try:
-            iceberg.manage_snapshots().set_current_snapshot(snapshot_id=head).commit()
+            iceberg.manage_snapshots().set_current_snapshot(snapshot_id=expected_head).commit()
         except CommitFailedException as err:
             raise BranchDiverged(f"main of {branch.table} changed during publish: {err}") from err
-        return PublishResult(branch.table, main_id, head, changed=True)
+        now = self._current_id(self._load(branch.table))
+        if now != expected_head:
+            raise PublishMismatch(
+                f"main of {branch.table} is at snapshot {now} after publishing {expected_head}",
+                now,
+            )
+        return PublishResult(branch.table, main_id, expected_head, changed=True)
 
     def drop_branch(self, branch: BranchHandle) -> None:
         if branch.name == MAIN:

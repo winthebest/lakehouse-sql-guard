@@ -251,16 +251,7 @@ def adapter(lake: LakehouseCatalog, spark: FakeSpark) -> SparkIcebergAdapter:
             int(name.group(2)), name.group(1)
         ).commit()
 
-    def fast_forward(text: str):
-        target = re.search(r"to => '([^']+)'", text).group(1)
-        iceberg = lake.table("orders")
-        head = iceberg.refs()[target].snapshot_id
-        previous = iceberg.current_snapshot().snapshot_id
-        iceberg.manage_snapshots().set_current_snapshot(snapshot_id=head).commit()
-        return [(previous, head)]
-
     spark.on("CREATE BRANCH", create_branch)
-    spark.on("system.fast_forward", fast_forward)
     return SparkIcebergAdapter(lake, spark, "demo")
 
 
@@ -274,7 +265,13 @@ def commit_to_branch(lake: LakehouseCatalog, branch: BranchHandle, keep_below: i
     return lake.table("orders").refs()[branch.name].snapshot_id
 
 
-def test_branch_lifecycle_and_publish_through_fast_forward(
+def publish(adapter: SparkIcebergAdapter, branch: BranchHandle):
+    """Publish the head the diff recorded, the way the Guard does."""
+    recorded = adapter.diff(branch).branch
+    return adapter.publish(recorded, recorded.head)
+
+
+def test_branch_lifecycle_and_publish_by_snapshot_id(
     adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
 ) -> None:
     base = adapter.current_snapshot_id("orders")
@@ -293,13 +290,10 @@ def test_branch_lifecycle_and_publish_through_fast_forward(
     diff = adapter.diff(branch, key=("id",))
     assert diff.impact.rows_deleted == 1
 
-    published = adapter.publish(branch)
+    published = publish(adapter, branch)
     assert published.changed and published.previous_snapshot_id == base
     assert published.snapshot_id == head == adapter.current_snapshot_id("orders")
-    assert spark.calls("system.fast_forward")[0] == (
-        f"CALL `demo`.system.fast_forward(table => 'db.orders', branch => 'main', "
-        f"to => '{branch.name}')"
-    )
+    assert not spark.calls("fast_forward")  # PyIceberg moved main, not a Spark procedure
 
     adapter.drop_branch(branch)
     assert spark.statements[-1] == (
@@ -311,7 +305,7 @@ def test_publish_without_changes_does_not_call_spark(
     adapter: SparkIcebergAdapter, spark: FakeSpark
 ) -> None:
     branch = adapter.create_branch("orders")
-    result = adapter.publish(branch)
+    result = publish(adapter, branch)
     assert not result.changed
     assert not spark.calls("fast_forward")
 
@@ -325,27 +319,33 @@ def test_publish_refuses_when_main_moved(
         pa.table({"id": pa.array([99], pa.int64()), "customer": ["z"], "amount": pa.array([1.0])})
     )
     with pytest.raises(BranchDiverged):
-        adapter.publish(branch)
+        publish(adapter, branch)
     assert not spark.calls("fast_forward")
 
 
-def test_a_failed_fast_forward_after_main_moved_is_reported_as_divergence(
-    adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
+def test_a_writer_committing_during_publish_is_reported_as_divergence(
+    adapter: SparkIcebergAdapter,
+    lake: LakehouseCatalog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from pyiceberg.table.update.snapshot import ManageSnapshots
+
     branch = adapter.create_branch("orders")
     commit_to_branch(lake, branch, keep_below=20)
+    recorded = adapter.diff(branch).branch
+    original = ManageSnapshots.commit
 
-    def writer_wins(text: str):
+    def writer_wins(self):
         lake.table("orders").append(
             pa.table(
                 {"id": pa.array([99], pa.int64()), "customer": ["z"], "amount": pa.array([1.0])}
             )
         )
-        raise RuntimeError("Cannot fast-forward: main is not an ancestor")
+        return original(self)
 
-    spark.effects.insert(0, ("system.fast_forward", writer_wins))
+    monkeypatch.setattr(ManageSnapshots, "commit", writer_wins)
     with pytest.raises(BranchDiverged):
-        adapter.publish(branch)
+        adapter.publish(recorded, recorded.head)
 
 
 def test_spark_errors_become_execution_errors_with_bounded_text(
@@ -429,7 +429,7 @@ def test_expire_never_passes_a_ref_head_to_spark(
     assert not spark.calls("expire_snapshots")
 
 
-def test_rollback_and_fast_forward_use_the_procedures(
+def test_rollback_uses_the_procedure(
     adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
 ) -> None:
     add_snapshots(lake, 1)
@@ -446,6 +446,23 @@ def test_rollback_and_fast_forward_use_the_procedures(
     assert spark.calls("rollback_to_snapshot") == [
         f"CALL `demo`.system.rollback_to_snapshot(table => 'db.orders', snapshot_id => {first})"
     ]
+
+
+def test_an_approved_fast_forward_moves_main_to_the_planned_snapshot_without_spark(
+    adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
+) -> None:
+    base = adapter.current_snapshot_id("orders")
+    lake.table("orders").manage_snapshots().create_branch(base, "release").commit()
+    lake.table("orders").overwrite(lake.read("orders").slice(0, 3), branch="release")
+    planned = lake.table("orders").refs()["release"].snapshot_id
+    action = FastForward("orders", to="release")
+    plan = adapter.plan_maintenance(action)
+    assert plan.target_snapshot_id == planned
+    # the branch keeps receiving writes after the plan was approved
+    lake.table("orders").append(lake.read("orders").slice(0, 1), branch="release")
+    result = adapter.apply_maintenance(action, plan)
+    assert result.snapshot_after == planned == adapter.current_snapshot_id("orders")
+    assert not spark.calls("fast_forward")
 
 
 def test_apply_refuses_a_stale_plan(
@@ -565,7 +582,7 @@ def test_guard_publishes_a_small_delete_through_the_spark_adapter(
     result = guard.submit(_sql("DELETE FROM orders WHERE id = 20"), TaskScope.of(namespaces=["db"]))
     assert result.outcome is Outcome.PUBLISHED, result.reasons
     assert sorted(lake.read("orders").column("id").to_pylist()) == list(range(1, 20))
-    assert spark.calls("system.fast_forward")
+    assert not spark.calls("fast_forward")
 
 
 def _sql(text: str):
@@ -637,7 +654,7 @@ def real_adapter(real_lake: LakehouseCatalog, spark_session) -> SparkIcebergAdap
 
 
 @pytest.mark.spark
-def test_spark_branch_write_and_real_fast_forward(
+def test_spark_branch_write_and_publish_by_snapshot(
     real_adapter: SparkIcebergAdapter, real_lake: LakehouseCatalog
 ) -> None:
     base = real_adapter.current_snapshot_id("orders")
@@ -647,7 +664,7 @@ def test_spark_branch_write_and_real_fast_forward(
     diff = real_adapter.diff(branch, key=("id",))
     assert diff.impact.rows_deleted == 5
 
-    published = real_adapter.publish(branch)
+    published = publish(real_adapter, branch)
     assert published.changed
     assert sorted(real_lake.read("orders").column("id").to_pylist()) == list(range(1, 16))
     real_adapter.drop_branch(branch)
@@ -662,9 +679,9 @@ def test_spark_publish_refuses_when_main_moved(
     real_adapter.apply_sql(branch, "DELETE FROM orders WHERE id > 15")
     other = real_adapter.create_branch("orders", "mover")
     real_adapter.apply_sql(other, "DELETE FROM orders WHERE id = 2")
-    real_adapter.publish(other)
+    publish(real_adapter, other)
     with pytest.raises(BranchDiverged):
-        real_adapter.publish(branch)
+        publish(real_adapter, branch)
 
 
 @pytest.mark.spark
@@ -684,7 +701,7 @@ def test_spark_rollback_and_snapshot_expiry(
     first = real_adapter.current_snapshot_id("orders")
     branch = real_adapter.create_branch("orders")
     real_adapter.apply_sql(branch, "DELETE FROM orders WHERE id > 15")
-    real_adapter.publish(branch)
+    publish(real_adapter, branch)
     real_adapter.drop_branch(branch)
     second = real_adapter.current_snapshot_id("orders")
 
