@@ -11,6 +11,7 @@ from datetime import timedelta
 import pyarrow as pa
 import pytest
 
+import sqlguard.safety.guard as guard_module
 from sqlguard.safety import ActionState, ProofRequest, SqlAction
 from sqlguard.safety.guard import Outcome
 from tests.approvals.conftest import Crash, branches, edit_row, queue
@@ -232,6 +233,10 @@ def test_reconcile_keeps_renewing_its_lease_while_it_checks(
 def test_the_lease_heartbeat_stops_with_the_reconcile(
     make_guard, store_path, proofs, orders, scope, monkeypatch
 ):
+    # The settled state depends on whether the dead publisher can be proven gone, which differs
+    # by OS; pin the unprovable case so only the heartbeat is under test.
+    monkeypatch.setattr(guard_module, "_boot_id", lambda: None)
+    monkeypatch.setattr(guard_module, "_pid_namespace", lambda: None)
     guard = make_guard(store=store_path, proof_verifier=proofs, lease=timedelta(seconds=0.3))
     result = queue(guard, scope)
     crash_a_publish(guard, proofs, result, monkeypatch)
