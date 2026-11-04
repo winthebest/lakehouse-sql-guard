@@ -101,3 +101,45 @@ def test_an_unsettled_leak_next_to_a_fixed_one_is_not_certified_by_replay(world,
     fixes = suggest_fix(sql, SPEC, catalog=world, replay=replayer)
     assert {f.rule for f in fixes} >= {"L4", "L6"}
     assert all(f.verification is not Verification.STATIC_AND_REPLAY for f in fixes)
+
+
+SHAPES = {
+    "where on the joined table": (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "WHERE e.amount > 0 GROUP BY 1, 2, 3"
+    ),
+    "having on a count": (
+        f"{SEL}, SUM(e.amount) a FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3 HAVING COUNT(e.event_id) > 3"
+    ),
+    "in subquery": (
+        f"{SEL} FROM labels l WHERE l.user_id IN (SELECT e.user_id FROM events e "
+        "WHERE e.amount > 100)"
+    ),
+    "exists subquery": (
+        f"{SEL} FROM labels l WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = l.user_id)"
+    ),
+    "plain bound": EVENT_TIME_ONLY,
+    "count star": (
+        f"{SEL}, COUNT(*) n FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        "GROUP BY 1, 2, 3"
+    ),
+}
+
+
+@pytest.mark.parametrize("sql", SHAPES.values(), ids=SHAPES.keys())
+def test_replay_adds_evidence_but_never_decides_the_label_or_the_row_caveats(sql, world, replayer):
+    static = [f for f in suggest_fix(sql, SPEC, catalog=world) if f.rewrites]
+    replayed = [f for f in suggest_fix(sql, SPEC, catalog=world, replay=replayer) if f.rewrites]
+    assert [f.semantics for f in static] == [f.semantics for f in replayed]
+    for before, after in zip(static, replayed, strict=True):
+        assert set(before.caveats) <= set(after.caveats)  # replay only adds
+    found_by_replay = [
+        c
+        for f in replayed
+        for c in f.caveats
+        if c.startswith(rewrite.ROWS_MAY_DROP) and "on the current data" in c
+    ]
+    warned_statically = any(c.startswith(rewrite.ROWS_MAY_DROP) for f in static for c in f.caveats)
+    # a drop that replay's row count confirms must already have been said without replay
+    assert warned_statically or not found_by_replay

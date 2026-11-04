@@ -308,6 +308,7 @@ def add_bounds(ctx: Context, ref: TableRef, rule: str) -> Edit | None:
             "spine row only when no history lay after the prediction time, which the join "
             "condition now guarantees; rows without any history now stay with NULL features"
         )
+    caveats += _context_caveats(select, ref)
     names = " and ".join(wanted)
     return Edit(
         rule,
@@ -330,7 +331,7 @@ def _visible(spine: exp.Column, select: exp.Select, join: exp.Join | None) -> bo
     )
 
 
-def _still_drops(select: exp.Select, join: exp.Join, alias: str) -> str | None:
+def _still_drops(select: exp.Select, join: exp.Join | None, alias: str) -> str | None:
     """Why spine rows without a match in `alias` would still vanish, or None when nothing does."""
     for other in select.args.get("joins") or []:
         if other is join or not _inner(other):
@@ -341,7 +342,7 @@ def _still_drops(select: exp.Select, join: exp.Join, alias: str) -> str | None:
                 f"the INNER JOIN to {other.alias_or_name} reads {alias}, so spine rows "
                 f"without a match in {alias} still drop"
             )
-    for clause in ("where", "having"):
+    for clause in ("where", "having", "qualify"):
         node = select.args.get(clause)
         if node is not None and any(c.table == alias for c in node.find_all(exp.Column)):
             return f"the {clause.upper()} reads {alias}, so spine rows without a match drop"
@@ -356,8 +357,9 @@ def _keep_spine_rows(
     ref: TableRef,
     spine_alias: str | None = None,
     count_rows: bool = False,
+    check_values: bool = True,
 ) -> list[str]:
-    """Row effects of changing the condition of the table's own join.
+    """Row and value effects of changing the condition of the table's own join.
 
     An INNER JOIN would drop spine rows with nothing to join: it becomes a LEFT JOIN (the caveat
     says whether every spine row is then kept, or what still drops them). On a LEFT JOIN, a
@@ -381,9 +383,18 @@ def _keep_spine_rows(
                 f"no {ref.table} before the prediction time now carry NULL features, where the "
                 "original dropped them"
             )
+    if not converted:
+        reason = _still_drops(select, join, alias)
+        if reason:
+            caveats.append(
+                f"{ROWS_MAY_DROP}the bound changes which {ref.table} rows the query sees, and "
+                f"{reason}"
+            )
     if (converted or count_rows) and str(join.args.get("side") or "").upper() == "LEFT":
         caveats += _count_joined_rows(select, join, alias, ref, spine_alias)
-    return caveats
+    if check_values:
+        caveats += _value_effects(select, alias, ref, join)
+    return list(dict.fromkeys(caveats))
 
 
 def _count_joined_rows(
@@ -418,12 +429,178 @@ def _count_joined_rows(
                     f"{before_text} became COUNT({alias}.{key}) so a spine row without history "
                     "counts 0, not 1"
                 )
-        elif isinstance(node, exp.Sum) and isinstance(node.this, exp.Literal):
-            caveats.append(
-                f"SUM({node.this.sql()}) still counts the spine row itself when there is no "
-                f"{ref.table} row: use COUNT({alias}.{key})"
-            )
     return caveats
+
+
+# Aggregates whose value over no data is NULL (0 for a count of a column): a spine row with no
+# match in a LEFT JOIN, where the joined columns are NULL, gets what a row with no history should.
+_NULL_ON_NOTHING = tuple(
+    getattr(exp, name)
+    for name in (
+        "Sum",
+        "Avg",
+        "Min",
+        "Max",
+        "Count",
+        "Stddev",
+        "StddevPop",
+        "StddevSamp",
+        "Variance",
+        "VariancePop",
+        "Median",
+        "Quantile",
+        "ArgMax",
+        "ArgMin",
+        "AnyValue",
+    )
+    if hasattr(exp, name)
+)
+# Operators that return NULL when an operand is NULL.
+_NULL_STRICT = (
+    exp.Column,
+    exp.Identifier,
+    exp.Literal,
+    exp.Paren,
+    exp.Neg,
+    exp.Cast,
+    exp.TryCast,
+    exp.DataType,
+    exp.DataTypeParam,
+    exp.Add,
+    exp.Sub,
+    exp.Mul,
+    exp.Div,
+    exp.IntDiv,
+    exp.Mod,
+    exp.Pow,
+    exp.Abs,
+)
+
+
+def _reads(node: exp.Expression, alias: str) -> bool:
+    return any(c.table == alias for c in node.find_all(exp.Column))
+
+
+def _null_strict(node: exp.Expression, alias: str) -> bool:
+    """Reads the table and is NULL whenever the table's columns are NULL (no COALESCE / CASE)."""
+    return _reads(node, alias) and all(isinstance(n, _NULL_STRICT) for n in node.walk())
+
+
+def _unmatched_neutral(agg: exp.Expression, alias: str) -> bool:
+    """Does `agg` give a spine row with no match the value of an aggregate over no data?
+
+    Only aggregates known to return NULL (or 0 for a count of a column) over nothing qualify, and
+    only when their argument is NULL for an unmatched row. COUNT(*), COUNT(1), SUM(<spine
+    column>), COUNT(COALESCE(e.x, 0)), COUNT_IF(e.x IS NULL) and the like are not: they give an
+    unmatched row a value of its own.
+    """
+    if not isinstance(agg, _NULL_ON_NOTHING):
+        return False
+    if isinstance(agg, exp.Count) and isinstance(agg.this, exp.Distinct):
+        args = list(agg.this.expressions)
+        return all(not _reads(a, alias) or _null_strict(a, alias) for a in args)
+    if isinstance(agg, exp.Count) and isinstance(agg.this, exp.Star):
+        return False
+    args = [v for v in agg.args.values() if isinstance(v, exp.Expression)]
+    reading = [a for a in args if _reads(a, alias)]
+    if isinstance(agg, exp.Min | exp.Max) and not reading:
+        return True  # the extreme of the spine's own value is the same with or without a match
+    return (
+        bool(reading)
+        and all(_null_strict(a, alias) for a in reading)
+        and all(isinstance(a, exp.Literal) or _reads(a, alias) for a in args)
+    )
+
+
+def _clause_of(node: exp.Expression, select: exp.Select) -> str:
+    """Which part of `select` holds `node`: where, having, qualify, joins, group, order, or
+    expressions (the projection)."""
+    child, parent = node, node.parent
+    while parent is not None and parent is not select:
+        child, parent = parent, parent.parent
+    for key, value in select.args.items():
+        if value is child or (isinstance(value, list) and any(v is child for v in value)):
+            return key
+    return "expressions"
+
+
+def _value_effects(
+    select: exp.Select, alias: str, ref: TableRef, own_join: exp.Join | None
+) -> list[str]:
+    """Caveats for what bounding `alias` does to the values of the SELECT, decided from its text.
+
+    Nothing is said only when every read of the table is inside an aggregate in the projection
+    that returns NULL (or 0 for a count of a column) for an unmatched row, so the repair adds the
+    bound and changes nothing else. Anything else is named.
+    """
+    caveats: list[str] = []
+    in_own_on = (
+        {id(c) for c in own_join.args["on"].find_all(exp.Column)}
+        if own_join is not None and own_join.args.get("on") is not None
+        else set()
+    )
+    in_aggregate: set[int] = set()
+    for agg in select.find_all(exp.AggFunc):
+        if agg.find_ancestor(exp.Select) is not select:
+            continue
+        in_aggregate |= {id(c) for c in agg.find_all(exp.Column)}
+        clause = _clause_of(agg, select)
+        text = agg.sql()
+        if clause in ("having", "qualify"):
+            caveats.append(
+                f"{ROWS_MAY_DROP}the {clause.upper()} reads {text}, which depends on the joined "
+                f"{ref.table} rows, so bounding them changes which spine rows survive"
+            )
+        elif agg.find_ancestor(exp.Window) is not None:
+            caveats.append(
+                f"{text} is a window over the joined {ref.table} rows: its value changes"
+            )
+        elif not _unmatched_neutral(agg, alias):
+            caveats.append(
+                f"{text} gives a spine row with no {ref.table} before the prediction time a value "
+                "of its own (not NULL, or 0 for a count of a column); it is not known to equal "
+                "what the as-of data would give"
+            )
+    for column in select.find_all(exp.Column):
+        if column.table != alias or id(column) in in_own_on or id(column) in in_aggregate:
+            continue
+        if column.find_ancestor(exp.Filter) is not None:
+            continue  # FILTER (WHERE ...) of an aggregate: judged with the aggregate
+        clause = _clause_of(column, select)
+        if clause in ("where", "having", "qualify"):
+            continue  # said by the row check
+        caveats.append(
+            f"{alias}.{column.name} is read outside an aggregate ({clause}), so the query has a "
+            f"row per joined {ref.table} row and the bound changes how many rows there are"
+        )
+    return caveats
+
+
+def _context_caveats(select: exp.Select, ref: TableRef) -> list[str]:
+    """A bound inside a subquery that decides which spine rows exist (`WHERE EXISTS (...)`,
+    `IN (...)`, a comparison with a scalar subquery, an INNER JOIN LATERAL) changes the rows."""
+    child, node, join = select, select.parent, None
+    while node is not None and not isinstance(node, exp.Select):
+        join = node if isinstance(node, exp.Join) else join
+        child, node = node, node.parent
+    if node is None:
+        return []
+    key = next(
+        (
+            k
+            for k, v in node.args.items()
+            if v is child or (isinstance(v, list) and any(i is child for i in v))
+        ),
+        "",
+    )
+    if key in ("where", "having", "qualify") or (
+        key == "joins" and join is not None and _inner(join)
+    ):
+        return [
+            f"{ROWS_MAY_DROP}the bound is inside a subquery in the outer {key.upper()}, so spine "
+            f"rows whose {ref.table} rows all lie after the prediction time now fail it"
+        ]
+    return []
 
 
 def _drop_having_bound(select: exp.Select, alias: str, ref: TableRef, spine: exp.Column) -> bool:
@@ -528,19 +705,51 @@ def tighten(ctx: Context, ref: TableRef) -> Edit | None:
             plans.append((node, before(column, spine, asof=_asof_join(node) is not None)))
         else:
             return None
-    joined = _own_inner_join(table, [n for n, _ in plans])
+    edited = [n for n, _ in plans]
+    joined = _own_join(table, edited)
+    caveats = _elsewhere_caveats(edited, joined[1] if joined else None, ref)
     for node, new in plans:
         _swap(node, new)
+    if joined:
+        caveats += _keep_spine_rows(ctx, *joined, _alias(table), ref)
+    placed = _select_of(table)
+    if placed:
+        caveats += _context_caveats(placed[0], ref)
     return Edit(
         "L5",
         ref.describe(),
         "Make the upper bound strict (`<`, no offset) so facts stamped at the prediction time, "
         "or shifted past it by a timezone, are not read.",
-        _keep_spine_rows(ctx, *joined, _alias(table), ref) if joined else [],
+        list(dict.fromkeys(caveats)),
     )
 
 
-def _own_inner_join(table: exp.Expression, edited: list[exp.Expression]):
+def _elsewhere_caveats(
+    edited: list[exp.Expression], own_join: exp.Join | None, ref: TableRef
+) -> list[str]:
+    """Edited conditions that are not in the table's own join: a FILTER only changes a value, a
+    WHERE / HAVING / QUALIFY decides which rows exist."""
+    caveats = []
+    for node in edited:
+        if own_join is not None and node.find_ancestor(exp.Join) is own_join:
+            continue
+        if node.find_ancestor(exp.Filter) is not None:
+            continue
+        select = node.find_ancestor(exp.Select)
+        clause = _clause_of(node, select) if select is not None else ""
+        if clause in ("where", "having", "qualify"):
+            caveats.append(
+                f"{ROWS_MAY_DROP}the bound is in the {clause.upper()}, so which spine rows pass "
+                f"it changes with the {ref.table} rows"
+            )
+        else:
+            caveats.append(
+                f"the edited bound is in the {clause or 'query'}, outside {ref.table}'s own join"
+            )
+    return caveats
+
+
+def _own_join(table: exp.Expression, edited: list[exp.Expression]):
     """(SELECT, JOIN) when an edited condition sits in the table's own join; call before editing."""
     placed = _select_of(table)
     if placed is None or placed[1] is None:
@@ -629,7 +838,10 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
         plans.append((nodes, new, False))
     if any(not _removable(n) for nodes, _, in_place in plans if not in_place for n in nodes[1:]):
         return None
-    joined = _own_inner_join(table, [n for nodes, _, _ in plans for n in nodes])
+    edited = [n for nodes, _, _ in plans for n in nodes]
+    joined = _own_join(table, edited)
+    elsewhere = _elsewhere_caveats(edited, joined[1] if joined else None, ref)
+    on_asof = any(_asof_join(n) is not None for n in edited)
     for nodes, new, in_place in plans:
         if in_place:
             for old, replacement in zip(nodes, new, strict=True):
@@ -640,9 +852,17 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
                 _drop_conjunct(extra)
     select = _select_of(table)
     flipped = _flip_extremum(select[0], alias, columns) if select else False
-    caveats = ["the window is mirrored into the past: confirm that is the span you meant"]
+    caveats = [
+        "the ASOF match now picks the latest row before the prediction time instead of the "
+        "next one after it: confirm that is the feature you meant"
+        if on_asof
+        else "the window is mirrored into the past: confirm that is the span you meant"
+    ]
+    caveats += elsewhere
     if joined:
         caveats += _keep_spine_rows(ctx, *joined, alias, ref)
+    if select:
+        caveats += _context_caveats(select[0], ref)
     if flipped:
         caveats.append(
             "MIN / ascending order became MAX / descending: the row picked is the last before"
@@ -652,7 +872,7 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
         ref.describe(),
         f"{ref.describe()} was read from the prediction time onwards; it is now read up to the "
         "prediction time, over the same span.",
-        caveats,
+        list(dict.fromkeys(caveats)),
         Semantics.CHANGED,
     )
 

@@ -59,14 +59,9 @@ def _keys(replayer: Replayer, spec: LeakageSpec, sql: str) -> set[tuple] | None:
     return set(zip(*columns, strict=True))
 
 
-def evaluate_case(
-    case: LeakCase, catalog: LakehouseCatalog, spec: LeakageSpec, replayer: Replayer
-) -> dict:
-    schema = catalog.schema_for()
-    report = validate(case.sql, spec, schema=schema, replay=replayer)
-    fixes = suggest_fix(case.sql, spec, report, schema=schema, catalog=catalog, replay=replayer)
+def _outcome(fixes: list, case: LeakCase, spec: LeakageSpec, replayer: Replayer) -> dict:
+    """Level, meaning and row-loss check of one case on one path."""
     rewrites = [f for f in fixes if f.rewrites]
-    level = rewrites[-1].verification.value if rewrites else "none"
     lost_without_caveat = False
     if rewrites:
         before = _keys(replayer, spec, case.sql)
@@ -75,23 +70,63 @@ def evaluate_case(
             lost_without_caveat = not any(
                 c.startswith(ROWS_MAY_DROP) for f in rewrites for c in f.caveats
             )
+    if not rewrites:
+        semantics = Semantics.UNKNOWN
+    elif any(f.semantics is Semantics.CHANGED for f in rewrites):
+        semantics = Semantics.CHANGED  # the whole repair: `changed` as soon as one rewrite is
+    else:
+        semantics = Semantics.PRESERVED
+    return {
+        "level": rewrites[-1].verification.value if rewrites else "none",
+        "semantics": semantics.value,
+        "rewrites": len(rewrites),
+        "lost_rows_without_caveat": lost_without_caveat,
+    }
+
+
+def evaluate_case(
+    case: LeakCase, catalog: LakehouseCatalog, spec: LeakageSpec, replayer: Replayer
+) -> dict:
+    """Both paths of the CLI: `--suggest-fix` alone (schema only, nothing replayed) and with
+    `--warehouse --replay`. Replay may add evidence; it must not be what produces a label or a
+    row-loss caveat, so a drop without one fails on either path."""
+    schema = catalog.schema_for()
+    static = suggest_fix(case.sql, spec, schema=schema)
+    report = validate(case.sql, spec, schema=schema, replay=replayer)
+    replayed = suggest_fix(case.sql, spec, report, schema=schema, catalog=catalog, replay=replayer)
+    on_replay = _outcome(replayed, case, spec, replayer)
+    on_static = _outcome(static, case, spec, replayer)
     return {
         "case_id": case.case_id,
         "template_id": case.template_id,
         "leak_type": case.leak_type,
-        "level": level,
-        # the whole repair: `changed` as soon as one of its rewrites is
-        "semantics": (
-            (
-                Semantics.CHANGED
-                if any(f.semantics is Semantics.CHANGED for f in rewrites)
-                else Semantics.PRESERVED
-            ).value
-            if rewrites
-            else Semantics.UNKNOWN.value
-        ),
-        "rewrites": len(rewrites),
-        "lost_rows_without_caveat": lost_without_caveat,
+        **on_replay,
+        "static": on_static,
+        # the label must not depend on whether replay ran
+        "semantics_differs": on_static["semantics"] != on_replay["semantics"],
+    }
+
+
+def _summary(records: list[dict]) -> dict:
+    counts = Counter(r["level"] for r in records)
+    meanings = Counter(r["semantics"] for r in records)
+    both: dict[str, Counter] = defaultdict(Counter)
+    by_type: dict[str, Counter] = defaultdict(Counter)
+    for r in records:
+        both[r["semantics"]][r["level"]] += 1
+        by_type[r["leak_type"]][r["level"]] += 1
+    n = len(records)
+    return {
+        "suggestion_rate": round(sum(r["rewrites"] > 0 for r in records) / n, 4) if n else None,
+        "rates": {lv: round(counts[lv] / n, 4) if n else None for lv in LEVELS},
+        "counts": {lv: counts[lv] for lv in LEVELS},
+        "semantics_rates": {m: round(meanings[m] / n, 4) if n else None for m in SEMANTICS},
+        "semantics_counts": {m: meanings[m] for m in SEMANTICS},
+        "level_by_semantics": {m: {lv: both[m][lv] for lv in LEVELS} for m in SEMANTICS},
+        "by_type": {t: {lv: c[lv] for lv in LEVELS} for t, c in sorted(by_type.items())},
+        "lost_rows_without_caveat": [
+            r["case_id"] for r in records if r["lost_rows_without_caveat"]
+        ],
     }
 
 
@@ -104,27 +139,19 @@ def evaluate(
         for case in cases
         if case.is_leaky and case.leak_type not in NOT_REWRITTEN
     ]
-    counts = Counter(r["level"] for r in records)
-    meanings = Counter(r["semantics"] for r in records)
-    both: dict[str, Counter] = defaultdict(Counter)
-    for r in records:
-        both[r["semantics"]][r["level"]] += 1
-    by_type: dict[str, Counter] = defaultdict(Counter)
-    for r in records:
-        by_type[r["leak_type"]][r["level"]] += 1
-    n = len(records)
+    with_replay = _summary(records)
+    without_replay = _summary(
+        [{**r["static"], "case_id": r["case_id"], "leak_type": r["leak_type"]} for r in records]
+    )
     return {
-        "n_cases": n,
-        "suggestion_rate": round(sum(r["rewrites"] > 0 for r in records) / n, 4) if n else None,
-        "rates": {lv: round(counts[lv] / n, 4) if n else None for lv in LEVELS},
-        "counts": {lv: counts[lv] for lv in LEVELS},
-        "semantics_rates": {m: round(meanings[m] / n, 4) if n else None for m in SEMANTICS},
-        "semantics_counts": {m: meanings[m] for m in SEMANTICS},
-        "level_by_semantics": {m: {lv: both[m][lv] for lv in LEVELS} for m in SEMANTICS},
-        "by_type": {t: {lv: c[lv] for lv in LEVELS} for t, c in sorted(by_type.items())},
-        "lost_rows_without_caveat": [
-            r["case_id"] for r in records if r["lost_rows_without_caveat"]
-        ],
+        "n_cases": len(records),
+        **with_replay,  # the replay path, as before
+        "static_path": without_replay,
+        # a drop on either path without a row-loss caveat
+        "lost_rows_without_caveat": sorted(
+            {*with_replay["lost_rows_without_caveat"], *without_replay["lost_rows_without_caveat"]}
+        ),
+        "semantics_differs": [r["case_id"] for r in records if r["semantics_differs"]],
         "not_fully_verified": sorted(
             {r["template_id"] for r in records if r["level"] != Verification.STATIC_AND_REPLAY}
         ),
@@ -164,10 +191,22 @@ def markdown(result: dict) -> str:
         for lv in LEVELS[:-1]:
             row = " | ".join(str(r["level_by_semantics"][m][lv]) for m in SEMANTICS)
             lines.append(f"| {lv} | {row} |")
+        static = r["static_path"]
+        levels = ", ".join(f"{lv} {static['counts'][lv]}" for lv in LEVELS)
+        meanings = ", ".join(f"{m} {static['semantics_counts'][m]}" for m in SEMANTICS)
         lines += [
             "",
-            "Rows lost without a row-loss caveat: "
+            "Without replay (`--suggest-fix` alone, schema only), cases by level: "
+            + levels
+            + "; by semantics: "
+            + meanings,
+        ]
+        lines += [
+            "",
+            "Rows lost without a row-loss caveat (either path): "
             + (", ".join(r["lost_rows_without_caveat"]) or "none"),
+            "",
+            "Semantics differs between the paths: " + (", ".join(r["semantics_differs"]) or "none"),
         ]
         lines += [
             "",

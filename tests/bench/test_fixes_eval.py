@@ -28,6 +28,10 @@ def test_most_leaky_dev_cases_get_a_replayed_rewrite(world, sample):
     assert result["rates"]["static_and_replay"] >= 0.8
     assert result["suggestion_rate"] >= result["rates"]["static_and_replay"]
     assert result["lost_rows_without_caveat"] == []
+    # both paths: the label and the row-loss caveats do not depend on replay
+    assert result["static_path"]["lost_rows_without_caveat"] == []
+    assert result["semantics_differs"] == []
+    assert result["static_path"]["rates"]["static_and_replay"] == 0  # nothing is replayed
     # the meaning of a rewrite is counted apart from its level
     assert result["semantics_counts"]["preserved"] > 0 and result["semantics_counts"]["changed"] > 0
     assert sum(result["semantics_counts"].values()) == result["n_cases"]
@@ -54,6 +58,11 @@ def test_the_report_names_the_levels():
                     m: dict.fromkeys(fixes_eval.LEVELS, 1) for m in fixes_eval.SEMANTICS
                 },
                 "by_type": {"L1": dict.fromkeys(fixes_eval.LEVELS, 1)},
+                "static_path": {
+                    "counts": dict.fromkeys(fixes_eval.LEVELS, 2),
+                    "semantics_counts": dict.fromkeys(fixes_eval.SEMANTICS, 3),
+                },
+                "semantics_differs": [],
                 "lost_rows_without_caveat": [],
                 "not_fully_verified": ["t1"],
             }
@@ -62,6 +71,7 @@ def test_the_report_names_the_levels():
     text = fixes_eval.markdown(result)
     assert "static_and_replay" in text and "in-sample" in text and "t1" in text
     assert "semantics preserved" in text and "semantics changed" in text
+    assert "Without replay" in text and "Semantics differs between the paths: none" in text
 
 
 def test_a_row_loss_needs_a_caveat_about_rows_not_any_caveat(world, monkeypatch):
@@ -82,3 +92,23 @@ def test_a_row_loss_needs_a_caveat_about_rows_not_any_caveat(world, monkeypatch)
     assert fixes_eval.evaluate_case(case, catalog, spec, replayer)["lost_rows_without_caveat"]
     monkeypatch.setattr(fixes_eval, "suggest_fix", fake("rows may drop: a WHERE reads e"))
     assert not fixes_eval.evaluate_case(case, catalog, spec, replayer)["lost_rows_without_caveat"]
+
+
+def test_a_drop_that_only_the_replay_path_warns_about_fails_the_static_path(world, monkeypatch):
+    """Replay's row-count caveat must not be what makes the check pass."""
+    catalog, _ = world
+    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    replayer = Replayer(catalog, spec, seed=42)
+    case = LeakCase(
+        "c", "t", "dev", "leaky", "L3", {}, "SELECT l.user_id, l.label_ts, l.churned FROM labels l"
+    )
+    dropping = "SELECT l.user_id, l.label_ts, l.churned FROM labels l WHERE l.user_id < 3"
+
+    def fake(sql, spec, report=None, **kwargs):
+        caveats = ["rows may drop: on the current data ..."] if kwargs.get("replay") else []
+        return [Fix("L3", "labels", sql, dropping, "x", caveats, Verification.STATIC_ONLY)]
+
+    monkeypatch.setattr(fixes_eval, "suggest_fix", fake)
+    record = fixes_eval.evaluate_case(case, catalog, spec, replayer)
+    assert not record["lost_rows_without_caveat"]
+    assert record["static"]["lost_rows_without_caveat"]

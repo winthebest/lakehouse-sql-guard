@@ -88,7 +88,8 @@ def test_a_spine_row_without_past_events_counts_zero(db, join, count):
 
 def test_an_aggregate_that_counts_the_unmatched_row_is_named_not_guessed():
     fix = last(f"{SEL}, SUM(1) n FROM labels l LEFT JOIN events e ON e.user_id = l.user_id {G}")
-    assert any("SUM(1) still counts the spine row" in c for c in fix.caveats)
+    assert any("SUM(1) gives a spine row" in c for c in fix.caveats)
+    assert fix.semantics is Semantics.CHANGED
 
 
 def test_counts_that_already_read_the_joined_table_are_left_alone(db):
@@ -321,3 +322,118 @@ def test_a_finding_the_rewriter_no_longer_sees_is_still_explained():
     fixes = suggest_fix(sql, spec, report, schema=SCHEMA)
     assert fixes and not any(f.rewrites for f in fixes)
     assert "no longer sees" in fixes[0].explanation
+
+
+# --- the label and the caveats are decided from the text, with or without a catalog -------------
+
+LJ = "FROM labels l LEFT JOIN events e ON e.user_id = l.user_id"
+
+DROPPING = {
+    "where on the joined table": (
+        f"{SEL}, SUM(e.amount) a {LJ} WHERE e.amount > 0 {G}",
+        {1, 4},
+    ),
+    "having on a count of the joined table": (
+        f"{SEL}, SUM(e.amount) a {LJ} {G} HAVING COUNT(e.event_id) > 2",
+        set(),
+    ),
+    "bound inside an IN subquery": (
+        f"{SEL} FROM labels l WHERE l.user_id IN "
+        "(SELECT e.user_id FROM events e WHERE e.amount > 2)",
+        {1},
+    ),
+    "bound inside an EXISTS subquery": (
+        f"{SEL} FROM labels l WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = l.user_id)",
+        {1, 4},
+    ),
+    "bound inside a comparison with a scalar subquery": (
+        f"{SEL} FROM labels l "
+        "WHERE (SELECT COUNT(*) FROM events e WHERE e.user_id = l.user_id) > 2",
+        set(),
+    ),
+    "having on the number of joined rows": (
+        f"{SEL}, SUM(e.amount) a {LJ} {G} HAVING COUNT(*) > 2",
+        set(),
+    ),
+}
+
+
+@pytest.mark.parametrize("sql, kept", DROPPING.values(), ids=DROPPING.keys())
+def test_a_bound_that_drops_spine_rows_says_so_without_replay(db, sql, kept):
+    fixes = fixes_of(sql)  # schema only: no catalog, no replay
+    fix = [f for f in fixes if f.rewrites][-1]
+    assert fix.verification is Verification.STATIC_ONLY
+    assert fix.semantics is Semantics.CHANGED  # never `preserved`
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+    assert {r[0] for r in rows(db, fix.after_sql)} == kept
+    assert len(rows(db, fix.after_sql)) < len(rows(db, sql))
+
+
+PRESERVING = [
+    "SUM(e.amount)",
+    "AVG(e.amount * 2)",
+    "MIN(e.amount)",
+    "MAX(e.event_ts)",
+    "COUNT(e.event_id)",
+    "COUNT(DISTINCT e.event_id)",
+    "STDDEV_SAMP(e.amount)",
+    "MEDIAN(e.amount)",
+    "SUM(e.amount) FILTER (WHERE e.amount > 1)",
+    "MAX(l.churned)",
+    "COUNT(DISTINCT l.user_id)",
+]
+NOT_PRESERVING = [
+    "COUNT(COALESCE(e.amount, 0))",
+    "COUNT_IF(e.amount IS NULL)",
+    "SUM(CASE WHEN e.event_id IS NULL THEN 1 ELSE 1 END)",
+    "AVG(CASE WHEN e.amount IS NULL THEN 1 ELSE 0 END)",
+    "SUM(l.user_id)",
+    "AVG(l.churned)",
+    "SUM(COALESCE(e.amount, 0))",
+    "MAX(COALESCE(e.amount, 0))",
+    "LIST(e.amount)",
+    "SUM(1)",
+]
+
+
+@pytest.mark.parametrize("agg", PRESERVING)
+def test_aggregates_that_are_null_for_an_unmatched_row_keep_the_meaning(agg):
+    fix = last(f"{SEL}, {agg} x {LJ} {G}")
+    assert fix.semantics is Semantics.PRESERVED and fix.caveats == []
+
+
+@pytest.mark.parametrize("agg", NOT_PRESERVING)
+def test_aggregates_that_give_an_unmatched_row_a_value_are_not_preserved(agg):
+    fix = last(f"{SEL}, {agg} x {LJ} {G}")
+    assert fix.semantics is Semantics.CHANGED
+    assert any("not known to equal" in c for c in fix.caveats), fix.caveats
+
+
+def test_a_column_of_the_joined_table_outside_an_aggregate_changes_the_rows():
+    fix = last(f"{SEL}, e.amount {LJ}")
+    assert fix.semantics is Semantics.CHANGED
+    assert any("outside an aggregate" in c for c in fix.caveats)
+
+
+def test_a_subquery_in_the_projection_keeps_the_meaning(db):
+    sql = f"{SEL}, (SELECT COUNT(*) FROM events e WHERE e.user_id = l.user_id) n FROM labels l"
+    fix = last(sql)
+    assert fix.semantics is Semantics.PRESERVED and fix.caveats == []
+    assert dict((r[0], r[3]) for r in rows(db, fix.after_sql)) == {1: 2, 2: 0, 3: 0, 4: 1}
+
+
+def test_tightening_a_bound_in_a_where_says_rows_may_drop():
+    fix = last(f"{SEL}, SUM(e.amount) a {LJ} WHERE e.ingested_at <= l.label_ts {G}")
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats)
+
+
+def test_an_asof_direction_flip_is_not_described_as_a_window():
+    fix = last(
+        f"{SEL}, s.total_spend FROM labels l "
+        "ASOF LEFT JOIN user_stats s ON l.user_id = s.user_id AND l.label_ts < s.updated_at"
+    )
+    text = " ".join(fix.caveats)
+    assert "ASOF match now picks the latest row before the prediction time" in text
+    assert "mirrored" not in text
+    assert fix.semantics is Semantics.CHANGED
