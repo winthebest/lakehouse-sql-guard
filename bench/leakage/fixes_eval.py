@@ -1,0 +1,167 @@
+"""How often does `suggest_fix` repair a leaky case, and how far is the repair verified?
+
+Every leaky case of the chosen splits (L6 and L7 are explained, never rewritten, so they are
+left out of the rates) goes through `suggest_fix` with the replayer. A case counts at the level of
+its last rewrite:
+
+- `static_and_replay`: the repaired query is statically clean and replays point-in-time;
+- `static_only`: statically clean, replay could not confirm it;
+- `unverified`: a rewrite was offered but the checker or replay disagrees;
+- `none`: nothing was rewritten (explanation only).
+
+Also checked on the current data: no repaired query loses a row the original returned unless a
+caveat says so.
+
+`dev` and `dev_v1b` were both seen while the rewrites were written, so the rates are in-sample.
+
+Usage: python -m bench.leakage.fixes_eval --splits dev dev_v1b --out-dir <dir>
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from collections import Counter, defaultdict
+from pathlib import Path
+
+import duckdb
+
+from bench.leakage.cases import SPLITS, LeakCase, generate_cases
+from bench.leakage.run import SYNTHETIC_SPEC, synthetic_world
+from sqlguard.core.catalog import LakehouseCatalog
+from sqlguard.leakage.fixes import Verification, suggest_fix
+from sqlguard.leakage.replay import Replayer
+from sqlguard.leakage.spec import LeakageSpec
+from sqlguard.leakage.validator import Weights, validate
+
+LEVELS = (*[v.value for v in Verification], "none")
+NOT_REWRITTEN = ("L6", "L7")
+
+
+def _keys(replayer: Replayer, spec: LeakageSpec, sql: str) -> set[tuple] | None:
+    """Prediction rows (entity keys, prediction time) the query returns on the current data."""
+    try:
+        table = replayer.current().sql(sql).to_arrow_table()
+    except duckdb.Error:
+        return None
+    names = {c.lower(): c for c in table.column_names}
+    if any(c not in names for c in spec.key_columns):
+        return None
+    columns = [table.column(names[c]).to_pylist() for c in spec.key_columns]
+    return set(zip(*columns, strict=True))
+
+
+def evaluate_case(
+    case: LeakCase, catalog: LakehouseCatalog, spec: LeakageSpec, replayer: Replayer
+) -> dict:
+    schema = catalog.schema_for()
+    report = validate(case.sql, spec, schema=schema, replay=replayer)
+    fixes = suggest_fix(case.sql, spec, report, schema=schema, catalog=catalog, replay=replayer)
+    rewrites = [f for f in fixes if f.rewrites]
+    level = rewrites[-1].verification.value if rewrites else "none"
+    lost_without_caveat = False
+    if rewrites:
+        before = _keys(replayer, spec, case.sql)
+        after = _keys(replayer, spec, rewrites[-1].after_sql)
+        if before is not None and after is not None and before - after:
+            lost_without_caveat = not any(f.caveats for f in rewrites)
+    return {
+        "case_id": case.case_id,
+        "template_id": case.template_id,
+        "leak_type": case.leak_type,
+        "level": level,
+        "rewrites": len(rewrites),
+        "lost_rows_without_caveat": lost_without_caveat,
+    }
+
+
+def evaluate(
+    cases: list[LeakCase], catalog: LakehouseCatalog, spec: LeakageSpec, seed: int
+) -> dict:
+    replayer = Replayer(catalog, spec, max_points=24, seed=seed)
+    records = [
+        evaluate_case(case, catalog, spec, replayer)
+        for case in cases
+        if case.is_leaky and case.leak_type not in NOT_REWRITTEN
+    ]
+    counts = Counter(r["level"] for r in records)
+    by_type: dict[str, Counter] = defaultdict(Counter)
+    for r in records:
+        by_type[r["leak_type"]][r["level"]] += 1
+    n = len(records)
+    return {
+        "n_cases": n,
+        "suggestion_rate": round(sum(r["rewrites"] > 0 for r in records) / n, 4) if n else None,
+        "rates": {lv: round(counts[lv] / n, 4) if n else None for lv in LEVELS},
+        "counts": {lv: counts[lv] for lv in LEVELS},
+        "by_type": {t: {lv: c[lv] for lv in LEVELS} for t, c in sorted(by_type.items())},
+        "lost_rows_without_caveat": [
+            r["case_id"] for r in records if r["lost_rows_without_caveat"]
+        ],
+        "not_fully_verified": sorted(
+            {r["template_id"] for r in records if r["level"] != Verification.STATIC_AND_REPLAY}
+        ),
+    }
+
+
+def markdown(result: dict) -> str:
+    lines = [
+        "# Fix suggestions on the labelled leaky cases (in-sample)",
+        "",
+        "L6 and L7 are explained, not rewritten, and are not counted. Rates are shares of the "
+        "leaky L1-L5 cases by the verification of the last rewrite.",
+        "",
+        "| split | cases | suggested | " + " | ".join(LEVELS) + " |",
+        "|---|---|---|" + "---|" * len(LEVELS),
+    ]
+    for split, r in result["splits"].items():
+        rates = " | ".join(f"{r['rates'][lv]:.3f}" for lv in LEVELS)
+        lines.append(f"| {split} | {r['n_cases']} | {r['suggestion_rate']:.3f} | {rates} |")
+    for split, r in result["splits"].items():
+        lines += ["", f"## {split}", "", "| leak type | " + " | ".join(LEVELS) + " |"]
+        lines.append("|---|" + "---|" * len(LEVELS))
+        for leak, counts in r["by_type"].items():
+            lines.append(f"| {leak} | " + " | ".join(str(counts[lv]) for lv in LEVELS) + " |")
+        lines += [
+            "",
+            "Rows lost without a caveat: " + (", ".join(r["lost_rows_without_caveat"]) or "none"),
+        ]
+        lines += [
+            "",
+            "Templates not fully verified: " + (", ".join(r["not_fully_verified"]) or "none"),
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def run(seed: int, warehouse: Path, out_dir: Path, splits: tuple[str, ...]) -> Path:
+    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    catalog = synthetic_world(warehouse, seed)
+    started = time.perf_counter()
+    result = {
+        "seed": seed,
+        "weights": Weights.load().rules,
+        "splits": {
+            split: evaluate(generate_cases(seed, (split,)), catalog, spec, seed) for split in splits
+        },
+    }
+    result["runtime_seconds"] = round(time.perf_counter() - started, 1)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "fixes.md").write_text(markdown(result), encoding="utf-8")
+    path = out_dir / "fixes.json"
+    path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m bench.leakage.fixes_eval", description=__doc__)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--warehouse", type=Path, default=Path(".warehouse/bench"))
+    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--splits", nargs="+", default=list(SPLITS), choices=SPLITS)
+    args = parser.parse_args(argv)
+    print(f"results written to {run(args.seed, args.warehouse, args.out_dir, tuple(args.splits))}")
+
+
+if __name__ == "__main__":
+    main()
