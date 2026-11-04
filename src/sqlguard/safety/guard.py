@@ -16,6 +16,14 @@ Pipeline for every submission:
                                a branch so the approver sees the measured impact
       IRREVERSIBLE actions  -> need an approver, and the live retention check must pass first
 
+With a durable `ActionStore` (`Guard(store=...)`) and no approver, an ASK is not dropped: the
+write is rehearsed on a branch that is kept, the action is saved as `pending` with the digests of
+the live state, the policy and the row diff that were measured, and the caller gets an `action_id`.
+`Guard.resolve` later applies a decision, but only after proof of approval is verified and the
+live table, the policy and the diff are checked to be what was reviewed (see `docs/architecture.md`,
+"Pending actions"). `Guard.reconcile` settles actions a crash left half-way, and
+`Guard.expire_pending` retires the ones nobody decided on.
+
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
 main pointer to the snapshot that was measured and verified (not to whatever the branch holds by
 then). A publish whose result cannot be confirmed, or that other writers have replaced, is never
@@ -35,11 +43,11 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Protocol
 
 import pyarrow as pa
 import sqlglot
@@ -47,7 +55,7 @@ from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
-from sqlguard.core.parsing import explained
+from sqlguard.core.parsing import explained, parse
 from sqlguard.safety.actions import Action, SqlAction
 from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.classifier import Classification, ReversibilityClass, classify
@@ -62,8 +70,17 @@ from sqlguard.safety.executor.base import (
     PublishStateUnknown,
     UnsupportedAction,
 )
-from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
-from sqlguard.safety.impact import ImpactReport, compute_table_impact
+from sqlguard.safety.executor.duckdb_iceberg import AUDIT_BRANCH_PREFIX, DuckDBIcebergAdapter
+from sqlguard.safety.impact import (
+    DiffError,
+    DiffLimits,
+    ImpactReport,
+    RowDiff,
+    compute_row_diff,
+    compute_table_impact,
+    statement_filter,
+    table_key,
+)
 from sqlguard.safety.invariants import (
     Invariant,
     InvariantContext,
@@ -72,6 +89,20 @@ from sqlguard.safety.invariants import (
     invariants_for,
 )
 from sqlguard.safety.policy import Policy, PolicyDecision, RetentionRule, TaskScope
+from sqlguard.safety.store import (
+    ActionRecord,
+    ActionState,
+    ActionStore,
+    ProofReplayed,
+    StoreError,
+    canonical_json,
+    decode_action,
+    digest,
+    encode_action,
+    maintenance_kind,
+    plan_digest,
+    sha256_hex,
+)
 
 C = ReversibilityClass
 _POINTER_MOVES = frozenset({"rollback", "fast_forward"})
@@ -90,7 +121,13 @@ class Outcome(StrEnum):
     """What happened to a submission."""
 
     DENIED = "denied"  # policy, retention, or a measured limit said no
-    AWAITING_APPROVAL = "awaiting_approval"  # ASK and no approver was supplied
+    # ASK and no approver was supplied. Two meanings, told apart by `GuardResult.action_id`:
+    #   action_id is None   a Guard without a store: nothing was rehearsed or saved; ask again
+    #                       with an approver.
+    #   action_id is set    a Guard with a store: the write was rehearsed on a branch, measured,
+    #                       and saved as a pending action that `Guard.resolve(action_id, ...)` can
+    #                       still approve, reject or find stale. The branch is kept until then.
+    AWAITING_APPROVAL = "awaiting_approval"
     REJECTED = "rejected"  # the approver declined
     READ = "read"  # query ran on main
     PUBLISHED = "published"  # change verified and live on main
@@ -106,6 +143,9 @@ class Outcome(StrEnum):
     UNSUPPORTED = "unsupported"  # the adapter cannot execute this kind of action
     EXECUTION_FAILED = "execution_failed"  # the engine rejected the statement; nothing published
     ERROR = "error"  # unexpected failure; failed closed
+    # outcomes of `Guard.resolve` only
+    STALE = "stale"  # live table, policy or diff differ from what was reviewed; nothing applied
+    EXPIRED = "expired"  # nobody decided in time; the branch was dropped
 
 
 @dataclass(frozen=True)
@@ -141,6 +181,8 @@ class GuardResult:
     snapshots_after: dict[str, int | None] = field(default_factory=dict)
     error: str | None = None
     audit_error: str | None = None  # set when the completion record could not be written
+    action_id: str | None = None  # the pending action (see `Outcome.AWAITING_APPROVAL`)
+    action_hash: str | None = None  # what an approval is bound to
 
     @property
     def needs_attention(self) -> bool:
@@ -177,7 +219,66 @@ class GuardResult:
             "error": self.error,
             "audit_error": self.audit_error,
             "needs_attention": self.needs_attention,
+            "action_id": self.action_id,
+            "action_hash": self.action_hash,
         }
+
+
+class PendingActionError(RuntimeError):
+    """`Guard.resolve` was called in a way that cannot be honoured. Nothing changed."""
+
+
+class UnknownAction(PendingActionError):
+    """No pending action has this id."""
+
+
+class ActionNotPending(PendingActionError):
+    """The action was already decided, expired or settled; `state` says how it ended."""
+
+    def __init__(self, action_id: str, state: ActionState) -> None:
+        super().__init__(f"action {action_id} is {state.value}, not pending")
+        self.state = state
+
+
+class ProofRejected(PendingActionError):
+    """The proof of approval is invalid for this action and decision, or was already used."""
+
+
+@dataclass(frozen=True)
+class ProofRequest:
+    """What a proof of approval must vouch for: this decision, on this exact action."""
+
+    action_id: str
+    action_hash: str
+    decision: Literal["approve", "reject"]
+    approver_label: str
+
+
+class ProofVerifier(Protocol):
+    """Checks the proof that a person (not the requesting agent) made a decision.
+
+    The Guard has no secret of its own: the approval UI or CLI produces `proof` out of band (for
+    example an HMAC over the request's fields with a key the agent cannot read), and the verifier
+    that was injected into the Guard checks it. Return True only for a valid proof of exactly
+    this `request`. Anything else, including an exception, counts as invalid. The Guard remembers
+    a hash of every accepted proof, so a verifier need not track replays.
+    """
+
+    def verify(self, request: ProofRequest, proof: str) -> bool: ...
+
+
+_DECISIONS = ("approve", "reject")
+DEFAULT_PENDING_TTL = timedelta(hours=24)
+DEFAULT_RECONCILE_GRACE = timedelta(minutes=2)
+
+
+@dataclass(frozen=True)
+class Reconciled:
+    """What `Guard.reconcile` concluded about one action found in `publishing`."""
+
+    action_id: str
+    state: ActionState
+    reason: str
 
 
 @dataclass
@@ -206,6 +307,12 @@ class _Run:
     after: dict[str, int | None] = field(default_factory=dict)
     branch: str | None = None
     error: str | None = None
+    action_id: str | None = None
+    action_hash: str | None = None
+    keep_branch: bool = False  # the branch belongs to a pending action; do not drop it
+    requester: str = ""
+    claimed: bool = False  # the pending action has been moved to publishing
+    maintenance_plan: MaintenancePlan | None = None  # verified at approval, applied right after
 
     def set_decision(self, decided: PolicyDecision) -> None:
         self.decision = decided.decision
@@ -219,6 +326,29 @@ class _Run:
 
 
 _ATTENTION_OUTCOMES = frozenset({Outcome.ROLLBACK_FAILED, Outcome.ROLLBACK_BLOCKED})
+
+# How an approved action ended -> its stored state. An outcome missing here (an unexpected error)
+# is not known to be settled, so the action stays in `publishing` for `reconcile`.
+_STATE_OF_OUTCOME: dict[Outcome, ActionState] = {
+    Outcome.PUBLISHED: ActionState.PUBLISHED,
+    Outcome.NO_CHANGE: ActionState.PUBLISHED,
+    Outcome.MAINTENANCE_DONE: ActionState.PUBLISHED,
+    Outcome.STALE: ActionState.STALE,
+    Outcome.ROLLED_BACK: ActionState.FAILED,
+    Outcome.EXECUTION_FAILED: ActionState.FAILED,
+    Outcome.UNSUPPORTED: ActionState.FAILED,
+    Outcome.ROLLBACK_BLOCKED: ActionState.NEEDS_ATTENTION,
+    Outcome.ROLLBACK_FAILED: ActionState.NEEDS_ATTENTION,
+}
+
+
+@dataclass(frozen=True)
+class _Prepared:
+    """What the live checks of a write computed and `_publish_and_verify` needs."""
+
+    diff: Any  # BranchDiff
+    invariants: list[Invariant]
+    key: tuple[str, ...]
 
 
 class Guard:
@@ -235,6 +365,17 @@ class Guard:
         redact_sql_literals: store SQL in the audit log with string and number literals replaced
             by `?` (plus a sha256 of the original text). On by default because agent SQL can
             carry personal data or secrets.
+        store: durable store for actions that need approval (an `ActionStore`, or a path to
+            create one at). With it, an ASK submitted without an approver is rehearsed, saved as
+            pending, and resolved later by `resolve`; without it an ASK just waits for a caller
+            that has an approver. An approver passed to `submit` always gets the synchronous v1
+            path, store or not.
+        proof_verifier: checks the proof given to `resolve` (see `ProofVerifier`). Without one,
+            `resolve` refuses every decision.
+        pending_ttl: how long a pending action may wait before it expires.
+        requester: label recorded for submissions that do not name one.
+        diff_limits: row and byte caps for the row diff shown to an approver. A table above them
+            cannot be queued for approval (a diff nobody can read is not a review).
 
     Audit trail: a "started" record is written before the first side effect (branch creation or
     maintenance) and a "completed" record afterwards; both share one `id`. If the completion
@@ -252,6 +393,11 @@ class Guard:
         extra_invariants: Sequence[Invariant] = (),
         clock: Callable[[], datetime] | None = None,
         redact_sql_literals: bool = True,
+        store: ActionStore | str | Path | None = None,
+        proof_verifier: ProofVerifier | None = None,
+        pending_ttl: timedelta = DEFAULT_PENDING_TTL,
+        requester: str = "agent",
+        diff_limits: DiffLimits | None = None,
     ) -> None:
         self.catalog = catalog
         self.policy = policy or Policy()
@@ -260,6 +406,13 @@ class Guard:
         self.extra_invariants = tuple(extra_invariants)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._redact = redact_sql_literals
+        self.store: ActionStore | None = (
+            store if store is None or isinstance(store, ActionStore) else ActionStore(store)
+        )
+        self.proof_verifier = proof_verifier
+        self.pending_ttl = pending_ttl
+        self.requester = requester
+        self.diff_limits = diff_limits or DiffLimits()
 
     @property
     def _capabilities(self) -> Capabilities:
@@ -277,8 +430,12 @@ class Guard:
         action: Action,
         task_scope: TaskScope | None = None,
         approver: Approver | None = None,
+        *,
+        requester: str | None = None,
     ) -> GuardResult:
         """Run `action` through the pipeline and return what happened.
+
+        `requester` labels who asked (kept with a pending action and covered by its hash).
 
         Never raises for a denied, failed, or rolled-back action. `AuditError` is raised only
         when the log is unwritable before anything has run (a failure to write the "started"
@@ -287,6 +444,7 @@ class Guard:
         """
         self.audit.ensure_writable()
         run = _Run(action=action, scope=task_scope)
+        run.requester = requester or self.requester
         try:
             self._pipeline(run, approver)
         except AuditError:
@@ -333,7 +491,10 @@ class Guard:
             run.decision = Decision.DENY
             run.finish(Outcome.DENIED, f"no isolated rehearsal on {self._engine}")
             return
-        if decided.decision is Decision.ASK and approver is None:
+        queue = self.store is not None and (
+            maintenance is not None or classification.klass is not C.READ
+        )
+        if decided.decision is Decision.ASK and approver is None and not queue:
             if maintenance is not None:
                 self._preview(run, maintenance)
             run.approval = "missing"
@@ -401,14 +562,13 @@ class Guard:
         except ExecutionError as err:
             run.reasons.append(f"plan unavailable: {err}")
 
-    def _run_maintenance(
-        self,
-        run: _Run,
-        decided: PolicyDecision,
-        maintenance: Any,
-        approver: Approver | None,
-        now: datetime,
-    ) -> None:
+    def _plan_checked(
+        self, run: _Run, maintenance: Any, now: datetime
+    ) -> tuple[str, MaintenancePlan, ImpactReport | None] | None:
+        """Plan the action, then apply the retention and pointer-move checks to the live table.
+
+        Returns None after finishing `run` (denied, or an invariant failed).
+        """
         if run.classification is None:
             raise RuntimeError("maintenance requires a classified action")
         table = run.classification.statements[0].write_tables[0]
@@ -421,7 +581,7 @@ class Guard:
             if problems:
                 run.decision = Decision.DENY
                 run.finish(Outcome.DENIED, *(f"retention violation: {p}" for p in problems))
-                return
+                return None
 
         impact: ImpactReport | None = None
         if plan.kind in _POINTER_MOVES:
@@ -431,14 +591,36 @@ class Guard:
                     Outcome.INVARIANT_FAILED,
                     *(f"invariant {r.name}: {r.message}" for r in run.invariants if not r.passed),
                 )
-                return
+                return None
+        return table, plan, impact
+
+    def _run_maintenance(
+        self,
+        run: _Run,
+        decided: PolicyDecision,
+        maintenance: Any,
+        approver: Approver | None,
+        now: datetime,
+    ) -> None:
+        checked = self._plan_checked(run, maintenance, now)
+        if checked is None:
+            return
+        table, plan, impact = checked
 
         needs_approval = decided.decision is Decision.ASK or plan.irreversible
-        if (needs_approval or plan.requires_approval) and not self._approved(
-            run, approver, self._request(run, decided, plan=plan, impact=impact)
-        ):
-            return
+        if needs_approval or plan.requires_approval:
+            if approver is None and self.store is not None:
+                self._queue_maintenance(run, maintenance, table, plan, impact, now)
+                return
+            if not self._approved(
+                run, approver, self._request(run, decided, plan=plan, impact=impact)
+            ):
+                return
+        self._apply_maintenance(run, maintenance, table, plan)
 
+    def _apply_maintenance(
+        self, run: _Run, maintenance: Any, table: str, plan: MaintenancePlan
+    ) -> None:
         run.before[table] = self.adapter.current_snapshot_id(table)
         self._intent(run)
         result = self.adapter.apply_maintenance(maintenance, plan)
@@ -507,10 +689,11 @@ class Guard:
         try:
             self._rehearse_and_publish(run, decided, approver, branch, table)
         finally:
-            try:
-                self.adapter.drop_branch(branch)
-            except Exception as err:  # cleanup must not mask the real outcome
-                run.reasons.append(f"audit branch {branch.name} could not be dropped: {err}")
+            if not run.keep_branch:
+                try:
+                    self.adapter.drop_branch(branch)
+                except Exception as err:  # cleanup must not mask the real outcome
+                    run.reasons.append(f"audit branch {branch.name} could not be dropped: {err}")
 
     def _rehearse_and_publish(
         self,
@@ -549,10 +732,12 @@ class Guard:
         if measured.decision is Decision.DENY:
             run.finish(Outcome.DENIED)
             return
-        if measured.decision is Decision.ASK and not self._approved(
-            run, approver, self._request(run, measured, impact=report)
-        ):
-            return
+        if measured.decision is Decision.ASK:
+            if approver is None and self.store is not None:
+                self._queue_write(run, diff.branch, table, report, key)
+                return
+            if not self._approved(run, approver, self._request(run, measured, impact=report)):
+                return
 
         self._publish_and_verify(run, diff.branch, table, diff.before, invariants, key)
 
@@ -635,6 +820,670 @@ class Guard:
         run.rolled_back = True
         run.finish(Outcome.ROLLED_BACK, f"main restored to snapshot {previous}")
 
+    # -- pending actions: queue ------------------------------------------------------------------
+
+    @property
+    def _catalog_name(self) -> str:
+        return str(getattr(self.catalog.catalog, "name", "") or "")
+
+    def _invariants_digest(self, table: str) -> str:
+        return digest(
+            {
+                "table": asdict(self.policy.invariants.for_table(table)),
+                "extra": sorted(i.name for i in self.extra_invariants),
+            }
+        )
+
+    def _row_diff(self, table: str, base: int, head: int, sql: str, dialect: str) -> RowDiff:
+        iceberg = self.catalog.table(table)
+        key = table_key(iceberg, self.policy.invariants.for_table(table).unique_key)
+        return compute_row_diff(
+            iceberg,
+            base,
+            head,
+            key=key,
+            row_filter=statement_filter(sql, dialect, iceberg.schema()),
+            limits=self.diff_limits,
+        )
+
+    def _seal(self, run: _Run, **fields: Any) -> ActionRecord:
+        """A pending record for `run`, with the hash that an approval will be bound to."""
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        now = self._clock()
+        table = fields["table"]
+        record = ActionRecord(
+            id=uuid.uuid4().hex,
+            created_at=now,
+            expires_at=now + self.pending_ttl,
+            state=ActionState.PENDING,
+            scope_json=canonical_json(_describe_scope(run.scope)),
+            catalog_name=self._catalog_name,
+            engine=self._engine,
+            policy_digest=self.policy.digest,
+            invariants_digest=self._invariants_digest(table),
+            reasons_json=canonical_json(list(run.reasons)),
+            requester=run.requester or self.requester,
+            action_hash="",
+            **fields,
+        )
+        return replace(record, action_hash=record.computed_hash())
+
+    def _mark_pending(self, run: _Run, record: ActionRecord) -> None:
+        run.action_id, run.action_hash = record.id, record.action_hash
+        run.approval = "pending"
+        run.finish(
+            Outcome.AWAITING_APPROVAL,
+            f"waiting for approval as action {record.id}; "
+            f"it expires {record.expires_at.isoformat()}",
+        )
+
+    def _queue_write(
+        self,
+        run: _Run,
+        recorded: BranchHandle,
+        table: str,
+        report: ImpactReport,
+        key: Sequence[str],
+    ) -> None:
+        """Save a rehearsed write as a pending action and keep its branch for `resolve`."""
+        store, action = self.store, run.action
+        if store is None or not isinstance(action, SqlAction):
+            raise RuntimeError("only SQL writes with a store can be queued here")
+        normalized = normalize_sql(action)
+        try:
+            rows = self._row_diff(
+                table, recorded.base_snapshot_id, recorded.head, normalized, action.dialect
+            )
+        except DiffError as err:  # includes DiffTooLarge: a diff nobody can read is not a review
+            run.decision = Decision.DENY
+            run.finish(Outcome.DENIED, f"cannot be queued for approval: {err}")
+            return
+        record = self._seal(
+            run,
+            kind="sql",
+            dialect=action.dialect,
+            sql_normalized=normalized,
+            sql_redacted=redact_sql(action.sql, action.dialect),
+            sql_sha256=sha256_hex(action.sql),
+            maintenance_json=None,
+            table=table,
+            base_snapshot_id=recorded.base_snapshot_id,
+            head_snapshot_id=recorded.head,
+            branch=recorded.name,
+            diff_digest=rows.digest,
+            impact_json=canonical_json(
+                {"impact": report.to_dict(), "row_diff": rows.to_dict(include_rows=False)}
+            ),
+        )
+        store.insert(record)
+        run.keep_branch = True  # from here the branch is the pending action's
+        self._mark_pending(run, record)
+
+    def _queue_maintenance(
+        self,
+        run: _Run,
+        maintenance: Any,
+        table: str,
+        plan: MaintenancePlan,
+        impact: ImpactReport | None,
+        now: datetime,
+    ) -> None:
+        """Save a planned maintenance action as pending; approval re-plans and must match."""
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        encoded = encode_action(maintenance)
+        summary = {k: v for k, v in plan.to_dict().items() if k != "orphan_files"}
+        record = self._seal(
+            run,
+            kind=maintenance_kind(maintenance),
+            dialect="",
+            sql_normalized=None,
+            sql_redacted=f"{maintenance_kind(maintenance)}({table})",
+            sql_sha256=digest(encoded),
+            maintenance_json=canonical_json({"action": encoded, "plan": plan.to_dict()}),
+            table=table,
+            base_snapshot_id=plan.current_snapshot_id,
+            head_snapshot_id=plan.target_snapshot_id,
+            branch=None,
+            diff_digest=plan_digest(plan),
+            impact_json=canonical_json(
+                {"plan": summary, "impact": impact.to_dict() if impact else None}
+            ),
+        )
+        store.insert(record)
+        self._mark_pending(run, record)
+
+    # -- pending actions: decide -----------------------------------------------------------------
+
+    def resolve(
+        self,
+        action_id: str,
+        decision: Literal["approve", "reject"],
+        approver_label: str,
+        proof: str,
+    ) -> GuardResult:
+        """Approve or reject a pending action.
+
+        `proof` is what the approval UI or CLI produced for this exact action and decision; the
+        injected `ProofVerifier` must accept it. `approver_label` only names the person in the
+        store and the audit log.
+
+        Rejecting drops the branch. Approving first checks, in this order, that nothing differs
+        from what was reviewed: the stored action is intact, the policy and invariants have the
+        same digests, main is still on the snapshot the branch was cut from, the branch still
+        ends at the rehearsed head, the statement still classifies and decides to ask or
+        allow-via-branch under the current policy and the stored scope, invariants still pass,
+        and the row diff recomputed from the snapshots has the digest that was reviewed. Any
+        difference ends the action as `stale` (outcome `STALE`) and drops the branch. Only then
+        is the proof spent, in the same transaction that moves the action to `publishing`; the
+        recorded head is published by snapshot id and verified, exactly as in `submit`.
+
+        Raises UnknownAction, ActionNotPending, ProofRejected (also for a proof that was used
+        before) or ValueError for a malformed call; in each case nothing changed. Otherwise
+        returns a GuardResult: PUBLISHED / MAINTENANCE_DONE, REJECTED, STALE, EXPIRED,
+        ROLLED_BACK, ROLLBACK_BLOCKED or ROLLBACK_FAILED. Should something unexpected happen
+        after the action reached `publishing`, the outcome is ERROR and the action stays in
+        `publishing` for `reconcile` to settle from main's actual state.
+        """
+        store = self.store
+        if store is None:
+            raise PendingActionError("this Guard has no action store")
+        if decision not in _DECISIONS:
+            raise ValueError(f"decision must be one of {_DECISIONS}, not {decision!r}")
+        label = approver_label.strip() if isinstance(approver_label, str) else ""
+        if not label:
+            raise ValueError("approver_label is required")
+        if self.proof_verifier is None:
+            raise ProofRejected("no proof verifier is configured, so no decision can be accepted")
+        if not isinstance(proof, str) or not proof:
+            raise ProofRejected("a proof of approval is required")
+        self.audit.ensure_writable()
+        record = store.get(action_id)
+        if record is None:
+            raise UnknownAction(f"no action {action_id}")
+        if record.state is not ActionState.PENDING:
+            raise ActionNotPending(action_id, record.state)
+
+        request = ProofRequest(record.id, record.action_hash, decision, label)
+        try:
+            valid = self.proof_verifier.verify(request, proof) is True
+        except Exception:  # noqa: BLE001 - a verifier that fails has not verified
+            valid = False
+        if not valid:
+            self._audit_refused(record, decision, label)
+            raise ProofRejected("the proof is not valid for this action and decision")
+
+        run = self._resolution_run(record, label)
+        try:
+            self._resolve(run, record, decision, proof, label)
+        except (AuditError, PendingActionError):
+            raise
+        except ExecutionError as err:
+            run.error = _clip(str(err))
+            run.finish(Outcome.EXECUTION_FAILED, run.error)
+            if run.claimed:
+                self._finalize(run, record, ActionState.FAILED)
+                self._drop_kept_branch(run, record)
+        except Exception as err:  # fail closed, and never guess what happened after the claim
+            run.error = _clip(f"{type(err).__name__}: {err}")
+            run.finish(Outcome.ERROR, f"unexpected error: {run.error}")
+            if run.claimed:
+                run.reasons.append("the action stays in publishing; Guard.reconcile will settle it")
+        return self._complete(run)
+
+    def _resolution_run(self, record: ActionRecord, label: str) -> _Run:
+        maintenance = record.maintenance_data
+        action: Action = (
+            decode_action(maintenance["action"])
+            if maintenance is not None
+            else SqlAction(record.sql_normalized or "", record.dialect)
+        )
+        run = _Run(action=action, scope=_scope_from(record.scope_data))
+        run.requester = record.requester
+        run.action_id, run.action_hash = record.id, record.action_hash
+        run.branch, run.approver_id = record.branch, label
+        run.approval = "pending"
+        return run
+
+    def _resolve(
+        self, run: _Run, record: ActionRecord, decision: str, proof: str, label: str
+    ) -> None:
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        now = self._clock()
+        if now >= record.expires_at:
+            self._close_pending(run, record, ActionState.EXPIRED, Outcome.EXPIRED, now, label)
+            return
+        if decision == "reject":
+            self._claim(run, record, ActionState.REJECTED, proof, label, now)
+            self._drop_kept_branch(run, record)
+            run.approval = "rejected"
+            run.finish(Outcome.REJECTED, f"rejected by {label}")
+            return
+
+        problems, prepared = self._verify_live(run, record, now)
+        if problems:
+            self._close_pending(
+                run, record, ActionState.STALE, Outcome.STALE, now, label, reasons=problems
+            )
+            return
+        self._claim(run, record, ActionState.PUBLISHING, proof, label, now)
+        run.approval = "approved"
+        run.claimed = True
+        if prepared is None:  # maintenance
+            maintenance, plan = self._prepared_maintenance(run)
+            self._apply_maintenance(run, maintenance, record.table, plan)
+        else:
+            run.before[record.table] = record.base_snapshot_id
+            self._intent(run)
+            run.executed = True
+            self._publish_and_verify(
+                run,
+                prepared.diff.branch,
+                record.table,
+                prepared.diff.before,
+                prepared.invariants,
+                prepared.key,
+            )
+        if run.outcome is Outcome.REFUSED_DIVERGED:  # main moved during the publish: just stale
+            run.outcome = Outcome.STALE
+        state = _STATE_OF_OUTCOME.get(run.outcome)
+        if state is None:  # not known to be settled: leave it to reconcile
+            run.reasons.append("the action stays in publishing; Guard.reconcile will settle it")
+            return
+        self._finalize(run, record, state)
+        self._drop_kept_branch(run, record)
+
+    def _claim(
+        self,
+        run: _Run,
+        record: ActionRecord,
+        new: ActionState,
+        proof: str,
+        label: str,
+        now: datetime,
+    ) -> None:
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        try:
+            won = store.claim(
+                record.id,
+                new,
+                proof=proof,
+                approver=label,
+                now=now,
+                outcome={"outcome": Outcome.REJECTED.value}
+                if new is ActionState.REJECTED
+                else None,
+            )
+        except ProofReplayed as err:
+            raise ProofRejected("this proof was already used") from err
+        if not won:  # someone else decided first, or time ran out in between
+            current = store.get(record.id)
+            raise ActionNotPending(record.id, current.state if current else ActionState.EXPIRED)
+
+    def _close_pending(
+        self,
+        run: _Run,
+        record: ActionRecord,
+        state: ActionState,
+        outcome: Outcome,
+        now: datetime,
+        label: str,
+        reasons: Sequence[str] = (),
+    ) -> None:
+        """End a pending action without applying it (stale or expired) and drop its branch."""
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        summary: dict[str, Any] = {"outcome": outcome.value}
+        if reasons:
+            summary["reasons"] = [_clip(r) for r in reasons]
+        if not store.transition(record.id, ActionState.PENDING, state, now=now, outcome=summary):
+            current = store.get(record.id)
+            raise ActionNotPending(record.id, current.state if current else state)
+        self._drop_kept_branch(run, record)
+        run.approval = state.value
+        run.decision = Decision.ASK
+        run.finish(outcome, *(reasons or (f"the action is {state.value}",)))
+
+    def _finalize(self, run: _Run, record: ActionRecord, state: ActionState) -> None:
+        store = self.store
+        if store is None:
+            raise RuntimeError("no action store")
+        summary = {
+            "outcome": run.outcome.value,
+            "published": run.published,
+            "rolled_back": run.rolled_back,
+            "audit_id": run.audit_id,
+        }
+        if not store.transition(
+            record.id, ActionState.PUBLISHING, state, now=self._clock(), outcome=summary
+        ):
+            run.reasons.append("another process already settled this action")
+
+    def _drop_kept_branch(self, run: _Run, record: ActionRecord) -> None:
+        """Drop a pending action's audit branch. Only branches this Guard names are ever dropped."""
+        if record.branch is None or record.base_snapshot_id is None:
+            return
+        if not record.branch.startswith(AUDIT_BRANCH_PREFIX):
+            run.reasons.append(f"branch {record.branch} is not an audit branch; left alone")
+            return
+        try:
+            self.adapter.drop_branch(
+                BranchHandle(
+                    record.table, record.branch, record.base_snapshot_id, record.head_snapshot_id
+                )
+            )
+        except Exception as err:  # cleanup must not mask the real outcome
+            run.reasons.append(f"audit branch {record.branch} could not be dropped: {err}")
+
+    def _audit_refused(self, record: ActionRecord, decision: str, label: str) -> None:
+        try:
+            self.audit.append(
+                {
+                    "phase": "completed",
+                    "outcome": "proof_rejected",
+                    "action_id": record.id,
+                    "decision": decision,
+                    "approver": label,
+                }
+            )
+        except AuditError:  # the refusal stands whether or not it could be logged
+            _log.error("proof rejection for action %s could not be logged", record.id)
+
+    # -- pending actions: live checks ------------------------------------------------------------
+
+    def _verify_live(
+        self, run: _Run, record: ActionRecord, now: datetime
+    ) -> tuple[list[str], _Prepared | None]:
+        """Why the action can no longer be applied as reviewed (empty when it still can)."""
+        problems: list[str] = []
+        if record.computed_hash() != record.action_hash:
+            problems.append("the stored action no longer matches its hash")
+        if record.policy_digest != self.policy.digest:
+            problems.append("the policy changed since the action was reviewed")
+        if record.invariants_digest != self._invariants_digest(record.table):
+            problems.append("the invariants changed since the action was reviewed")
+        if record.engine != self._engine or record.catalog_name != self._catalog_name:
+            problems.append(
+                f"the action was queued on {record.catalog_name}/{record.engine}, "
+                f"this Guard runs on {self._catalog_name}/{self._engine}"
+            )
+        if problems:
+            return problems, None
+        try:
+            if record.maintenance_json is not None:
+                return self._verify_maintenance(run, record, now), None
+            return self._verify_write(run, record, now)
+        except (ExecutionError, DiffError, StoreError, KeyError, ValueError) as err:
+            return [f"the live state could not be checked: {_clip(str(err))}"], None
+
+    def _verify_write(
+        self, run: _Run, record: ActionRecord, now: datetime
+    ) -> tuple[list[str], _Prepared | None]:
+        action = run.action
+        if (
+            not isinstance(action, SqlAction)
+            or not action.sql
+            or record.branch is None
+            or record.base_snapshot_id is None
+            or record.head_snapshot_id is None
+        ):
+            return ["the stored action is incomplete"], None
+        classification = classify(action, self.catalog)
+        run.classification = classification
+        if classification.write_tables != (record.table,):
+            return [f"the statement no longer writes exactly {record.table}"], None
+        reason = self._unsupported_reason(classification)
+        if reason:
+            return [reason], None
+        if not record.branch.startswith(AUDIT_BRANCH_PREFIX):
+            return [f"{record.branch} is not an audit branch"], None
+        main = self.adapter.current_snapshot_id(record.table)
+        if main != record.base_snapshot_id:
+            return [
+                f"main moved from snapshot {record.base_snapshot_id} to {main} since the review"
+            ], None
+        key = self.policy.invariants.for_table(record.table).unique_key
+        handle = BranchHandle(
+            record.table, record.branch, record.base_snapshot_id, record.head_snapshot_id
+        )
+        diff = self.adapter.diff(handle, key)
+        if diff.branch.head != record.head_snapshot_id:
+            return [
+                f"the branch moved from snapshot {record.head_snapshot_id} to "
+                f"{diff.branch.head} after the review"
+            ], None
+        measured = self.policy.decide(
+            classification.with_impact(ImpactReport((diff.impact,)).to_impact()), run.scope, now
+        )
+        run.set_decision(measured)
+        if measured.decision not in (Decision.ASK, Decision.ALLOW_VIA_BRANCH):
+            return [
+                f"the current policy now says {measured.decision.value}: "
+                + "; ".join(measured.reasons)
+            ], None
+        invariants = invariants_for(self.policy.invariants, record.table, self.extra_invariants)
+        pre = evaluate(
+            invariants,
+            InvariantContext(record.table, diff.before, diff.after, diff.impact),
+            "pre_publish",
+        )
+        run.invariants.extend(pre)
+        failed = [f"invariant {r.name}: {r.message}" for r in pre if not r.passed]
+        if failed:
+            return failed, None
+        rows = self._row_diff(
+            record.table,
+            record.base_snapshot_id,
+            record.head_snapshot_id,
+            action.sql,
+            action.dialect,
+        )
+        if rows.digest != record.diff_digest:
+            return ["the row diff differs from the one that was reviewed"], None
+        return [], _Prepared(diff, invariants, tuple(key))
+
+    def _verify_maintenance(self, run: _Run, record: ActionRecord, now: datetime) -> list[str]:
+        classification = classify(run.action, self.catalog)
+        run.classification = classification
+        decided = self.policy.decide(classification, run.scope, now)
+        run.set_decision(decided)
+        if decided.decision is Decision.DENY:
+            return ["the current policy now denies this action: " + "; ".join(decided.reasons)]
+        maintenance = classification.statements[0].maintenance
+        if maintenance is None or classification.write_tables != (record.table,):
+            return ["the stored maintenance action no longer classifies as the same action"]
+        checked = self._plan_checked(run, maintenance, now)
+        if checked is None:
+            return [f"the plan is no longer allowed ({run.outcome.value})"]
+        _, plan, _ = checked
+        if plan_digest(plan) != record.diff_digest:
+            return ["the plan differs from the one that was reviewed"]
+        run.maintenance_plan = plan
+        return []
+
+    def _prepared_maintenance(self, run: _Run) -> tuple[Any, MaintenancePlan]:
+        plan, classification = run.maintenance_plan, run.classification
+        if plan is None or classification is None:
+            raise RuntimeError("maintenance was not verified")
+        return classification.statements[0].maintenance, plan
+
+    # -- pending actions: housekeeping -----------------------------------------------------------
+
+    def expire_pending(self, now: datetime | None = None) -> list[str]:
+        """Expire pending actions whose time is up and drop their branches; returns their ids."""
+        store = self.store
+        if store is None:
+            raise PendingActionError("this Guard has no action store")
+        moment = now or self._clock()
+        expired = store.expire_due(moment)
+        for record in expired:
+            scratch = _Run(action=SqlAction(""), scope=None)
+            self._drop_kept_branch(scratch, record)
+            try:
+                self.audit.append(
+                    {
+                        "phase": "completed",
+                        "outcome": Outcome.EXPIRED.value,
+                        "action_id": record.id,
+                        "branch": record.branch,
+                        "reasons": scratch.reasons,
+                    }
+                )
+            except AuditError:
+                _log.error("expiry of action %s could not be logged", record.id)
+        return [r.id for r in expired]
+
+    def reconcile(self, grace: timedelta = DEFAULT_RECONCILE_GRACE) -> list[Reconciled]:
+        """Settle actions found in `publishing`, which only a crashed `resolve` leaves behind.
+
+        Call it when the UI or MCP server starts. For a write, main's actual state decides:
+        main on the approved head runs the post-publish checks (published, or rolled back to the
+        base and failed); main still on the base means the publish did not land (failed); main
+        on a later snapshot that has the head in its history is verified without a rollback
+        (a rollback would discard other writers' commits), anything else needs attention. A
+        pointer move is judged the same way against its target; other maintenance cannot be told
+        apart from a half-applied one and needs attention. Rows younger than `grace` are left to
+        the process that is still working on them.
+        """
+        store = self.store
+        if store is None:
+            raise PendingActionError("this Guard has no action store")
+        self.audit.ensure_writable()
+        cutoff = self._clock() - grace
+        settled: list[Reconciled] = []
+        for record in store.list_actions([ActionState.PUBLISHING], limit=10_000):
+            if record.decided_at is not None and record.decided_at > cutoff:
+                continue
+            try:
+                state, reason = self._judge_publishing(record)
+            except Exception as err:  # noqa: BLE001 - unreadable table: a person has to look
+                state = ActionState.NEEDS_ATTENTION
+                reason = f"could not be checked: {_clip(f'{type(err).__name__}: {err}')}"
+            summary = {"outcome": "reconciled", "reason": reason}
+            if not store.transition(
+                record.id, ActionState.PUBLISHING, state, now=self._clock(), outcome=summary
+            ):
+                continue  # another process settled it first
+            scratch = _Run(action=SqlAction(""), scope=None)
+            self._drop_kept_branch(scratch, record)
+            try:
+                self.audit.append(
+                    {
+                        "phase": "completed",
+                        "outcome": "reconciled",
+                        "action_id": record.id,
+                        "state": state.value,
+                        "reason": reason,
+                        "needs_attention": state is ActionState.NEEDS_ATTENTION,
+                    }
+                )
+            except AuditError:
+                _log.error("reconciliation of action %s could not be logged", record.id)
+            settled.append(Reconciled(record.id, state, reason))
+        return settled
+
+    def _judge_publishing(self, record: ActionRecord) -> tuple[ActionState, str]:
+        base, head, table = record.base_snapshot_id, record.head_snapshot_id, record.table
+        if record.maintenance_json is not None and record.kind not in _POINTER_MOVES:
+            return (
+                ActionState.NEEDS_ATTENTION,
+                f"{record.kind} was interrupted; check the table and the audit log",
+            )
+        main = self.adapter.current_snapshot_id(table)
+        if main == base:
+            return ActionState.FAILED, "main is still on the snapshot it had; nothing was applied"
+        if main == head:
+            if record.maintenance_json is not None:
+                return ActionState.PUBLISHED, "main is on the target snapshot"
+            return self._verify_landed(record, rollback=True)
+        if head is not None and head in self._main_ancestry(table):
+            if record.maintenance_json is not None:
+                return ActionState.PUBLISHED, "main has moved on past the target snapshot"
+            return self._verify_landed(record, rollback=False)
+        return (
+            ActionState.NEEDS_ATTENTION,
+            f"main is on snapshot {main}, which is neither {base} nor {head}",
+        )
+
+    def _main_ancestry(self, table: str) -> list[int]:
+        iceberg = self.catalog.table(table)
+        chain: list[int] = []
+        current = iceberg.current_snapshot()
+        while current is not None and current.snapshot_id not in chain:
+            chain.append(current.snapshot_id)
+            parent = current.parent_snapshot_id
+            current = iceberg.snapshot_by_id(parent) if parent is not None else None
+        return chain
+
+    def _verify_landed(self, record: ActionRecord, *, rollback: bool) -> tuple[ActionState, str]:
+        """Post-publish checks for a write found on main; undo it only if main is exactly on it."""
+        table, base, head = record.table, record.base_snapshot_id, record.head_snapshot_id
+        if base is None or head is None:
+            return ActionState.NEEDS_ATTENTION, "the stored action is incomplete"
+        key = self.policy.invariants.for_table(table).unique_key
+        invariants = invariants_for(self.policy.invariants, table, self.extra_invariants)
+        try:
+            before = self.adapter.read(table, base)
+            live = self.adapter.read(table, head)
+            ctx = InvariantContext(
+                table, before, live, compute_table_impact(table, before, live, key)
+            )
+            problems = [r for r in evaluate(invariants, ctx, "post_publish") if not r.passed]
+        except Exception as err:  # noqa: BLE001 - unable to verify counts as failed verification
+            problems = [
+                InvariantResult("verification", table, "post_publish", False, _clip(str(err)))
+            ]
+        if not problems:
+            return ActionState.PUBLISHED, "the publish had landed and its checks pass"
+        text = "; ".join(f"{r.name}: {r.message}" for r in problems)
+        if not rollback:
+            return (
+                ActionState.NEEDS_ATTENTION,
+                f"the publish landed, other commits followed, and its checks fail ({text})",
+            )
+        try:
+            self.adapter.rollback(table, base, expected_current=head)
+        except Exception as err:  # noqa: BLE001
+            return (
+                ActionState.NEEDS_ATTENTION,
+                f"checks fail ({text}) and the rollback failed: {_clip(str(err))}",
+            )
+        return ActionState.FAILED, f"the publish landed, its checks failed ({text}); rolled back"
+
+    def diff_for(self, action_id: str) -> RowDiff:
+        """The row diff of a SQL action, recomputed from its snapshots right now.
+
+        Compare `RowDiff.digest` with `ActionRecord.diff_digest`: if they differ, what is shown
+        is not what was reviewed, and `resolve` will find the action stale.
+        """
+        store = self.store
+        if store is None:
+            raise PendingActionError("this Guard has no action store")
+        record = store.get(action_id)
+        if record is None:
+            raise UnknownAction(f"no action {action_id}")
+        if (
+            record.base_snapshot_id is None
+            or record.head_snapshot_id is None
+            or record.maintenance_json
+        ):
+            raise PendingActionError("only a SQL write has a row diff")
+        return self._row_diff(
+            record.table,
+            record.base_snapshot_id,
+            record.head_snapshot_id,
+            record.sql_normalized or "",
+            record.dialect,
+        )
+
     # -- audit -----------------------------------------------------------------------------------
 
     def _body(self, run: _Run, phase: str) -> dict[str, Any]:
@@ -663,6 +1512,7 @@ class Guard:
             "snapshots_before": run.before,
             "snapshots_after": run.after,
             "error": run.error,
+            **({"action_id": run.action_id} if run.action_id else {}),
         }
 
     def _intent(self, run: _Run) -> None:
@@ -698,6 +1548,8 @@ class Guard:
             snapshots_after=dict(run.after),
             error=run.error,
             audit_error=audit_error,
+            action_id=run.action_id,
+            action_hash=run.action_hash,
         )
 
 
@@ -775,6 +1627,22 @@ def _describe_action(action: Action, redact: bool) -> dict[str, Any]:
             "dialect": action.dialect,
         }
     return {"type": type(action).__name__, **asdict(action)}
+
+
+def normalize_sql(action: SqlAction) -> str:
+    """The statements of `action` as sqlglot writes them, without comments: one text per meaning."""
+    return ";\n".join(
+        statement.ast.sql(dialect=action.dialect, comments=False)
+        for statement in parse(action.sql, action.dialect)
+    )
+
+
+def _scope_from(data: dict[str, Any] | None) -> TaskScope | None:
+    if data is None:
+        return None
+    return TaskScope(
+        frozenset(data.get("allowed_tables", ())), frozenset(data.get("allowed_namespaces", ()))
+    )
 
 
 def _describe_scope(scope: TaskScope | None) -> dict[str, Any] | None:

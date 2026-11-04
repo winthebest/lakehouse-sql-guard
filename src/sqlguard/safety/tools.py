@@ -628,6 +628,8 @@ _ERRORS = frozenset({Outcome.UNSUPPORTED, Outcome.EXECUTION_FAILED, Outcome.ERRO
 _MESSAGES = {
     Outcome.DENIED: "Not run: the action is not allowed. The reasons say why.",
     Outcome.AWAITING_APPROVAL: "Not run: the action needs a reviewer's approval; none was given.",
+    Outcome.STALE: "Not applied: the table, policy or change differs from what was reviewed.",
+    Outcome.EXPIRED: "Not applied: nobody decided in time.",
     Outcome.REJECTED: "Not run: a reviewer declined the action.",
     Outcome.INVARIANT_FAILED: "Not applied: the result would break a data-quality rule.",
     Outcome.REFUSED_DIVERGED: "Not applied: the table changed while the action was being checked.",
@@ -642,7 +644,9 @@ class GuardedBackend(_Backend):
 
     `approver` answers the guard's approval requests (the benchmark passes a scripted one; the
     MCP server will pass a human). Without one, an action that needs approval is reported as
-    `needs_approval` and nothing runs.
+    `needs_approval` and nothing runs. When the Guard has an action store and no approver is given,
+    the same status carries an `action_id`: the change was rehearsed and saved, and a reviewer
+    decides it out of band with `Guard.resolve`.
     """
 
     condition = "guarded"
@@ -735,6 +739,13 @@ class GuardedBackend(_Backend):
                 payload["snapshots_after"] = result.snapshots_after
         else:
             payload["message"] = _MESSAGES.get(result.outcome, "Not run.")
+            if result.action_id is not None:  # saved for a reviewer (a Guard with an action store)
+                payload["action_id"] = result.action_id
+                payload["message"] = (
+                    "Not applied yet: the change was rehearsed and is waiting for a reviewer's "
+                    "approval. Tell the user its action_id; it applies only if nothing has "
+                    "changed when they approve."
+                )
             payload["reasons"] = [_clip(r) for r in result.reasons]
             if result.error:
                 payload["error"] = _clip(result.error)
@@ -756,6 +767,7 @@ class GuardedBackend(_Backend):
             "rolled_back": result.rolled_back,
             "needs_attention": result.needs_attention,
             "audit_id": result.audit_id,
+            **({"action_id": result.action_id} if result.action_id else {}),
         }
 
 
