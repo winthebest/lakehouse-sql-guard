@@ -7,10 +7,15 @@ How a write is executed
      This is copy-on-write of the entire table, which is fine at benchmark scale and not meant
      for large tables (a Spark adapter would handle those). DuckDB runs with external access
      disabled and only the registered Arrow tables visible.
-  3. `publish` moves main to the branch head with `set_current_snapshot` (PyIceberg has no
-     fast_forward). It first checks that main still sits on the snapshot the branch was cut from,
-     and the commit itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent
-     writer makes the publish fail instead of being overwritten.
+  3. `diff` records the branch head it measured. `publish(branch, expected_head)` moves main to
+     exactly that snapshot with `set_current_snapshot` (PyIceberg has no fast-forward, and a
+     fast-forward would follow the branch ref, taking anything written to it after approval). It
+     first checks that main still sits on the snapshot the branch was cut from, and the commit
+     itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent writer makes
+     the publish fail instead of being overwritten. Afterwards main is read back and must be on
+     `expected_head` or have it in its history; if the commit's outcome is uncertain (timeout, 5xx)
+     that read decides (main still at the base is not proof: the commit may land late), and
+     nothing is ever rolled back from here.
 
 Behaviours verified against pyiceberg 0.12 and locked by tests (a version bump that changes them
 turns those tests red): branch overwrite leaves main untouched; `rollback_to_snapshot` only moves
@@ -25,8 +30,10 @@ action may write one table.
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import duckdb
@@ -49,11 +56,14 @@ from sqlguard.safety.executor.base import (
     BranchDiff,
     BranchDiverged,
     BranchHandle,
+    Capabilities,
     ExecutionError,
     MaintenancePlan,
     MaintenanceResult,
     PlannedSnapshot,
+    PublishMismatch,
     PublishResult,
+    PublishStateUnknown,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.orphan_files import (
@@ -69,6 +79,10 @@ AUDIT_BRANCH_PREFIX = "sqlguard-"  # branches the guard creates; never valid pub
 _BRANCH_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _RUNNABLE = (exp.Insert, exp.Update, exp.Delete, exp.Merge)
 _READ_ONLY = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe)
+
+
+def _describe(error: Exception | None) -> str:
+    return "no error" if error is None else f"{type(error).__name__}: {str(error)[:200]}"
 
 
 def _millis(moment: datetime) -> int:
@@ -95,6 +109,11 @@ def _connect(tables: dict[str, pa.Table], default_namespace: str) -> duckdb.Duck
 
 
 class DuckDBIcebergAdapter:
+    engine = "duckdb"
+    capabilities = Capabilities(
+        branch_write=True, publish=True, rollback=True, expire=True, orphan_cleanup=True
+    )
+
     def __init__(self, catalog: LakehouseCatalog) -> None:
         self.catalog = catalog
 
@@ -150,7 +169,7 @@ class DuckDBIcebergAdapter:
             iceberg.manage_snapshots().create_branch(base.snapshot_id, branch).commit()
         except CommitFailedException as err:
             raise ExecutionError(f"could not create branch on {table}: {err}") from err
-        return BranchHandle(self._qualified(table), branch, base.snapshot_id)
+        return BranchHandle(self._qualified(table), branch, base.snapshot_id, base.snapshot_id)
 
     def _branch_head(self, iceberg: Table, branch: BranchHandle) -> int:
         ref = iceberg.refs().get(branch.name)
@@ -202,29 +221,94 @@ class DuckDBIcebergAdapter:
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         iceberg = self._load(branch.table)
+        head = self._branch_head(iceberg, branch)  # read once: the data and the id must agree
         before = self.catalog.read(branch.table, branch.base_snapshot_id)
-        after = self.catalog.read(branch.table, self._branch_head(iceberg, branch))
-        return BranchDiff(before, after, compute_table_impact(branch.table, before, after, key))
+        after = self.catalog.read(branch.table, head)
+        return BranchDiff(
+            before,
+            after,
+            compute_table_impact(branch.table, before, after, key),
+            replace(branch, head_snapshot_id=head),
+        )
 
-    def publish(self, branch: BranchHandle) -> PublishResult:
+    def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
         iceberg = self._load(branch.table)
-        main = iceberg.current_snapshot()
-        main_id = main.snapshot_id if main else None
+        main_id = self._current_id(iceberg)
         if main_id != branch.base_snapshot_id:
             raise BranchDiverged(
                 f"main of {branch.table} moved from snapshot {branch.base_snapshot_id} to "
                 f"{main_id} since the branch was created"
             )
-        head = self._branch_head(iceberg, branch)
-        if head == branch.base_snapshot_id:
-            return PublishResult(branch.table, main_id, head, changed=False)
-        if branch.base_snapshot_id not in self._ancestry(iceberg, head):
-            raise ExecutionError(f"branch {branch.name} does not descend from its base snapshot")
+        if expected_head == branch.base_snapshot_id:
+            return PublishResult(branch.table, main_id, expected_head, changed=False)
+        if branch.base_snapshot_id not in self._ancestry(iceberg, expected_head):
+            raise ExecutionError(
+                f"snapshot {expected_head} does not descend from the base snapshot "
+                f"{branch.base_snapshot_id} of {branch.table}"
+            )
+        committed: int | None = None  # main as the catalog's commit response reports it
+        cause: Exception | None = None
         try:
-            iceberg.manage_snapshots().set_current_snapshot(snapshot_id=head).commit()
+            iceberg.manage_snapshots().set_current_snapshot(snapshot_id=expected_head).commit()
+            committed = self._current_id(iceberg)
         except CommitFailedException as err:
             raise BranchDiverged(f"main of {branch.table} changed during publish: {err}") from err
-        return PublishResult(branch.table, main_id, head, changed=True)
+        except Exception as err:  # noqa: BLE001 - unknown state: timeout, 5xx, lost connection
+            cause = err
+        self._settle(branch, expected_head, committed, cause)
+        return PublishResult(branch.table, main_id, expected_head, changed=True)
+
+    # How hard to try to read main back after a commit whose outcome is uncertain.
+    _READBACK_ATTEMPTS = 3
+    _READBACK_DELAY_SECONDS = 0.5
+
+    def _settle(
+        self,
+        branch: BranchHandle,
+        expected_head: int,
+        committed: int | None,
+        cause: Exception | None,
+    ) -> None:
+        """Decide from main's actual state whether the publish landed; never roll anything back.
+
+        Landed means main is on `expected_head` or has it in its history (other writers
+        committed on top of it). `committed` is main according to the commit response (None when
+        the commit raised `cause`, so its outcome is unknown).
+        """
+        iceberg = self._read_back(branch.table)
+        if iceberg is None:
+            if committed == expected_head:
+                return  # the catalog confirmed our commit; only the second look failed
+            raise PublishStateUnknown(
+                f"could not read {branch.table} back after publishing snapshot {expected_head} "
+                f"({_describe(cause)}); main may or may not hold it"
+            ) from cause
+        now = self._current_id(iceberg)
+        if now == expected_head or expected_head in self._ancestry(iceberg, now):
+            return
+        if cause is not None and now == branch.base_snapshot_id:
+            # Main still reads as the base, but a gateway timeout does not prove the server
+            # dropped the commit: it may still be applying it. Only a rejected compare-and-swap
+            # (CommitFailedException, handled by the caller) proves "not published".
+            raise PublishStateUnknown(
+                f"publishing {expected_head} to {branch.table} failed ({_describe(cause)}) and "
+                "main still reads as unchanged, but the commit may still land"
+            ) from cause
+        raise PublishMismatch(
+            f"main of {branch.table} is at snapshot {now} and does not include the published "
+            f"snapshot {expected_head}",
+            now,
+        )
+
+    def _read_back(self, table: str) -> Table | None:
+        for attempt in range(self._READBACK_ATTEMPTS):
+            if attempt:
+                time.sleep(self._READBACK_DELAY_SECONDS)
+            try:
+                return self._load(table)
+            except Exception:  # noqa: BLE001 - any failure to read means "try again, then give up"
+                continue
+        return None
 
     def drop_branch(self, branch: BranchHandle) -> None:
         if branch.name == MAIN:

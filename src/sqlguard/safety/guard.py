@@ -9,14 +9,19 @@ Pipeline for every submission:
       DENY                  -> nothing runs
       ALLOW (reads)         -> query main, return rows
       ALLOW_VIA_BRANCH      -> run on an audit branch, measure impact, check invariants, re-decide
-                               with the measured impact, publish only if main has not moved,
-                               verify main afterwards and roll back if verification fails
+                               with the measured impact, publish the measured snapshot only if
+                               main has not moved, verify main afterwards and roll back if
+                               verification fails
       ASK                   -> nothing runs without an approver; SQL writes are first rehearsed on
                                a branch so the approver sees the measured impact
       IRREVERSIBLE actions  -> need an approver, and the live retention check must pass first
 
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
-main pointer to the already-verified branch head. Every submission appends a completion record
+main pointer to the snapshot that was measured and verified (not to whatever the branch holds by
+then). A publish whose result cannot be confirmed, or that other writers have replaced, is never
+rolled back: it is reported as needing attention. An engine that cannot run a write on an
+isolated branch (`Capabilities.branch_write`) is never given one: such writes are denied.
+Every submission appends a completion record
 to the audit log (denials and failures included), and anything with side effects first appends
 a "started" record. Any unexpected error fails closed (nothing published, branch
 dropped) and is reported as `Outcome.ERROR`.
@@ -49,9 +54,12 @@ from sqlguard.safety.classifier import Classification, ReversibilityClass, class
 from sqlguard.safety.executor.base import (
     BranchDiverged,
     BranchHandle,
+    Capabilities,
     ExecutionError,
     ExecutorAdapter,
     MaintenancePlan,
+    PublishMismatch,
+    PublishStateUnknown,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
@@ -91,7 +99,9 @@ class Outcome(StrEnum):
     REFUSED_DIVERGED = "refused_diverged"  # main moved while the branch was being checked
     ROLLED_BACK = "rolled_back"  # published, post-publish check failed, main restored
     ROLLBACK_FAILED = "rollback_failed"  # post-publish check failed and restoring main failed
-    ROLLBACK_BLOCKED = "rollback_blocked"  # check failed but main already moved on; left alone
+    # left alone on purpose: the check failed but main already moved on, or the publish could
+    # not be confirmed; either way undoing it could destroy another writer's commit
+    ROLLBACK_BLOCKED = "rollback_blocked"
     MAINTENANCE_DONE = "maintenance_done"
     UNSUPPORTED = "unsupported"  # the adapter cannot execute this kind of action
     EXECUTION_FAILED = "execution_failed"  # the engine rejected the statement; nothing published
@@ -251,6 +261,15 @@ class Guard:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._redact = redact_sql_literals
 
+    @property
+    def _capabilities(self) -> Capabilities:
+        # an adapter that declares nothing is assumed to be able to do nothing
+        return getattr(self.adapter, "capabilities", None) or Capabilities()
+
+    @property
+    def _engine(self) -> str:
+        return getattr(self.adapter, "engine", None) or type(self.adapter).__name__
+
     # -- public API ------------------------------------------------------------------------------
 
     def submit(
@@ -306,6 +325,14 @@ class Guard:
             if len(classification.statements) == 1
             else None
         )
+        if (
+            maintenance is None
+            and classification.klass is not C.READ
+            and not self._capabilities.branch_write
+        ):
+            run.decision = Decision.DENY
+            run.finish(Outcome.DENIED, f"no isolated rehearsal on {self._engine}")
+            return
         if decided.decision is Decision.ASK and approver is None:
             if maintenance is not None:
                 self._preview(run, maintenance)
@@ -527,24 +554,35 @@ class Guard:
         ):
             return
 
-        self._publish_and_verify(run, branch, table, diff.before, invariants, key)
+        self._publish_and_verify(run, diff.branch, table, diff.before, invariants, key)
 
     def _publish_and_verify(
         self,
         run: _Run,
-        branch: BranchHandle,
+        recorded: BranchHandle,
         table: str,
         before: pa.Table,
         invariants: list[Invariant],
         key: Sequence[str],
     ) -> None:
         try:
-            published = self.adapter.publish(branch)
+            published = self.adapter.publish(recorded, recorded.head)
         except BranchDiverged as err:
             run.decision = Decision.ASK
             run.finish(
                 Outcome.REFUSED_DIVERGED,
                 f"{err}; nothing was published, re-submit against the current state",
+            )
+            return
+        except (PublishMismatch, PublishStateUnknown) as err:
+            # Main may hold other writers' commits (or ours); undoing anything could destroy
+            # their work, so leave main alone and ask for a person.
+            if isinstance(err, PublishMismatch):
+                run.after[table] = err.actual_snapshot_id
+            run.error = _clip(str(err))
+            run.finish(
+                Outcome.ROLLBACK_BLOCKED,
+                f"publish outcome needs attention: {run.error}; main was left as it is",
             )
             return
         if not published.changed:
@@ -572,7 +610,7 @@ class Guard:
         self._roll_back(run, table, published.previous_snapshot_id, published.snapshot_id, problems)
 
     def _roll_back(
-        self, run: _Run, table: str, previous: int, published: int, problems: list[str]
+        self, run: _Run, table: str, previous: int, published: int | None, problems: list[str]
     ) -> None:
         run.reasons.extend(f"post-publish check failed: {p}" for p in problems)
         try:

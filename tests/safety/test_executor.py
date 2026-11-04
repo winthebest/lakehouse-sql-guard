@@ -78,6 +78,12 @@ def test_rolling_back_to_an_expired_snapshot_is_impossible(orders):
 # -- branches ----------------------------------------------------------------------------------
 
 
+def publish(adapter, branch):
+    """Publish the head the diff recorded, the way the Guard does."""
+    recorded = adapter.diff(branch).branch
+    return adapter.publish(recorded, recorded.head)
+
+
 def test_branch_dml_publish_roundtrip(adapter, orders):
     branch = adapter.create_branch("orders")
     base = branch.base_snapshot_id
@@ -89,7 +95,7 @@ def test_branch_dml_publish_roundtrip(adapter, orders):
     assert (diff.impact.rows_deleted, diff.impact.rows_added) == (5, 1)
     assert diff.before.num_rows == ROWS and diff.after.num_rows == ROWS - 4
 
-    result = adapter.publish(branch)
+    result = publish(adapter, branch)
     assert result.changed and result.previous_snapshot_id == base
     assert adapter.current_snapshot_id("orders") == result.snapshot_id
     assert order_ids(orders) == [*range(6, ROWS + 1), 99]
@@ -99,7 +105,7 @@ def test_branch_dml_publish_roundtrip(adapter, orders):
 def test_publish_without_changes_does_not_move_main(adapter, orders):
     branch = adapter.create_branch("orders")
     adapter.apply_sql(branch, "UPDATE orders SET amount = amount WHERE id = 1")
-    result = adapter.publish(branch)
+    result = publish(adapter, branch)
     assert not result.changed and adapter.current_snapshot_id("orders") == branch.base_snapshot_id
 
 
@@ -109,7 +115,7 @@ def test_publish_refuses_when_main_moved(adapter, orders):
     orders.table("orders").append(one_row(300))
     moved = adapter.current_snapshot_id("orders")
     with pytest.raises(BranchDiverged):
-        adapter.publish(branch)
+        publish(adapter, branch)
     assert adapter.current_snapshot_id("orders") == moved
 
 
@@ -119,7 +125,7 @@ def test_a_real_concurrent_commit_during_publish_is_detected(adapter, orders, ra
     adapter.apply_sql(branch, "DELETE FROM orders WHERE id = 1")
     race_on_next_commit()
     with pytest.raises(BranchDiverged):
-        adapter.publish(branch)
+        publish(adapter, branch)
     assert 999 in order_ids(orders) and 1 in order_ids(orders)  # their row stays, our delete not
 
 

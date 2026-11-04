@@ -2,6 +2,7 @@
 
     sqlguard-mcp --warehouse ./warehouse --policy policy.yaml --audit-log audit.jsonl \\
         --scope-table db.orders --spec-dir ./specs
+    sqlguard-mcp --catalog prod --namespace sales --audit-log audit.jsonl --scope-table sales.orders
 
 Every data tool of `sqlguard.safety.tools` (`list_tables`, `describe_table`, `run_sql`,
 `expire_snapshots`, `remove_orphan_files`, `rollback`) is served through the GUARDED backend
@@ -15,11 +16,19 @@ operator (for example `Guard.submit(..., approver=...)` in their own tooling).
 
 `check_training_sql` runs the leakage validator. Its `spec_path` must be a YAML file inside
 `--spec-dir`, and `warehouse` (when given) must be the server's own warehouse, so a client cannot
-make the server read or create files elsewhere.
+make the server read or create files elsewhere. A server started with `--catalog` has no local
+warehouse, so it accepts no `warehouse` argument.
+
+Limit: the default executor rehearses a write by loading the whole table into memory and
+rewriting it on a branch. That suits warehouses of benchmark size; do not point `--catalog` at a
+large production table until an engine-backed executor is selectable.
 
 Configuration comes from flags or, when a flag is absent, environment variables:
 
-    --warehouse        SQLGUARD_WAREHOUSE        existing local Iceberg warehouse (required)
+    --warehouse        SQLGUARD_WAREHOUSE        existing local Iceberg warehouse (or --catalog)
+    --catalog          SQLGUARD_CATALOG          PyIceberg catalog name from ~/.pyiceberg.yaml or
+                                                 PYICEBERG_CATALOG__* variables (this or
+                                                 --warehouse); --audit-log is then required
     --namespace        SQLGUARD_NAMESPACE        default namespace for bare table names (db)
     --policy           SQLGUARD_POLICY           policy YAML (default: strict built-in policy)
     --audit-log        SQLGUARD_AUDIT_LOG        audit JSONL (<warehouse>/sqlguard-audit.jsonl)
@@ -127,7 +136,8 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class ServerConfig:
-    warehouse: Path
+    warehouse: Path | None = None
+    catalog: str | None = None  # PyIceberg catalog name; used instead of `warehouse`
     namespace: str = DEFAULT_NAMESPACE
     policy: Path | None = None
     audit_log: Path | None = None
@@ -170,12 +180,12 @@ class LakehouseTools:
         self,
         backend: GuardedBackend,
         spec_dir: Path,
-        warehouse: Path,
+        warehouse: Path | None,
         reviewer: _NoReviewer | None = None,
     ) -> None:
         self.backend = backend
         self.spec_dir = spec_dir.resolve()
-        self.warehouse = warehouse.resolve()
+        self.warehouse = warehouse.resolve() if warehouse is not None else None
         self._reviewer = reviewer or _NoReviewer()
         self._lock = threading.Lock()
 
@@ -185,7 +195,7 @@ class LakehouseTools:
         guard: Guard,
         scope: TaskScope | None,
         spec_dir: Path,
-        warehouse: Path,
+        warehouse: Path | None,
         max_rows: int = DEFAULT_MAX_ROWS,
     ) -> LakehouseTools:
         reviewer = _NoReviewer()
@@ -251,7 +261,9 @@ class LakehouseTools:
         return path
 
     def _leakage_catalog(self, warehouse: str | None) -> LakehouseCatalog:
-        if warehouse is not None and Path(warehouse).expanduser().resolve() != self.warehouse:
+        if warehouse is not None and (
+            self.warehouse is None or Path(warehouse).expanduser().resolve() != self.warehouse
+        ):
             raise ConfigError("warehouse must be the server's own warehouse")
         return self.backend.catalog
 
@@ -357,7 +369,8 @@ def build_config(
 ) -> ServerConfig:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(prog="sqlguard-mcp", description=__doc__.splitlines()[0])
-    parser.add_argument("--warehouse", default=env.get("SQLGUARD_WAREHOUSE"))
+    parser.add_argument("--warehouse")
+    parser.add_argument("--catalog")
     parser.add_argument("--namespace", default=env.get("SQLGUARD_NAMESPACE", DEFAULT_NAMESPACE))
     parser.add_argument("--policy", default=env.get("SQLGUARD_POLICY"))
     parser.add_argument("--audit-log", default=env.get("SQLGUARD_AUDIT_LOG"))
@@ -366,10 +379,14 @@ def build_config(
     parser.add_argument("--spec-dir", default=env.get("SQLGUARD_SPEC_DIR"))
     parser.add_argument("--max-rows", type=int, default=env.get("SQLGUARD_MAX_ROWS"))
     args = parser.parse_args(argv)
-    if not args.warehouse:
-        parser.error("--warehouse (or SQLGUARD_WAREHOUSE) is required")
+    # a flag naming one kind of lakehouse outranks an environment variable naming the other
+    warehouse = args.warehouse or (None if args.catalog else env.get("SQLGUARD_WAREHOUSE"))
+    catalog = args.catalog or (None if args.warehouse else env.get("SQLGUARD_CATALOG"))
+    if bool(warehouse) == bool(catalog):
+        parser.error("exactly one of --warehouse (SQLGUARD_WAREHOUSE) or --catalog is required")
     return ServerConfig(
-        warehouse=Path(args.warehouse).expanduser(),
+        warehouse=Path(warehouse).expanduser() if warehouse else None,
+        catalog=catalog or None,
         namespace=args.namespace,
         policy=Path(args.policy).expanduser() if args.policy else None,
         audit_log=Path(args.audit_log).expanduser() if args.audit_log else None,
@@ -383,16 +400,33 @@ def build_config(
 
 
 def build_tools(config: ServerConfig) -> LakehouseTools:
-    """Open the warehouse and wire policy, audit log and scope into a guarded backend."""
-    warehouse = config.warehouse.resolve()
-    if not (warehouse / "catalog.db").is_file():
-        raise ConfigError(f"no Iceberg warehouse at {warehouse} (catalog.db not found)")
+    """Open the lakehouse and wire policy, audit log and scope into a guarded backend."""
+    warehouse = config.warehouse.resolve() if config.warehouse is not None else None
+    if config.catalog is None:
+        if warehouse is None:
+            raise ConfigError("a warehouse or a catalog name is required")
+        if not (warehouse / "catalog.db").is_file():
+            raise ConfigError(f"no Iceberg warehouse at {warehouse} (catalog.db not found)")
+    elif warehouse is not None:
+        raise ConfigError("use either a warehouse or a catalog, not both")
+    elif config.audit_log is None:
+        raise ConfigError("--audit-log is required with --catalog")
     try:
         policy = Policy.load(config.policy) if config.policy else Policy()
     except (OSError, PolicyError) as err:
         raise ConfigError(f"cannot load policy: {err}") from err
-    catalog = LakehouseCatalog.local(warehouse, config.namespace)
-    audit_path = config.audit_log or warehouse / "sqlguard-audit.jsonl"
+    if config.catalog is not None:
+        try:
+            catalog = LakehouseCatalog.from_config(config.catalog, namespace=config.namespace)
+        except (OSError, ValueError) as err:
+            raise ConfigError(str(err)) from err
+    elif warehouse is not None:
+        catalog = LakehouseCatalog.local(warehouse, config.namespace)
+    else:
+        raise ConfigError("a warehouse or a catalog name is required")
+    audit_path = config.audit_log or (warehouse / "sqlguard-audit.jsonl" if warehouse else None)
+    if audit_path is None:
+        raise ConfigError("--audit-log is required with --catalog")
     try:
         guard = Guard(catalog, policy, audit_path=audit_path)
     except (OSError, AuditError) as err:
@@ -423,9 +457,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"sqlguard-mcp: {err}", file=sys.stderr)
         raise SystemExit(2) from err
     _log.info(
-        "serving %s tools over stdio (warehouse %s, audit log %s)",
+        "serving %s tools over stdio (%s, audit log %s)",
         len(TOOL_SPECS) + 1,
-        tools.warehouse,
+        f"catalog {config.catalog}" if config.catalog else f"warehouse {tools.warehouse}",
         tools.backend.guard.audit.path,
     )
     anyio.run(serve, build_server(tools))

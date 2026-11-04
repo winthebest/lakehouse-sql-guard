@@ -240,7 +240,7 @@ def test_adapter_publish_raises_on_divergence(orders):
         pa.table({"id": pa.array([5000], pa.int64()), "customer": ["x"], "amount": pa.array([1.0])})
     )
     with pytest.raises(BranchDiverged):
-        adapter.publish(branch)
+        adapter.publish(branch, branch.head)
 
 
 class SpyAdapter(DuckDBIcebergAdapter):
@@ -482,7 +482,7 @@ def test_failed_intent_record_stops_the_action_before_it_runs(orders, scope, aud
 
 def test_interruption_during_publish_is_audited_and_cleaned_up(orders, scope, audit_path):
     class Interrupted(DuckDBIcebergAdapter):
-        def publish(self, branch):
+        def publish(self, branch, expected_head):
             raise KeyboardInterrupt
 
     guard = Guard(orders, audit_path=audit_path, adapter=Interrupted(orders))
