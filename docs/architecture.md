@@ -215,17 +215,25 @@ processes racing for an action cannot both win; any other edge raises `InvalidTr
 The file is WAL-mode, mode 0600, and holds **no nonce or secret**: `used_proofs` keeps only a
 hash of each accepted proof. At a terminal state the raw SQL (`sql_normalized`) and the
 detailed maintenance plan are erased, with `secure_delete` and a WAL truncate so the bytes are
-really gone; the redacted SQL, its sha256, digests and counts stay. No row value is ever stored.
+really gone; the redacted SQL, the sha256 *of the redacted SQL* (a hash of the raw text would let
+a guessed literal be confirmed), digests and counts stay. No row value is ever stored. The WAL
+truncate cannot run while another connection holds a read transaction (a UI, the `sqlite3`
+CLI), so the erased bytes can linger in `-wal` until the reader is gone; `expire_pending` and
+`reconcile` repeat it, so the guarantee is "eventually", not "at the instant of the transition".
 Tables: `actions(id, created_at, expires_at, state, kind, dialect, sql_normalized, sql_redacted,
 sql_sha256, maintenance_json, scope_json, catalog_name, engine, "table", base_snapshot_id,
 head_snapshot_id, branch, policy_digest, invariants_digest, diff_digest, action_hash,
-impact_json, reasons_json, requester, approver, decided_at, outcome_json)` and
-`used_proofs(proof_hash, used_at, action_id)`.
+impact_json, reasons_json, requester, approver, decided_at, outcome_json, owner, lease_until,
+drop_pending)` and `used_proofs(proof_hash, used_at, action_id)`.
 
 **What an approval is bound to.** `action_hash = sha256(canonical{kind, dialect, normalized SQL
 or maintenance action, table, catalog name, engine, base and head snapshot ids, policy_digest,
-invariants_digest, diff_digest, requester, scope})`. SQL is normalized by sqlglot (no comments)
-before hashing, so spelling does not matter. `policy_digest` is the sha256 of the parsed
+invariants_digest, diff_digest, requester, scope, branch, expires_at, and the display fields
+sql_redacted, impact_json, reasons_json})`. SQL is normalized by sqlglot (no comments)
+before hashing, so spelling does not matter. The hash is not a secret and not a security
+boundary on its own (anyone who can read the SQL, catalog and policy can recompute it); the
+barriers are the proof key held outside the store and the host's permission rules. An approval
+UI should still render from bound data only (`diff_for` checked against `diff_digest`). `policy_digest` is the sha256 of the parsed
 policy's canonical form (`Policy.digest`); the YAML `version` is only a label.
 `diff_digest` fingerprints every changed row between base and head (a plan digest for
 maintenance), so what a reviewer saw is what is hashed.
@@ -250,17 +258,39 @@ synchronous path. A proof that was used before raises `ProofRejected` and change
 `reject` verifies the proof, spends it, and drops the branch. Unexpected errors after the claim
 leave the action in `publishing` for `reconcile`.
 
-**`Guard.reconcile()`** (call it when the UI or MCP server starts) settles `publishing` rows a
-crash left behind, older than a grace period (default 2 minutes, so a live process is not
-second-guessed). For a write: main on `head` runs the post-publish checks (`published`, or
-rolled back to `base` and `failed`); main on `base` is `failed`; main on a later snapshot that
-has `head` in its history is verified without any rollback (`published`, or `needs_attention`);
-anything else is `needs_attention`. A pointer move (rollback, fast-forward) is judged by whether main
-is on its target or its start; expiring snapshots or removing orphan files cannot be told apart from a
-half-done run and always need attention. `Guard.expire_pending(now)` expires pending actions
-past `expires_at` (default 24 hours after creation) and drops their `sqlguard-` branches.
-A branch orphaned by a crash between creating it and saving the action is not swept: a branch
-has no creation time, and dropping an in-flight one would break a running submission.
+**Ownership of `publishing`.** Claiming an action records an `owner` (`host:pid:token`) and a
+`lease_until` (default 5 minutes). While the resolver works, a heartbeat renews the lease, and
+it renews and re-checks it right before the commit; if another process took the row over, the
+resolver publishes nothing (outcome `ERROR`, "taken over") and touches neither the row nor the
+branch. The terminal update is conditional on still being the owner.
+
+**`Guard.reconcile(grace=0)`** (call it when the UI or MCP server starts; it is safe next to
+running resolves and other reconcilers) settles `publishing` rows whose publisher is gone. It
+leaves a row alone while the lease (plus `grace`) is fresh, while the owner is working in this
+process or is a live process on this host, and when the row was queued for another catalog or
+engine. Otherwise it takes ownership by compare-and-set and decides from main:
+
+- main on `head`: post-publish checks (`published`, or rolled back to `base` and `failed`, but
+  only if main is still exactly on `head`);
+- main on a later snapshot with `head` in its history: verified without any rollback
+  (`published`, or `needs_attention`). For a pointer move to an *older* snapshot (rollback) this
+  counts only if `base` is no longer in main's history: a writer who committed on top of the
+  untouched base also has the target in its history, and that is not a rollback;
+- main still on `base`: `failed` when the owner is known dead on this host; an owner on another
+  host might still have a commit in flight, so `needs_attention`;
+- anything else, and expiry or orphan cleanup (cannot be told from a half-done run):
+  `needs_attention`.
+
+A `needs_attention` row keeps its branch. A crashed publish keeps its lease until it runs out,
+so a reconcile right after the crash skips it; run it again after the lease.
+
+**`Guard.expire_pending(now)`** expires this Guard's pending actions past `expires_at` (default
+24 hours after creation) and drops their branches. A drop that fails leaves the row marked
+`drop_pending` and is retried by later `expire_pending` / `reconcile` runs.
+`Guard.sweep_orphan_branches()` (also run by both) drops `sqlguard-` branches that no
+unfinished action owns, whose head is not on main's history and is older than the pending
+lifetime plus an hour; a branch still at its base holds nothing and may belong to a running
+submission, so it stays. The queue holds at most `max_pending` (default 50) pending actions.
 
 ### Row diff
 
@@ -273,12 +303,16 @@ modified row is then one deleted plus one added row). A key that is NULL or repe
 side is not used, and `key_note` says so. At most 200 rows are listed; the totals and the digest
 cover all of them.
 
-The statement's `WHERE` is pushed into both scans only when that cannot hide a changed row:
-a lone `DELETE`, or an `UPDATE` that does not assign any column its `WHERE` reads, whose
-predicate is plain column-versus-literal comparisons joined by AND/OR. Otherwise the whole table
-is read. The result and digest are the same either way. Each snapshot is limited to 1,000,000
-rows and 256 MB (checked from file metadata before reading, and again on the data); above that
-the diff raises `DiffTooLarge` ("table too large to diff") instead of showing a partial one.
+The comparison always covers both snapshots whole: no part of the statement is used to narrow
+the scans, because the engine and Arrow disagree on NaN ordering and float coercion, and a row
+the filter dropped would be a row the reviewer never saw. The Guard builds the diff from the
+base and head data the adapter already loaded, and refuses to offer an action whose diff does
+not add up to the measured impact (same net row change, and the same added / deleted / modified
+counts when both used the same key). Each snapshot is limited to 1,000,000 rows and 256 MB
+(`compute_row_diff` checks file metadata before reading and the Arrow data after; the Guard
+checks the loaded data); above that the diff raises `DiffTooLarge` ("table too large to diff")
+instead of showing a partial one. The caps bound the diff, not the adapter, which loads both
+snapshots to rehearse a write.
 
 ### CLI registry
 
