@@ -16,6 +16,25 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "docstring-parser" },
+    { name = "httpx2" },
+    { name = "jiter" },
+    { name = "opentelemetry-api" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/5b/6c13b126554cfec789ce14a74f2ccfd46382a0eb296ec78ea6b80eeac3b5/anthropic-2.4.0.tar.gz", hash = "sha256:c59cab76049cf581e90e2ee3a20472291029b7a6a1ee2ef32bff2b2a7010fd47", size = 1915809, upload-time = "2026-11-02T19:08:06.047Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/5d/e399d9028411ce404d7ddbe6b8060d878b2549ed8cd671a7bb496ae20ffc/anthropic-2.4.0-py3-none-any.whl", hash = "sha256:db2e691364ae2e04083ed9b8deb49f1a6967e9f184f8cbb5afcb3bcda8ab0532", size = 2340848, upload-time = "2026-11-02T19:08:03.822Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -448,6 +467,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
+]
+
+[[package]]
+name = "docstring-parser"
+version = "0.18.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/4d/f332313098c1de1b2d2ff91cf2674415cc7cddab2ca1b01ae29774bd5fdf/docstring_parser-0.18.0.tar.gz", hash = "sha256:292510982205c12b1248696f44959db3cdd1740237a968ea1e2e7a900eeb2015", size = 29341, upload-time = "2026-04-14T04:09:19.867Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b", size = 22484, upload-time = "2026-04-14T04:09:18.638Z" },
 ]
 
 [[package]]
@@ -950,8 +978,8 @@ dependencies = [
 
 [package.optional-dependencies]
 bench = [
+    { name = "anthropic" },
     { name = "matplotlib" },
-    { name = "openai" },
     { name = "openpyxl" },
     { name = "scikit-learn" },
 ]
@@ -968,10 +996,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", marker = "extra == 'bench'", specifier = ">=2.4" },
     { name = "duckdb", specifier = ">=2.0" },
     { name = "matplotlib", marker = "extra == 'bench'", specifier = ">=3.9" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2" },
-    { name = "openai", marker = "extra == 'bench'", specifier = ">=1.50" },
     { name = "openpyxl", marker = "extra == 'bench'", specifier = ">=3.1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "pyarrow"], specifier = ">=0.12,<0.13" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1318,23 +1346,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/b5/4da41c328788f575838f97a098fe8ca691ebc6f6fd73ad4a262ee40b184d/numpy-2.5.4-cp315-cp315t-win32.whl", hash = "sha256:ad62a416ddcf863bf44bba76fbf6b53366ab0692e294f51cae4b5fbe0d246788", size = 6335804, upload-time = "2026-10-10T20:05:19.921Z" },
     { url = "https://files.pythonhosted.org/packages/98/94/6482ddfa3d312490cb9358f375bf2ad56427dbea8769187158e94d653753/numpy-2.5.4-cp315-cp315t-win_amd64.whl", hash = "sha256:38f47be9f74ab870d2633b5456ae519c43758a8d1fd05342f0ce4ecc034396ee", size = 12890095, upload-time = "2026-10-10T20:05:21.875Z" },
     { url = "https://files.pythonhosted.org/packages/48/7f/c2d1b436b6e7cfebac140c2579a298344b85f2991a2ce5c3615cefb29400/numpy-2.5.4-cp315-cp315t-win_arm64.whl", hash = "sha256:7a14a461d9340f1b46b8648578aed9cdb8b3b018a8fac6c1dde2c9192a01a87f", size = 10883718, upload-time = "2026-10-10T20:05:28.547Z" },
-]
-
-[[package]]
-name = "openai"
-version = "3.45.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "httpx2" },
-    { name = "jiter" },
-    { name = "pydantic" },
-    { name = "sniffio" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/de/ef/639821491538e8bb4c56f3367f00787e8aadc1665ce1598e7506bcb65663/openai-3.45.0.tar.gz", hash = "sha256:6cff2b5c7b463123fcb94d1bb7e4920e5fab9bb3ed4f837faa0d0bf1d6d6ea3b", size = 2386886, upload-time = "2026-11-04T02:24:10.931Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/ff/3ff596d5fc94d241a105777e3bf8c696ff949afa3eb04f1c09bd6d4c20b8/openai-3.45.0-py3-none-any.whl", hash = "sha256:b63aa90e3b7b57b501f2bba231a17976618aa133f457562ad84a5c6431fd0425", size = 2426748, upload-time = "2026-11-04T02:24:08.659Z" },
 ]
 
 [[package]]
