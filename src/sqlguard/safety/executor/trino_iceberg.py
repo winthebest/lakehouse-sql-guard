@@ -96,6 +96,22 @@ _WARNING_EXPIRE = (
 )
 
 
+class MaintenanceNeedsAttention(ExecutionError):
+    """Trino ran the maintenance, then the table was found in a state nobody approved.
+
+    Unlike a plain `ExecutionError` ("the engine rejected the statement; nothing happened"), the
+    change is live and may not be undoable: `executed` is True so a caller can record it as such
+    and ask a person to look.
+    """
+
+    executed = True
+
+
+class RollbackNeedsAttention(MaintenanceNeedsAttention, BranchDiverged):
+    """A Trino rollback ran and main is not where the caller can accept (a commit was displaced
+    and could not be put back, or main moved on after the rollback)."""
+
+
 class TrinoCursorLike(Protocol):
     """The slice of a `trino.dbapi.Cursor` this adapter uses."""
 
@@ -497,24 +513,45 @@ class TrinoIcebergAdapter:
         self._verify_rollback(table, snapshot_id, current, expected)
         self._check_refs(table, refs, ignore_main=True)
 
+    def _replaced_by_rollback(self, after: Table, target: int) -> int | None:
+        """The snapshot a logged rollback to `target` replaced, or None when the log does not show
+        one. The entry before the last one for `target` counts only if it descends from `target`:
+        a rollback replaces a newer snapshot, while the entry that originally made `target` main
+        follows an older one. Moving main to an older snapshot is never a restore."""
+        log = after.history()
+        for index in range(len(log) - 1, 0, -1):
+            if log[index].snapshot_id == target:
+                previous = log[index - 1].snapshot_id
+                lineage = self._meta._ancestry(after, previous)
+                return previous if previous != target and target in lineage else None
+        return None
+
     def _verify_rollback(self, table: str, target: int, before: int | None, expected: int) -> None:
-        """Check, from the table's snapshot log, which snapshot the rollback replaced."""
+        """Check, from the table's snapshot log, which snapshot the rollback replaced.
+
+        If the catalog's log does not show the rollback, what it replaced is unknown: nothing is
+        restored (that could move main to an older snapshot) and the outcome is reported.
+        """
         after = self._meta._load(table)
         now = self._meta._current_id(after)
-        log = after.history()
-        position = max((i for i, entry in enumerate(log) if entry.snapshot_id == target), default=0)
-        replaced = log[position - 1].snapshot_id if position > 0 else before
+        replaced = self._replaced_by_rollback(after, target)
         if now != target:
             lost = ""
-            if replaced != expected:
+            if replaced is not None and replaced != expected:
                 lost = (
                     f" The rollback replaced snapshot {replaced} (expected {expected}); that "
                     "commit is no longer on main, though the snapshot still exists and can be "
                     "restored."
                 )
-            raise BranchDiverged(
+            raise RollbackNeedsAttention(
                 f"main of {table} is at {now} after rolling back to {target}; it changed during "
                 f"the rollback and was left as is.{lost}"
+            )
+        if replaced is None:
+            raise RollbackNeedsAttention(
+                f"main of {table} is at {target} after the rollback, but the snapshot log does not "
+                "show which snapshot it replaced, so a commit displaced by it cannot be ruled out; "
+                "nothing was restored"
             )
         if replaced == expected:
             return
@@ -523,7 +560,7 @@ class TrinoIcebergAdapter:
         try:
             after.manage_snapshots().set_current_snapshot(snapshot_id=replaced).commit()
         except (CommitFailedException, ValueError) as err:
-            raise BranchDiverged(
+            raise RollbackNeedsAttention(
                 f"main of {table} changed during rollback (was {replaced}, expected "
                 f"{expected}) and could not be restored: {err}"
             ) from err
@@ -547,17 +584,27 @@ class TrinoIcebergAdapter:
     def _check_refs(
         self, table: str, before: dict[str, tuple[str, int]], *, ignore_main: bool
     ) -> None:
-        """Fail loudly if a branch or tag that existed before a Trino run is gone or moved."""
-        after = self._ref_state(self._meta._load(table))
-        changed = sorted(
-            name
-            for name, state in before.items()
-            if after.get(name) != state and not (ignore_main and name == "main")
-        )
+        """Report a branch or tag that existed before a Trino run and is now gone, changed kind,
+        or moved off its own history. A ref that merely advanced (an ordinary commit to it while
+        Trino worked) is fine."""
+        iceberg = self._meta._load(table)
+        after = self._ref_state(iceberg)
+        changed = []
+        for name, (kind, head) in before.items():
+            if ignore_main and name == "main":
+                continue
+            state = after.get(name)
+            if state is None or state[0] != kind:
+                gone = True
+            else:
+                gone = state[1] != head and head not in self._meta._ancestry(iceberg, state[1])
+            if gone:
+                changed.append(name)
         if changed:
-            raise ExecutionError(
-                f"Trino changed ref(s) {changed} of {table} during maintenance; refs are not part "
-                "of any approved plan and may need restoring from the table's metadata history"
+            raise MaintenanceNeedsAttention(
+                f"Trino ran, then ref(s) {sorted(changed)} of {table} turned out removed or moved "
+                "off their history, which no approved plan covers; check the table's metadata "
+                "history to restore them"
             )
 
     def plan_maintenance(self, action: MaintenanceAction) -> MaintenancePlan:
@@ -696,7 +743,7 @@ class TrinoIcebergAdapter:
         removed = existing - {s.snapshot_id for s in iceberg.snapshots()}
         extra = sorted(removed - approved)
         if extra:
-            raise ExecutionError(
+            raise MaintenanceNeedsAttention(
                 f"Trino expired {len(extra)} snapshot(s) outside the approved plan, e.g. "
                 f"{extra[0]}; the expired history cannot be restored"
             )
@@ -746,6 +793,8 @@ def _explain_wrap(explain: Explain | None, text: str) -> str:
 
 __all__ = [
     "TrinoConnectionLike",
+    "MaintenanceNeedsAttention",
+    "RollbackNeedsAttention",
     "TrinoCursorLike",
     "TrinoIcebergAdapter",
     "arrow_type",

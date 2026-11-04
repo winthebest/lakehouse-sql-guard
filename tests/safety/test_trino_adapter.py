@@ -18,6 +18,7 @@ from uuid import UUID
 
 import pyarrow as pa
 import pytest
+from pyiceberg.table import Table
 from pyiceberg.table.update import SetSnapshotRefUpdate
 from sqlglot import parse_one
 
@@ -38,6 +39,8 @@ from sqlguard.safety.executor import (
     trino_iceberg,
 )
 from sqlguard.safety.executor.trino_iceberg import (
+    MaintenanceNeedsAttention,
+    RollbackNeedsAttention,
     TrinoIcebergAdapter,
     arrow_type,
     read_statement,
@@ -638,6 +641,76 @@ def test_two_writers_around_the_rollback_name_the_commit_that_left_main(
     assert orders.table("orders").snapshot_by_id(slipped[0]) is not None
 
 
+def test_a_branch_advancing_during_a_rollback_is_not_an_alarm(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    orders.table("orders").manage_snapshots().create_branch(history[0], "feature").commit()
+    trino.after_rollback = lambda: orders.table("orders").append(row(10), branch="feature")
+    adapter.rollback("orders", history[1], expected_current=history[-1])
+    assert orders.table("orders").current_snapshot().snapshot_id == history[1]
+
+
+def test_a_branch_dropped_during_a_rollback_is_reported_as_executed(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    orders.table("orders").manage_snapshots().create_branch(history[0], "feature").commit()
+    trino.after_rollback = lambda: (
+        orders.table("orders").manage_snapshots().remove_branch("feature").commit()
+    )
+    with pytest.raises(MaintenanceNeedsAttention, match="feature") as caught:
+        adapter.rollback("orders", history[1], expected_current=history[-1])
+    assert caught.value.executed
+    assert orders.table("orders").current_snapshot().snapshot_id == history[1]
+
+
+def test_a_rollback_with_a_displaced_commit_is_an_attention_case_but_a_restore_is_not(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    trino.after_rollback = lambda: orders.table("orders").append(row(888))
+    trino.before_rollback = lambda: orders.table("orders").append(row(777))
+    with pytest.raises(RollbackNeedsAttention) as caught:
+        adapter.rollback("orders", history[0], expected_current=history[-1])
+    assert caught.value.executed and isinstance(caught.value, BranchDiverged)
+
+
+def test_a_restored_race_is_not_marked_as_executed(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    trino.before_rollback = lambda: orders.table("orders").append(row(777))
+    with pytest.raises(BranchDiverged) as caught:
+        adapter.rollback("orders", history[0], expected_current=history[-1])
+    assert not getattr(caught.value, "executed", False)  # main is back where the writer left it
+
+
+def test_a_rollback_the_log_does_not_show_never_moves_main_to_an_older_snapshot(
+    adapter: TrinoIcebergAdapter,
+    orders: LakehouseCatalog,
+    trino: FakeTrino,
+    history: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_history = Table.history
+    monkeypatch.setattr(Table, "history", lambda self: real_history(self)[:-1])  # drops the entry
+    with pytest.raises(RollbackNeedsAttention, match="does not show"):
+        adapter.rollback("orders", history[1], expected_current=history[-1])
+    assert orders.table("orders").current_snapshot().snapshot_id == history[1]  # not history[0]
+
+
+def test_an_unlogged_rollback_over_a_writer_is_reported_not_restored_backwards(
+    adapter: TrinoIcebergAdapter,
+    orders: LakehouseCatalog,
+    trino: FakeTrino,
+    history: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_history = Table.history
+    monkeypatch.setattr(Table, "history", lambda self: real_history(self)[:-1])
+    trino.before_rollback = lambda: orders.table("orders").append(row(777))
+    with pytest.raises(RollbackNeedsAttention):
+        adapter.rollback("orders", history[1], expected_current=history[-1])
+    assert orders.table("orders").current_snapshot().snapshot_id == history[1]
+
+
 def test_a_writer_after_the_rollback_is_left_alone(
     adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
 ) -> None:
@@ -919,9 +992,55 @@ def test_a_ref_that_trino_drops_is_reported_even_if_no_snapshot_goes(
     plan = adapter.plan_maintenance(action)
     monkeypatch.setattr(adapter, "_trino_may_expire", lambda _action: True)
     plan = replace(plan, warnings=(*plan.warnings, trino_iceberg._WARNING_EXPIRE))
-    with pytest.raises(ExecutionError, match=r"changed ref\(s\) \['late'\]"):
+    with pytest.raises(MaintenanceNeedsAttention, match=r"ref\(s\) \['late'\]") as caught:
         adapter.apply_maintenance(action, plan)
+    assert caught.value.executed  # it ran: the Guard must not record "nothing happened"
+    assert isinstance(caught.value, ExecutionError)
     assert trino.altered() and "late" not in orders.refs("orders")
+
+
+def test_ordinary_commits_to_refs_are_not_alarms_but_removal_and_repointing_are(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, history: list[int]
+) -> None:
+    orders.table("orders").manage_snapshots().create_branch(history[1], "feature").commit()
+    orders.table("orders").manage_snapshots().create_tag(history[0], "v1").commit()
+    before = adapter._ref_state(orders.table("orders"))
+
+    orders.table("orders").append(row(10), branch="feature")  # advances on its own history
+    orders.table("orders").append(row(11))  # main advances too
+    adapter._check_refs("orders", before, ignore_main=False)  # no alarm
+
+    orders.table("orders").manage_snapshots().remove_tag("v1").commit()
+    with pytest.raises(MaintenanceNeedsAttention, match="v1"):
+        adapter._check_refs("orders", before, ignore_main=False)
+    orders.table("orders").manage_snapshots().create_branch(history[0], "v1").commit()  # kind
+    with pytest.raises(MaintenanceNeedsAttention, match="v1"):
+        adapter._check_refs("orders", before, ignore_main=False)
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_ref_moved_off_its_history_during_a_trino_run_is_an_alarm(
+    adapter: TrinoIcebergAdapter,
+    orders: LakehouseCatalog,
+    trino: FakeTrino,
+    history: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orders.table("orders").manage_snapshots().create_branch(history[-1], "feature").commit()
+    side = history[0]
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    plan = adapter.plan_maintenance(action)
+    monkeypatch.setattr(adapter, "_trino_may_expire", lambda _action: True)
+    plan = replace(plan, warnings=(*plan.warnings, trino_iceberg._WARNING_EXPIRE))
+
+    def repoint() -> None:  # `feature` is re-created on an unrelated (older) snapshot
+        manage = orders.table("orders").manage_snapshots()
+        manage.remove_branch("feature").commit()
+        orders.table("orders").manage_snapshots().create_branch(side, "feature").commit()
+
+    trino.before_expire = repoint
+    with pytest.raises(MaintenanceNeedsAttention, match="feature"):
+        adapter.apply_maintenance(action, plan)
 
 
 @pytest.mark.usefixtures("clock")
