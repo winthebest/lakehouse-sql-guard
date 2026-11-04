@@ -153,18 +153,33 @@ def test_late_table_blocks_only_the_queries_that_read_it(single_load):
     assert replayer.run(sql()).status is ReplayStatus.UNVERIFIABLE
 
 
-def test_static_tables_are_read_as_they_are_now(single_load):
-    # `entities` was loaded today too, but is declared time-invariant
+def test_a_static_table_loaded_once_is_read_as_it_is_now(single_load):
+    # `entities` was loaded today too: nothing to check the declaration against
     spec = replace(BASE, static_tables=("entities",))
-    result = Replayer(single_load, spec, min_rows=1, min_points=1).run(
-        f"{SEL}, u.country FROM labels l JOIN entities u ON u.user_id = l.user_id"
+    query = f"{SEL}, u.country FROM labels l JOIN entities u ON u.user_id = l.user_id"
+    assert Replayer(single_load, spec, min_rows=1, min_points=1).run(query).status is (
+        ReplayStatus.PASS
     )
-    assert result.status is ReplayStatus.PASS
-    undeclared = replace(BASE, static_tables=(), time_columns={**BASE.time_columns})
-    unknown = Replayer(single_load, undeclared, min_rows=1, min_points=1).run(
-        f"{SEL}, u.country FROM labels l JOIN entities u ON u.user_id = l.user_id"
-    )
+    undeclared = replace(BASE, static_tables=())
+    unknown = Replayer(single_load, undeclared, min_rows=1, min_points=1).run(query)
     assert unknown.status is ReplayStatus.UNVERIFIABLE
+
+
+def test_a_static_table_that_changed_is_still_caught(tmp_path):
+    """Declared static, but its country column was rewritten after the first predictions."""
+    catalog = committed_in_steps(tmp_path / "w")
+    rows = entity_rows()
+    catalog.catalog.drop_table("db.entities")
+    catalog.create_empty("entities", rows.schema)
+    first = {LOGICAL_TS_PROPERTY: (START - timedelta(days=1)).isoformat()}
+    catalog.table("entities").append(rows, snapshot_properties=first)
+    moved = rows.set_column(1, "country", pa.array(["DE"] * 12))
+    later = {LOGICAL_TS_PROPERTY: (START + timedelta(days=5)).isoformat()}
+    catalog.table("entities").overwrite(moved, snapshot_properties=later)
+    query = f"{SEL}, u.country FROM labels l JOIN entities u ON u.user_id = l.user_id"
+    spec = replace(BASE, static_tables=("entities",))
+    result = Replayer(catalog, spec, min_rows=1, min_points=1).run(query)
+    assert result.status is ReplayStatus.MISMATCH
 
 
 @pytest.mark.parametrize(
@@ -172,8 +187,8 @@ def test_static_tables_are_read_as_they_are_now(single_load):
     [
         ("db.labels", "db.events"),
         ('"db"."labels"', '"db"."events"'),
-        ('"warehouse"."db"."labels"', '"warehouse"."db"."events"'),
-        ('"warehouse"."db"."labels"', "events"),
+        ('"sqlguard"."db"."labels"', '"sqlguard"."db"."events"'),
+        ('"sqlguard"."db"."labels"', "events"),
     ],
 )
 def test_qualified_names_replay_like_bare_ones(tmp_path, labels, events):
@@ -184,6 +199,14 @@ def test_qualified_names_replay_like_bare_ones(tmp_path, labels, events):
     assert bare.status is ReplayStatus.PASS
     assert qualified.status is bare.status
     assert qualified.rows_compared == bare.rows_compared
+
+
+def test_a_catalog_name_that_is_not_the_catalog_is_unverifiable(tmp_path):
+    catalog = committed_in_steps(tmp_path)
+    query = sql('"warehouse"."db"."labels"', '"warehouse"."db"."events"')
+    result = Replayer(catalog, BASE, min_rows=1, min_points=1).run(query)
+    assert result.status is ReplayStatus.UNVERIFIABLE
+    assert "'warehouse'" in result.reason and "'sqlguard'" in result.reason
 
 
 def test_relation_map_names_a_dbt_style_three_part_name(tmp_path):
@@ -208,7 +231,7 @@ def test_relation_map_to_a_missing_table_is_unverifiable(tmp_path):
 
 def test_qualified_leak_is_still_found(tmp_path):
     catalog = committed_in_steps(tmp_path)
-    leaky = sql('"warehouse"."db"."labels"', '"warehouse"."db"."events"').replace(
+    leaky = sql('"sqlguard"."db"."labels"', '"sqlguard"."db"."events"').replace(
         "e.ingested_at < l.label_ts", "e.event_ts < l.label_ts"
     )
     # an event becomes readable an hour after it happens, so an event-time bound reads rows
@@ -314,3 +337,49 @@ def test_row_selection_by_later_data_is_a_leak_statically_and_in_replay(world, s
     assert validate(query, spec, catalog=world).verdict == "leaky"
     assert replayer.run(query).status is ReplayStatus.MISMATCH
     assert validate(query, spec, catalog=world, replay=replayer).verdict == "leaky"
+
+
+UNBOUNDED = (
+    f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+    "GROUP BY 1, 2, 3"
+)
+
+
+def history_from(tmp_path, first_day: int):
+    """Daily commits of the events from `first_day`; the first backfills all earlier days."""
+    catalog = LakehouseCatalog.local(tmp_path)
+    catalog.create_table("labels", label_rows())
+    catalog.create_table("entities", entity_rows())
+    events = event_rows()
+    catalog.create_empty("events", events.schema)
+    floor = pc.floor_temporal(events["ingested_at"], unit="day")
+    for d in range(first_day, 9):
+        day = pa.scalar(START + timedelta(days=d), pa.timestamp("us"))
+        mask = pc.less_equal(floor, day) if d == first_day else pc.equal(floor, day)
+        catalog.table("events").append(
+            events.filter(mask),
+            snapshot_properties={
+                LOGICAL_TS_PROPERTY: (START + timedelta(days=d, hours=2)).isoformat()
+            },
+        )
+    return catalog
+
+
+def test_prediction_times_before_the_history_are_skipped_not_fatal(tmp_path):
+    """Labels run from day 3, the events history from day 5: a leak must still show."""
+    catalog = history_from(tmp_path, first_day=5)
+    result = Replayer(catalog, BASE, min_rows=1, min_points=1).run(UNBOUNDED)
+    assert result.status is ReplayStatus.MISMATCH
+    assert (
+        "skipped" in result.reason and "table history starts after prediction time" in result.reason
+    )
+    assert 0 < result.points_checked < len(Replayer(catalog, BASE).points)
+
+
+def test_a_clean_query_with_some_points_skipped_needs_enough_of_the_rest(tmp_path):
+    catalog = history_from(tmp_path, first_day=5)
+    query = sql()
+    few = Replayer(catalog, BASE, min_rows=1, min_points=100).run(query)
+    assert few.status is ReplayStatus.UNVERIFIABLE and "skipped" in few.reason
+    enough = Replayer(catalog, BASE, min_rows=1, min_points=1).run(query)
+    assert enough.status is ReplayStatus.PASS and "skipped" in enough.reason

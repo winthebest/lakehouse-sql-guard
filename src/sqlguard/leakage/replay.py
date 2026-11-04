@@ -14,15 +14,16 @@ times. A query that keeps no rows, or too few, is UNVERIFIABLE rather than a pas
 `insufficient_evidence`; the validator only lets that block a query that has a static
 ingestion-time hint, which replay is the only way to settle).
 
-A table that did not exist yet at the sampled time (its first main-branch snapshot became
-visible later, as with a table loaded once from a seed or a migration) cannot be reconstructed:
-the replay is UNVERIFIABLE, never a mismatch. Static tables are time-invariant by declaration and
-are read as they are now. A snapshot becomes visible at its `sqlguard.logical-ts` property when
-it has one, otherwise at its commit time.
+A prediction time that precedes the first main-branch snapshot of a table the query reads (a table
+loaded once from a seed or a migration) cannot be reconstructed and is left out; the others are
+still compared, and the replay is UNVERIFIABLE, never a mismatch, only when too few remain. A table
+declared static is pinned like any other (a mistaken declaration still shows up); only when its
+history starts late is it read as it is now. A snapshot becomes visible at its
+`sqlguard.logical-ts` property when it has one, otherwise at its commit time.
 
 Relation names of one to three parts (`events`, `db.events`, `"db"."main"."events"`) are mapped
-to catalog tables (the spec's `relations`, or the catalog namespace) and exposed to the query
-under the names it uses. An uncorrelated `(SELECT MAX(label_ts) FROM labels)` cutoff reads the
+to catalog tables (the spec's `relations`, or the catalog name and namespace) and exposed to the
+query under the names it uses. An uncorrelated `(SELECT MAX(label_ts) FROM labels)` cutoff reads the
 whole label table in both runs, since a time split is chosen before any prediction time exists.
 
 User SQL runs in a sandboxed in-memory DuckDB (no file or network access), and only SELECT
@@ -171,12 +172,12 @@ class Replayer:
 
     def _table_at(self, table: str, ts: datetime, before: datetime, late: dict[str, str]):
         """The rows of `table` as they stood just before `ts` (see the module docstring)."""
-        if table in self.spec.static_tables:
-            return self._current_data(table)
         snapshot = self.catalog.snapshot_as_of(table, before, strict_history=True)
         # an outcome table is unknown before the outcome by definition: empty is the right answer
         starts_late = snapshot is None and table not in self.spec.outcome_tables
         if starts_late and self.catalog.table(table).current_snapshot() is not None:
+            if table in self.spec.static_tables:
+                return self._current_data(table)  # no history to check the declaration against
             late[table] = self._starts_after(table)
         return self._read(table, snapshot)
 
@@ -269,6 +270,12 @@ class Replayer:
             raise RelationError(
                 f"relation {'.'.join(parts)!r} is mapped to {mapped!r}, which is "
                 f"not a table of namespace {self.catalog.namespace!r}"
+            )
+        catalog_name = str(self.catalog.catalog.name).lower()
+        if len(parts) == 3 and parts[0] != catalog_name:
+            raise RelationError(
+                f"relation {'.'.join(parts)!r} names catalog {parts[0]!r}, not {catalog_name!r}; "
+                "map it to a catalog table in the spec's `relations`"
             )
         if parts[-2] == self.catalog.namespace.lower() and parts[-1] in self.tables:
             return parts[-1]
@@ -383,14 +390,14 @@ class Replayer:
 
         compared = mismatched = timestamps = 0
         columns: Counter[str] = Counter()
+        skipped: list[str] = []  # why prediction times before a table's history were left out
         for ts in points:
             try:
                 conn = self.pinned(ts, history=True)
                 late = sorted(read & self._late[(ts, True)].keys())
-                if late:
-                    return ReplayResult(
-                        ReplayStatus.UNVERIFIABLE, reason=self._late[(ts, True)][late[0]]
-                    )
+                if late:  # this time predates a table's history: judge the others without it
+                    skipped.append(self._late[(ts, True)][late[0]])
+                    continue
                 self._bind(conn, relations)
                 replayed = conn.sql(sql).to_arrow_table()
             except HistoryGap as err:
@@ -419,14 +426,20 @@ class Replayer:
                     if any(a[i] != b[i] for a, b in zip(now, past, strict=True)):
                         columns[col] += 1
 
+        if len(skipped) == len(points):
+            return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=skipped[0])
+        note = (
+            f"; {len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}" if skipped else ""
+        )
+
         def result(status: ReplayStatus, reason: str = "") -> ReplayResult:
             return ReplayResult(
                 status,
-                len(points),
+                len(points) - len(skipped),
                 compared,
                 mismatched,
                 dict(columns),
-                reason,
+                reason + note if reason or skipped else "",
                 timestamps,
                 insufficient_evidence=status is ReplayStatus.UNVERIFIABLE,
             )
