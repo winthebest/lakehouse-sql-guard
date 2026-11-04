@@ -9,12 +9,32 @@ bound next to it is harmless.
 from __future__ import annotations
 
 from sqlguard.core.findings import Finding, Severity
-from sqlguard.leakage.analysis import QueryAnalysis
+from sqlguard.leakage.analysis import QueryAnalysis, TimeBound
 from sqlguard.leakage.rules.join_time import DAY, future_bounds
 
 
 def _tz_aware(sql_type: str) -> bool:
     return "TIMESTAMPTZ" in sql_type or "WITH TIME ZONE" in sql_type
+
+
+def loose_bounds(group: list[TimeBound]) -> list[TimeBound]:
+    """Upper bounds of one path that admit facts at or shortly after prediction time."""
+    loose: list[TimeBound] = []
+    known_at_prediction = any(
+        b.is_upper and b.column_role == "availability" and b.is_strict_past for b in group
+    )
+    for column in {b.column for b in group if b.is_upper}:
+        upper = [b for b in group if b.is_upper and b.column == column]
+        if any(b.is_strict_past for b in upper):
+            continue
+        if known_at_prediction and upper[0].column_role == "time":
+            continue
+        loose += [
+            b
+            for b in upper
+            if (b.op == "<=" and b.offset_seconds == 0) or 0 < b.offset_seconds < DAY
+        ]
+    return loose
 
 
 def check(analysis: QueryAnalysis) -> list[Finding]:
@@ -25,21 +45,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
         for group in ref.bound_groups():
             if future_bounds(group):
                 continue  # already a future reference (L1)
-            loose = []
-            known_at_prediction = any(
-                b.is_upper and b.column_role == "availability" and b.is_strict_past for b in group
-            )
-            for column in {b.column for b in group if b.is_upper}:
-                upper = [b for b in group if b.is_upper and b.column == column]
-                if any(b.is_strict_past for b in upper):
-                    continue
-                if known_at_prediction and upper[0].column_role == "time":
-                    continue
-                loose += [
-                    b
-                    for b in upper
-                    if (b.op == "<=" and b.offset_seconds == 0) or 0 < b.offset_seconds < DAY
-                ]
+            loose = loose_bounds(group)
             if loose:
                 findings.append(
                     Finding(

@@ -20,7 +20,7 @@ from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Finding, Severity
 from sqlguard.core.lineage import Schema
 from sqlguard.core.parsing import parse_single
-from sqlguard.leakage.analysis import analyze
+from sqlguard.leakage.analysis import QueryAnalysis, analyze
 from sqlguard.leakage.replay import Replayer, ReplayResult, ReplayStatus
 from sqlguard.leakage.rules import ALL_RULES
 from sqlguard.leakage.spec import LeakageSpec
@@ -62,6 +62,23 @@ class LeakageReport:
         }
 
 
+def analysis_findings(analysis: QueryAnalysis) -> list[Finding]:
+    """Every static finding of an analyzed query (the checks `static_findings` runs)."""
+    findings = [
+        Finding(
+            "UNCLASSIFIED",
+            Severity.LOW,
+            f"table {ref.table!r} is not declared in the spec; its time semantics are unknown",
+            ref.describe(),
+        )
+        for ref in analysis.unclassified_refs
+    ]
+    findings += [Finding("SPEC", Severity.LOW, message) for message in analysis.spec_errors]
+    for rule in ALL_RULES:
+        findings.extend(rule.check(analysis))
+    return findings
+
+
 def static_findings(sql: str, spec: LeakageSpec, schema: Schema) -> list[Finding]:
     """Run every static rule; any failure to analyze becomes a PARSE finding (fail closed)."""
     try:
@@ -74,19 +91,7 @@ def static_findings(sql: str, spec: LeakageSpec, schema: Schema) -> list[Finding
                     f"only SELECT queries can be validated, got {type(ast).__name__}",
                 )
             ]
-        analysis = analyze(sql, spec, schema)
-        findings = [
-            Finding(
-                "UNCLASSIFIED",
-                Severity.LOW,
-                f"table {ref.table!r} is not declared in the spec; its time semantics are unknown",
-                ref.describe(),
-            )
-            for ref in analysis.unclassified_refs
-        ]
-        findings += [Finding("SPEC", Severity.LOW, message) for message in analysis.spec_errors]
-        for rule in ALL_RULES:
-            findings.extend(rule.check(analysis))
+        findings = analysis_findings(analyze(sql, spec, schema))
     except Exception as err:  # noqa: BLE001 - any analysis failure must not read as clean
         return [Finding("PARSE", Severity.HIGH, f"cannot analyze query: {err}")]
     return findings

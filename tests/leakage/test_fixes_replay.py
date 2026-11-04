@@ -1,0 +1,103 @@
+"""suggest_fix with a catalog: a rewrite earns `static_and_replay` only when the repaired query
+replays point-in-time, and it reports what the repair does to the row count."""
+
+import pytest
+
+from bench.leakage.world import WorldConfig, build_world
+from sqlguard.core.catalog import LakehouseCatalog
+from sqlguard.leakage import fixes as fixes_module
+from sqlguard.leakage import rewrite
+from sqlguard.leakage.fixes import Verification, suggest_fix
+from sqlguard.leakage.replay import Replayer, ReplayStatus
+from sqlguard.leakage.spec import LeakageSpec
+from sqlguard.leakage.validator import validate
+
+SPEC = LeakageSpec.from_yaml("bench/leakage/spec.yaml")
+SEL = "SELECT l.user_id, l.label_ts, l.churned"
+EVENT_TIME_ONLY = (
+    f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e "
+    "ON e.user_id = l.user_id AND e.event_ts < l.label_ts GROUP BY 1, 2, 3"
+)
+
+
+@pytest.fixture(scope="module")
+def world(tmp_path_factory):
+    catalog = LakehouseCatalog.local(tmp_path_factory.mktemp("fixes"))
+    build_world(catalog, WorldConfig(seed=42))
+    return catalog
+
+
+@pytest.fixture(scope="module")
+def replayer(world):
+    return Replayer(world, SPEC, seed=42)
+
+
+def rewrites(sql, world, replayer, spec=SPEC):
+    return [f for f in suggest_fix(sql, spec, catalog=world, replay=replayer) if f.rewrites]
+
+
+def test_late_arrival_fix_is_replayed_and_earns_both_levels(world, replayer):
+    assert replayer.run(EVENT_TIME_ONLY).status is ReplayStatus.MISMATCH
+    (fix,) = rewrites(EVENT_TIME_ONLY, world, replayer)
+    assert fix.verification is Verification.STATIC_AND_REPLAY
+    assert replayer.run(fix.after_sql).status is ReplayStatus.PASS
+    assert validate(fix.after_sql, SPEC, catalog=world, replay=replayer).verdict == "clean"
+
+
+def test_without_replay_the_same_fix_is_static_only(world):
+    (fix,) = [
+        f for f in suggest_fix(EVENT_TIME_ONLY, SPEC, catalog=world, replay=False) if f.rewrites
+    ]
+    assert fix.verification is Verification.STATIC_ONLY
+
+
+def test_replay_that_cannot_decide_leaves_the_fix_static_only(world):
+    thin = Replayer(world, SPEC, seed=42, min_rows=10_000)
+    (fix,) = rewrites(EVENT_TIME_ONLY, world, thin)
+    assert fix.verification is Verification.STATIC_ONLY
+    assert any("replay could not confirm" in c for c in fix.caveats)
+
+
+def test_replay_that_still_finds_a_difference_makes_the_fix_unverified(
+    world, replayer, monkeypatch
+):
+    """A rewrite the static check accepts but replay refutes must not be certified."""
+
+    def cosmetic(ctx, ref, rule):
+        table = ctx.orig(ref.node)
+        _, join = rewrite._select_of(table)
+        join.set(
+            "on",
+            rewrite.conjoin(join.args["on"], rewrite.exp.condition("1 = 1")),
+        )
+        return rewrite.Edit(rule, ref.describe(), "does nothing about late data")
+
+    monkeypatch.setattr(rewrite, "add_bounds", cosmetic)
+    monkeypatch.setattr(fixes_module, "static_findings", lambda *a, **k: [])
+    fix = rewrites(EVENT_TIME_ONLY, world, replayer)[-1]
+    assert fix.verification is Verification.UNVERIFIED
+    assert any("replay still finds" in c for c in fix.caveats)
+
+
+def test_a_change_in_the_row_count_is_reported(world, replayer):
+    inner = EVENT_TIME_ONLY.replace("LEFT JOIN", "JOIN")
+    fixes = rewrites(inner, world, replayer)
+    text = " ".join(c for f in fixes for c in f.caveats)
+    assert "INNER JOIN became LEFT JOIN" in text
+    assert "rows instead of" in text
+
+
+def test_a_fix_that_keeps_the_rows_has_no_row_count_note(world, replayer):
+    (fix,) = rewrites(EVENT_TIME_ONLY, world, replayer)
+    assert not any("rows instead of" in c for c in fix.caveats)
+
+
+def test_an_unsettled_leak_next_to_a_fixed_one_is_not_certified_by_replay(world, replayer):
+    sql = (
+        f"{SEL}, SUM(e.amount) AS amt, SUM(o.refund_after_churn) AS refunds FROM labels l "
+        "LEFT JOIN events e ON e.user_id = l.user_id AND e.event_ts < l.label_ts "
+        "LEFT JOIN user_outcomes o ON o.user_id = l.user_id GROUP BY 1, 2, 3"
+    )
+    fixes = suggest_fix(sql, SPEC, catalog=world, replay=replayer)
+    assert {f.rule for f in fixes} >= {"L4", "L6"}
+    assert all(f.verification is not Verification.STATIC_AND_REPLAY for f in fixes)
