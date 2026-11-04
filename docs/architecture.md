@@ -16,7 +16,7 @@ flowchart LR
     end
     subgraph leakage["sqlguard.leakage"]
         S[LeakageSpec YAML] --> A[analysis<br/>time bounds per table use]
-        A --> R[rules L1-L6]
+        A --> R[rules L1-L7]
         RP[replay<br/>pinned snapshots] --> V[validator<br/>score + verdict]
         R --> V
     end
@@ -46,7 +46,9 @@ flowchart LR
 **Input.** The SQL that builds a training set, plus a `LeakageSpec` that *declares* time
 semantics (nothing is inferred from names): the label table and its prediction-time
 column, the event-time column of each temporal table, optional ingestion-time columns,
-static tables, and outcome columns that are only known after the label.
+static tables, and outcome columns that are only known after the label. Optional fields
+(`boundary`, `max_ingest_delay`, `label_known_after`, `relations`) settle judgment calls the
+SQL cannot; `spec.py` is their schema and the README explains them.
 
 **Static analysis** (`analysis.py`). The query is qualified and split into scopes. Every
 physical table use becomes a `TableRef`. Each AND-ed term of a WHERE / ON / HAVING clause
@@ -57,7 +59,8 @@ is normalized to
 ```
 
 through aliases, CTEs, derived tables, correlated subqueries, casts, `date_trunc`, and
-dialect date arithmetic. Predicates under OR, NOT or CASE never count as bounds. A CTE
+dialect date arithmetic. Predicates under OR, NOT or CASE never count as bounds; an
+aggregate `FILTER` counts only under the conditions in `docs/limitations.md`. A CTE
 reused twice must be bounded at each use. Window functions that look ahead (`LEAD`,
 `FOLLOWING`) or aggregate a whole partition are recorded separately.
 
@@ -69,15 +72,18 @@ reused twice must be bounded at each use. Window functions that look ahead (`LEA
 | L2 | Joins a temporal table with no upper time bound. |
 | L3 | Aggregates (or window-aggregates) a temporal table with no upper bound. |
 | L4 | Bounded by event time only while the table declares ingestion time: late rows may leak. A hint, weighted below the threshold. |
-| L5 | Boundary errors: inclusive `<=` at t, a forward shift under a day, or mixed tz-aware/naive comparison. |
-| L6 | Features derived from the label or from outcome tables (lineage, predicates, expressions). |
+| L5 | Boundary errors: inclusive `<=` at t (unless the spec says `boundary: inclusive`), a forward shift under a day, or mixed tz-aware/naive comparison. |
+| L6 | Features derived from the label or from outcome tables (lineage, predicates, expressions). Labels the spec declares final (`label_known_after`) may be aggregated. |
+| L7 | Reads the wall clock (`now()`, `current_date`, ...) in a feature. A filter that only chooses which spine rows to train on is exempt. Replay cannot see it. |
 
 **Replay** (`replay.py`). For a sample of prediction timestamps (half the busiest ones,
 where batch-aligned boundary leaks concentrate, half random), every table is pinned to the
-snapshot visible strictly before `t`, the label table is restricted to rows at `t`, and
-the query is re-run. Any difference from the normal run means a value was not knowable at
+snapshot visible strictly before `t` (at `t` with `boundary: inclusive`), the label table
+holds the rows at `t` (earlier rows only as context, with their labels hidden), and the
+query is re-run. Any difference from the normal run means a value was not knowable at
 `t`. This is what confirms L4: the SQL looks right, the data arrived late. If the needed
-history was expired, replay reports `unverifiable` instead of guessing.
+history was expired, or a table's history starts after `t`, replay reports `unverifiable`
+instead of guessing.
 
 **Verdict** (`validator.py`). `score = 1 − Π(1 − wᵢ)` over findings and a replay
 mismatch, with weights in `weights.yaml`. `leaky` when the score reaches the threshold;

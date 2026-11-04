@@ -30,7 +30,7 @@ guard puts them between the agent and the table.
 ```mermaid
 flowchart LR
     SQL[SQL or agent action] --> P[parse + qualify<br/>sqlglot]
-    P --> L[Leakage<br/>time bounds, rules L1-L6]
+    P --> L[Leakage<br/>time bounds, rules L1-L7]
     P --> C[Safety<br/>classify + policy]
     L --> R[replay on pinned<br/>Iceberg snapshots]
     R --> V[verdict: clean / leaky / unverifiable]
@@ -70,6 +70,26 @@ static_tables: [customers]
 outcome_columns: [refunds.refund_amount]       # only known after the outcome
 ```
 
+Optional fields settle judgment calls the SQL alone cannot. Without them the strictest
+reading applies; [src/sqlguard/leakage/spec.py](src/sqlguard/leakage/spec.py) is the schema:
+
+```yaml
+boundary: strict                  # inclusive: a fact stamped exactly at prediction_ts is already known
+max_ingest_delay: {orders: 8 days}   # longest a row takes to land after order_ts
+label_known_after: 14 days        # a label is final this long after its own prediction_ts
+relations: {analytics.main.stg_orders: orders}   # SQL name -> catalog table, for replay
+```
+
+- `max_ingest_delay`: an event-time bound at least that far before `prediction_ts` counts as
+  an availability bound, so it no longer raises the L4 hint. Durations use seconds to weeks.
+- `label_known_after`: labels of earlier rows old enough to be final may be aggregated
+  (target encoding) without L6. Both are judged against `boundary`: strictly before
+  `prediction_ts` unless `boundary: inclusive`.
+- `boundary: inclusive` also removes L5 for `<= prediction_ts` and pins replay at
+  `prediction_ts` instead of just before it.
+- `relations`: maps qualified SQL names (dbt's database and schema are not Iceberg
+  namespaces) to catalog tables. Replay applies it; static analysis does not.
+
 ### Use it in CI
 
 - pre-commit: [examples/pre-commit-config.yaml](examples/pre-commit-config.yaml)
@@ -94,6 +114,11 @@ approval and an approved change published by moving `main` to the exact snapshot
 rehearsed and approved (a compare-and-swap on the catalog).
 
 ## Results
+
+Scope: the leakage numbers below were measured with the first rule set (tag
+`rules-frozen-v1`). Those held-out templates are now the `dev_v1b` split and informed the
+current rules (L7, the optional spec fields above), so a run of the current rules over them
+is in-sample, and no held-out set exists for the current rules yet.
 
 All thresholds and policies were frozen before the held-out sets were written:
 leakage rules at tag `rules-frozen-v1` with thresholds pre-registered on the dev split
@@ -130,6 +155,8 @@ How to read this honestly:
   calls: target encoding over labels whose horizon had closed (flagged L6: the guard does
   not know when a label becomes known) and an event-time bound with a lag longer than the
   feed's maximum delay (an L4 hint that replay correctly clears).
+- The current rules address both with `label_known_after` and `max_ingest_delay`; the
+  numbers above predate them.
 - Replay misses the real-data L5 case because that leak shows on only 2 of 17 cutoffs.
 - Full report: [results/leakage/20261104-948534a.md](results/leakage/20261104-948534a.md).
 
@@ -167,8 +194,9 @@ benign runs went through an approval step first. The guard adds about 40 ms per 
 
 See [docs/limitations.md](docs/limitations.md). The main ones: static analysis does not
 normalize every way of writing a time comparison (it fails closed: such queries are
-flagged, not passed); time-split cutoffs must be literal timestamps; replay needs snapshot
-history and enough rows to conclude; the guard cannot tell which in-scope table an
+flagged, not passed); a time-split cutoff computed from the label table is accepted only as
+a plain scalar subquery (a literal timestamp always works); replay needs snapshot history
+and enough rows to conclude, and cannot see wall-clock use (L7 is static-only); the guard cannot tell which in-scope table an
 ambiguous request meant, and it stops changes, not reads, of protected tables; the DuckDB executor is for small tables and DML only.
 
 ## Related work

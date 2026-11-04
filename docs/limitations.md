@@ -1,66 +1,153 @@
 # Known limitations
 
-These were frozen with the leakage rules (tag `rules-frozen-v1`) and with the safety policy
-(tag `policy-frozen-v1`). They are listed so results can be read honestly; held-out
-benchmark failures are analyzed against this list in `results/`.
+What the guard gets wrong or cannot see today, so results can be read honestly. The
+leakage rules have two generations: the first set, frozen at tag `rules-frozen-v1`, and the
+current set ("v2"). The safety policy was frozen at tag `policy-frozen-v1`.
+
+The committed leakage results in `results/leakage/` and the held-out numbers in the README
+were measured with the v1 rules and stay valid for them. The v1 held-out templates now live
+in `bench/leakage/templates/dev_v1b`: they were read while the v2 rules were designed, so any
+v2 run over them is in-sample tracking, not a held-out result. There is no held-out set for
+the v2 rules yet.
+
+## Changed in v2
+
+Limitations of the first rule set that no longer apply (each has paired clean and leaky
+tests in `tests/leakage/test_rules_v2.py`):
+
+- `agg(x) FILTER (WHERE ts < prediction_ts)` can bound a table, under the conditions in
+  item 1.
+- Bounds are recognized in more spellings: `prediction_ts - ts > INTERVAL ...`,
+  `date_diff`/`DATEDIFF` with second to week units, `epoch(ts)` and `EXTRACT(epoch FROM ts)`,
+  and bounds that appear only in `QUALIFY`.
+- A time split cut at `(SELECT MAX(label_ts) FROM labels)` is accepted (item 4).
+- The latest-row pattern also covers `MIN` and `IN (SELECT MAX ... GROUP BY ...)` (item 6).
+- A CTE that nothing reads is ignored.
+- A `UNION` inside a CTE or derived table is traced branch by branch; `UNION BY NAME` is
+  rewritten to its positional form before analysis.
+- Replay no longer treats a table whose history starts after a sampled prediction time as a
+  mismatch (item 16).
+
+Behaviour changes that make the guard stricter (a query that was clean can now be flagged):
+
+- `LAG` with a non-constant offset is treated as looking ahead (L1); it used to be treated as
+  looking backward.
+- A time-split cutoff that selects the latest labels (`= MAX`, `>= MAX`, `> MAX`, or a
+  quantile with fraction 1 or a non-literal fraction used as a lower bound) is L3.
+- Anything the analysis does not model voids an exemption instead of passing it: an
+  aggregate or window function that sqlglot does not know (e.g. `count_star()`) beside a
+  `FILTER`, an unknown window function beside a `QUALIFY` bound, a function between a clock
+  call and its comparison in an L7 spine filter, or a bound written in an unmodelled form.
+- New rule L7 flags wall-clock functions in a feature (item 13; replay cannot see it, item 19).
+- `HAVING MAX(ts) < prediction_ts` and `HAVING MIN(ts) > prediction_ts` are not bounds, and
+  keeping only each entity's latest prediction is flagged (items 9 and 10).
+- A unitless `INTERVAL '5'` is five seconds, as in DuckDB, and never earns a lag exemption.
+
+New optional spec fields (`boundary`, `max_ingest_delay`, `label_known_after`, `relations`)
+are described in the README; a spec without them behaves as before.
 
 ## Leakage: static analysis
 
 False positives (the guard fails closed: a correct query is flagged):
 
-1. `agg(x) FILTER (WHERE ts < prediction_ts)` does not bound the table. A query that bounds
-   every aggregate only through FILTER is flagged L3.
-2. Bounds on an aggregate of the time column (`HAVING MAX(ingested_at) < prediction_ts`) and
-   bounds that appear only in QUALIFY are not recognized.
-3. Not normalized: `prediction_ts - ts > INTERVAL 0`, `DATEDIFF(...) > 0`, `epoch()`, string
-   comparisons. A unitless `INTERVAL '5'` is read as days.
-4. Time-split cutoffs computed from the label table
-   (`WHERE label_ts < (SELECT MAX(label_ts) FROM labels)`) are flagged L3, and replay
-   mismatches them too. **Use a literal cutoff timestamp for time splits.**
-5. De-duplicating or ranking the spine with a DESC window whose partition omits
-   `prediction_ts` is treated as look-ahead.
-6. The SCD2 exemption covers `LEAD`/`LAG(<own time column>) AS valid_to` projected in a CTE
-   or derived table and compared with `prediction_ts` (or tested for NULL). Inline window
-   forms are flagged.
-7. The correlated latest-row pattern is recognized only as
-   `col = (SELECT MAX(col) ... WHERE <strict bound>)`; `MIN`, `IN (...)` forms are not.
-8. A CTE that is defined but never used is still analyzed, and flagged if unbounded.
-9. UNION is supported only at the query root. A UNION inside a CTE or a derived spine cannot
-   be traced and the query is reported unverifiable.
+1. A `FILTER` bounds a table only when every non-window aggregate of that SELECT carries a
+   FILTER with an upper bound (`MAX`/`MIN` and `COUNT(DISTINCT ...)` that read no column of
+   the table are exempt), the SELECT has no window function, the table's columns appear
+   only in those FILTERs and in the table's own join condition, and no output row depends on
+   its later rows: the table is the null-supplying side of a `LEFT JOIN`, or the only source
+   of a query without `GROUP BY`. `COUNT(1)`, `SUM(1)`, `HAVING COUNT(1)`, a `WHERE` on the
+   table's columns and an `INNER JOIN` count row multiplicity or survivorship and are L3.
+   Known false positive: `approx_count_distinct` beside a `FILTER`.
+2. Label maturity (`label_known_after`) is judged like any other bound. With
+   `boundary: strict`, a label exactly at the horizon (`label_ts <= prediction_ts - 14 days`
+   for 14 days) is not final and is flagged L6; `boundary: inclusive` accepts it.
+3. Not recognized as bounds: string comparisons, `epoch_ms`, and month, quarter or year units
+   inside a difference or `date_diff`. A calendar interval used to claim a lag counts at its
+   shortest length. A unitless `INTERVAL '5'` bounds nothing for `max_ingest_delay`.
+4. A time-split cutoff is accepted only as an uncorrelated scalar subquery
+   `(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)` compared (`<`, `<=`, `>`, `>=`,
+   `BETWEEN`) with the spine's prediction time, with the label reference flagged as a global
+   scan rather than as history. A cutoff held in a CTE or derived table, or with extra
+   arithmetic inside the subquery, is still L3. **A literal cutoff timestamp always works.**
+5. The SCD2 exemption covers `LEAD`/`LAG(<own time column>) AS valid_to` projected in a CTE
+   or derived table and compared with `prediction_ts` (or tested for NULL). The same logic
+   written inline in `QUALIFY` is flagged L1.
+6. The correlated latest-row pattern is recognized as
+   `col = (SELECT MAX|MIN(col) ... WHERE <strict bound>)` and
+   `col IN (SELECT MAX|MIN(col) ... WHERE <strict bound> [GROUP BY ...])`. `ANY`/`ALL`,
+   `NOT IN` and range forms (`>= (SELECT MAX ...)`) are not.
+7. A positional `UNION` nested inside a `UNION BY NAME` operand whose branches use different
+   names is refused (the query is reported unverifiable); so are `BY NAME` branches with
+   unnamed, starred or duplicated columns.
+8. `ROLLUP` / `GROUPING SETS` subtotal rows have no prediction time. The guard raises no
+   finding for them.
+
+Flagged on purpose (survivorship: which rows exist depends on later data, and replay agrees,
+so these are not false positives):
+
+9. `HAVING MAX(ts) < prediction_ts` / `HAVING MIN(ts) > prediction_ts` drops every group with
+   a later row: L3.
+10. Keeping only each entity's latest prediction, `QUALIFY ROW_NUMBER() OVER (... ORDER BY
+    prediction_ts DESC) = 1`, depends on predictions made later: L1.
+11. A cutoff pinned at the global maximum (`label_ts = (SELECT MAX(label_ts) ...)`) keeps only
+    rows that turned out to be the latest: L3.
 
 Known gaps (a leak can be missed statically; replay may still catch it):
 
-10. Window functions with a non-literal `LAG` offset are treated as looking backward.
-11. Casting a feature timestamp to `DATE` is treated as truncation (conservative); other
+12. Casting a feature timestamp to `DATE` is treated as truncation (conservative); other
     casts (e.g. to `VARCHAR`) are not parsed and bound nothing.
+13. L7 exempts a filter that only chooses spine rows (`WHERE label_ts < now() - INTERVAL 30
+    DAY` in the SELECT that produces the spine, comparing the clock only with the spine's
+    prediction time). A clock call in a join condition, a feature subquery, a label
+    reference that is also read as history, or reached through a function outside a short
+    allowlist is L7.
+
+Reported unverifiable rather than checked:
+
+14. Static analysis ignores the spec's `relations`: a SQL name whose bare table name differs
+    from the catalog table (a dbt `analytics.main.fct_events` for `events`) is unclassified,
+    so the query is unverifiable statically. Only replay applies the mapping.
 
 ## Leakage: replay
 
-12. A replay PASS needs at least 20 compared rows over at least 3 prediction times. Smaller
+15. A replay PASS needs at least 20 compared rows over at least 3 prediction times. Smaller
     outputs are unverifiable when static analysis raised an L4 hint; otherwise the static
     verdict stands and the replay result records why it was inconclusive.
-13. Earlier label rows are visible during replay with their label columns set to NULL:
+16. Replay needs snapshot history covering the sampled prediction times. If it was expired,
+    the result is unverifiable, never clean. A prediction time that precedes the first
+    main-branch snapshot of a table the query reads (a seed or one-off load) is left out and
+    the remaining times decide; the reason notes how many were skipped. If all are skipped, or
+    skipping leaves too little evidence, the result is unverifiable and blocks the query.
+    A snapshot is visible at its `sqlguard.logical-ts` property, else its commit time. Static
+    tables are pinned like any other and read as they are now only when their history starts
+    late; outcome tables are empty before they exist.
+17. Earlier label rows are visible during replay with their label columns set to NULL:
     counts of prior predictions and gaps between them pass, while reading an earlier label
-    value is reported as a mismatch (that label may not have been known yet).
-14. Replay needs snapshot history covering the sampled prediction times. If it was expired,
-    the result is unverifiable, never clean.
-15. Each distinct set of sampled points builds its own pinned in-memory connection
+    value is reported as a mismatch (that label may not have been known yet). Labels that
+    `label_known_after` declares final keep their values.
+18. Relation names with a schema or catalog part must be `<namespace>.<table>` or
+    `<catalog>.<namespace>.<table>` of the replayed catalog (the catalog part must be the
+    catalog's own name), or be listed in the spec's `relations`; anything else is
+    unverifiable.
+19. Replay cannot see wall-clock use: both runs read the same clock, so L7 is a static-only
+    rule.
+20. Each distinct set of sampled points builds its own pinned in-memory connection
     (zero-copy), so replaying many differently filtered queries uses more memory.
 
 ## Safety
 
-16. The guard reasons about SQL and table state, not intent. A small delete from the wrong
+21. The guard reasons about SQL and table state, not intent. A small delete from the wrong
     in-scope table stays under the configured limits and is published (dev prompt `a01`,
     held-out `h15`).
-17. Without a `unique_key` invariant, the impact of a rewrite cannot pair rows, so a rollback
+22. Without a `unique_key` invariant, the impact of a rewrite cannot pair rows, so a rollback
     that replaces values counts as deleting every row and is blocked by `max_delete_pct`
     (held-out `h11`). Declare `unique_key` for tables you want to roll back through the guard.
-18. The DuckDB executor supports DML only (no DDL such as `ALTER TABLE ... ADD COLUMN`), one
+23. The DuckDB executor supports DML only (no DDL such as `ALTER TABLE ... ADD COLUMN`), one
     written table per action, and whole-table copy-on-write; it is meant for small tables and
     demos. The Spark adapter uses the engine's own procedures.
-19. `expire_snapshots` removes time travel but keeps data files; a following
+24. `expire_snapshots` removes time travel but keeps data files; a following
     `remove_orphan_files` deletes them physically. Both are irreversible and require approval.
-20. The guard protects data from being changed or destroyed, not from being read. A
+25. The guard protects data from being changed or destroyed, not from being read. A
     `SELECT` on a protected table inside the task scope is allowed; keeping sensitive
     columns away from an agent is the job of the catalog's access control. `EXPLAIN` is
     allowed only for read-only queries (`EXPLAIN ANALYZE` runs the statement).

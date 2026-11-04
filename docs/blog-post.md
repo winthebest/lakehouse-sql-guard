@@ -42,8 +42,8 @@ three days later, the model in production will not see it at `t`. Training saw i
 
 You tell the guard what time means in your tables, in a short YAML spec: which table holds
 the labels, which column is the prediction time, which column is each table's event time,
-which tables have an ingestion time, which are static, and which columns are outcomes.
-Nothing is inferred from column names.
+which tables have an ingestion time, which are static, and which columns are outcomes (plus
+optional delay and label-maturity bounds). Nothing is inferred from column names.
 
 The analyzer parses the query with sqlglot, qualifies every column, and splits it into
 scopes. For each physical use of a temporal table it collects the AND-ed predicates of
@@ -54,10 +54,11 @@ WHERE, ON and HAVING clauses and normalizes each one to
 ```
 
 following aliases, CTEs, derived tables, correlated subqueries, casts, `date_trunc` and
-dialect-specific date arithmetic. Predicates under OR or NOT never count. Six rules then
+dialect-specific date arithmetic. Predicates under OR or NOT never count. Seven rules then
 read the result: no upper bound on a join (L2) or an aggregate (L3), bounds that look ahead
-(L1), boundary errors (L5), features derived from the label or from outcomes (L6), and an
-L4 *hint* when a table with an ingestion time is bounded by event time only.
+(L1), boundary errors (L5), features derived from the label or from outcomes (L6), features
+read from the wall clock (L7), and an L4 *hint* when a table with an ingestion time is
+bounded by event time only. (The benchmark below was run with the first six.)
 
 The hint is deliberately weighted below the decision threshold. Static analysis cannot
 know whether rows actually arrived late. Something else has to settle it.
@@ -110,9 +111,11 @@ in the output. They put a future *count*, *sum* or *average* there.
 
 The false positives are worth reading too. All of them come from two templates the
 held-out author flagged in advance as judgment calls: target encoding over labels whose
-horizon had already closed (the guard does not know when a label becomes known, so it
+horizon had already closed (the guard did not know when a label becomes known, so it
 flags it), and an event-time bound with a lag longer than the feed's worst delay (static
-raises the L4 hint; replay clears it).
+raises the L4 hint; replay clears it). The spec can now declare both (`label_known_after`,
+`max_ingest_delay`); the numbers above predate that, and those templates are no longer
+held-out.
 
 How much does a leak cost? On the synthetic world, a logistic regression trained on a
 leaky feature query scores AUC 0.999 offline and 0.826 on features computed the way
