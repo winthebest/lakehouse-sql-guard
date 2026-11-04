@@ -97,7 +97,8 @@ AST and the catalog state. `EXPLAIN` of a read-only query is a read of the same 
 
 **Execute** (`guard.py`, `executor/`). `Guard.submit(action, task_scope, approver)`:
 
-1. `deny` → nothing runs. `ask` without an approver → nothing runs.
+1. `deny` → nothing runs. `ask` without an approver → nothing runs, or, when the Guard has an
+   action store, the write is rehearsed and queued (see *Pending actions*).
 2. Writes are rehearsed on an Iceberg branch; the impact (rows added, deleted, modified,
    schema changes) is measured and invariants (`max_delete_pct`, `not_null`,
    `unique_key`, ...) are checked before publishing.
@@ -169,6 +170,115 @@ builds a `BranchDiff` itself must supply it.
 A SQL catalog stores every table under the catalog name it was created with, so a
 warehouse written by `LakehouseCatalog.local` (name `sqlguard`) is opened by
 `from_config("sqlguard", ...)`.
+
+### Pending actions
+
+With `Guard(store=...)`, an `ask` submitted *without* an approver is kept instead of dropped.
+(An approver passed to `submit` always gets the synchronous path described above, store or
+not.) The write is rehearsed on an audit branch as usual; then, instead of waiting in memory,
+it is saved in an `ActionStore` (`safety/store.py`, one SQLite file) and the branch is kept.
+`submit` returns `Outcome.AWAITING_APPROVAL` with an `action_id` and an `action_hash`.
+
+`AWAITING_APPROVAL` therefore has two meanings, told apart by `GuardResult.action_id`:
+
+| `action_id` | Meaning |
+|---|---|
+| `None` | No store. Nothing was rehearsed or saved; call again with an approver. |
+| set | Store. Rehearsed, measured, saved, and still decidable with `Guard.resolve(action_id, ...)`. |
+
+Maintenance (`expire_snapshots`, `remove_orphan_files`, rollback, fast-forward) is queued
+the same way, with its dry-run plan instead of a branch. Reads, and statements that cannot be
+rehearsed on a branch (DDL), are never queued (the latter come back `unsupported`). A table too big
+to diff (see below) is refused with `denied`, because an approver must be able to read the change.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: submit (ASK, no approver)
+    pending --> rejected: resolve(reject)
+    pending --> expired: deadline passed (resolve / expire_pending)
+    pending --> stale: live state, policy or diff differ
+    pending --> publishing: resolve(approve): checks pass, proof spent
+    publishing --> published: published and verified
+    publishing --> stale: main moved during the publish
+    publishing --> failed: publish failed, or published then rolled back
+    publishing --> needs_attention: outcome unknown, or cannot be undone
+    published --> [*]
+    stale --> [*]
+    failed --> [*]
+    needs_attention --> [*]
+    rejected --> [*]
+    expired --> [*]
+```
+
+A transition is one `UPDATE ... WHERE id = ? AND state = ?` under `BEGIN IMMEDIATE`, so two
+processes racing for an action cannot both win; any other edge raises `InvalidTransition`.
+The file is WAL-mode, mode 0600, and holds **no nonce or secret**: `used_proofs` keeps only a
+hash of each accepted proof. At a terminal state the raw SQL (`sql_normalized`) and the
+detailed maintenance plan are erased, with `secure_delete` and a WAL truncate so the bytes are
+really gone; the redacted SQL, its sha256, digests and counts stay. No row value is ever stored.
+Tables: `actions(id, created_at, expires_at, state, kind, dialect, sql_normalized, sql_redacted,
+sql_sha256, maintenance_json, scope_json, catalog_name, engine, "table", base_snapshot_id,
+head_snapshot_id, branch, policy_digest, invariants_digest, diff_digest, action_hash,
+impact_json, reasons_json, requester, approver, decided_at, outcome_json)` and
+`used_proofs(proof_hash, used_at, action_id)`.
+
+**What an approval is bound to.** `action_hash = sha256(canonical{kind, dialect, normalized SQL
+or maintenance action, table, catalog name, engine, base and head snapshot ids, policy_digest,
+invariants_digest, diff_digest, requester, scope})`. SQL is normalized by sqlglot (no comments)
+before hashing, so spelling does not matter. `policy_digest` is the sha256 of the parsed
+policy's canonical form (`Policy.digest`); the YAML `version` is only a label.
+`diff_digest` fingerprints every changed row between base and head (a plan digest for
+maintenance), so what a reviewer saw is what is hashed.
+
+**`Guard.resolve(action_id, decision, approver_label, proof)`.** The proof is produced out of
+band by the approval UI or CLI and checked by an injected `ProofVerifier`; the Guard holds no
+key. For `approve`, in this order and before any proof is spent:
+
+1. not expired; the stored row still hashes to its `action_hash`;
+2. `policy_digest` and `invariants_digest` equal the current ones; same engine and catalog;
+3. main is still on `base_snapshot_id`; the branch still ends at `head_snapshot_id`;
+4. the SQL is re-classified and `policy.decide` is re-run with the *stored* scope and the
+   re-measured impact; only ASK or ALLOW_VIA_BRANCH may continue (DENY, or anything else, is
+   stale); pre-publish invariants are re-evaluated;
+5. the row diff recomputed from the two snapshots has the stored `diff_digest`
+   (maintenance: re-planning gives the stored plan digest, and the retention rules still pass).
+
+Any miss ends the action as `stale` (`Outcome.STALE`, reasons say which) and drops the
+branch. Then the proof is spent in the same transaction that moves the action to
+`publishing`, and the recorded head is published by snapshot id and verified exactly as in the
+synchronous path. A proof that was used before raises `ProofRejected` and changes nothing.
+`reject` verifies the proof, spends it, and drops the branch. Unexpected errors after the claim
+leave the action in `publishing` for `reconcile`.
+
+**`Guard.reconcile()`** (call it when the UI or MCP server starts) settles `publishing` rows a
+crash left behind, older than a grace period (default 2 minutes, so a live process is not
+second-guessed). For a write: main on `head` runs the post-publish checks (`published`, or
+rolled back to `base` and `failed`); main on `base` is `failed`; main on a later snapshot that
+has `head` in its history is verified without any rollback (`published`, or `needs_attention`);
+anything else is `needs_attention`. A pointer move (rollback, fast-forward) is judged by whether main
+is on its target or its start; expiring snapshots or removing orphan files cannot be told apart from a
+half-done run and always need attention. `Guard.expire_pending(now)` expires pending actions
+past `expires_at` (default 24 hours after creation) and drops their `sqlguard-` branches.
+A branch orphaned by a crash between creating it and saving the action is not swept: a branch
+has no creation time, and dropping an in-flight one would break a running submission.
+
+### Row diff
+
+`impact.compute_row_diff(table, base_snapshot_id, head_snapshot_id, ...)` extends the impact
+measurement with a reviewable, fingerprinted list of changed rows, always base to head. Rows are
+matched with a keyed DuckDB FULL OUTER JOIN using `IS DISTINCT FROM` per column; the key is
+`table_key(table)`: the Iceberg identifier fields, else the policy's `unique_key`, else no key
+(whole rows compared as multisets with `EXCEPT ALL` in both directions, labelled `unkeyed`; a
+modified row is then one deleted plus one added row). A key that is NULL or repeated on either
+side is not used, and `key_note` says so. At most 200 rows are listed; the totals and the digest
+cover all of them.
+
+The statement's `WHERE` is pushed into both scans only when that cannot hide a changed row:
+a lone `DELETE`, or an `UPDATE` that does not assign any column its `WHERE` reads, whose
+predicate is plain column-versus-literal comparisons joined by AND/OR. Otherwise the whole table
+is read. The result and digest are the same either way. Each snapshot is limited to 1,000,000
+rows and 256 MB (checked from file metadata before reading, and again on the data); above that
+the diff raises `DiffTooLarge` ("table too large to diff") instead of showing a partial one.
 
 ### CLI registry
 
