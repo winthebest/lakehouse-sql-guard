@@ -261,7 +261,7 @@ def test_guarded_retention_violation_is_denied_before_any_approval(world):
     assert len(capture_state(world).table("db.orders").lineage_ids) == 8
 
 
-def test_guarded_without_an_approver_reports_needs_approval(world):
+def test_guarded_without_an_approver_or_a_store_reports_needs_approval(world):
     result = guarded(world).call(
         "expire_snapshots",
         {"table": "orders", "older_than": "2026-10-01T00:00:00Z", "retain_last": 5},

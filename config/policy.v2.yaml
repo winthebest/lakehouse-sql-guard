@@ -1,0 +1,98 @@
+# Safety policy v2 for the Lakehouse SQL Guard.
+#
+# Same shape as policy.example.yaml (v1, which keeps its behaviour), plus two rules:
+#
+#   environments        namespace -> dev | prod. A write to a prod namespace needs approval whatever
+#                       its size or class: a one-row UPDATE of prod.orders is `ask`, not
+#                       `allow_via_branch`. Namespaces that are not listed behave as prod unless
+#                       `default_environment: dev` is set. Reads are not affected.
+#   require_table_key   an UPDATE or MERGE on a table that has neither Iceberg identifier fields nor
+#                       an `invariants.tables.<t>.unique_key` is `ask` with the reason "unkeyed
+#                       diff": without a key the reviewer sees each updated row as one deleted and
+#                       one added row. Give your tables a key (below) to keep small updates automatic.
+#
+# Every key is optional; unknown keys are rejected so a typo cannot silently weaken the policy.
+# Serve the approval UI/CLI with the same file as the MCP server: an action decided under a
+# different policy ends `stale`.
+version: 2
+
+# Namespace applied to bare table names such as `orders` -> `db.orders`.
+default_namespace: db
+
+# Decision per reversibility class (allow | allow_via_branch | ask | deny).
+# unknown and out_of_scope must stay deny, and irreversible must be ask or deny.
+class_decisions:
+  read: allow
+  reversible_write: allow_via_branch
+  risky_write: ask
+  schema_breaking: ask
+  irreversible: ask
+  out_of_scope: deny
+  unknown: deny
+
+# Tables an agent may read but never modify, regardless of task scope.
+protected_tables:
+  - customers_pii
+
+# Minimum history that expire_snapshots / remove_orphan_files must leave intact.
+# A violation is a hard deny, not an approval request.
+retention:
+  default:
+    min_snapshot_age_days: 7   # older_than must be at least this many days ago
+    min_snapshots: 1           # retain_last must be at least this many
+    min_orphan_age_days: 3     # orphan-file cleanup must not touch files younger than this
+  tables:
+    orders:
+      min_snapshot_age_days: 30
+      min_snapshots: 5
+
+# Blast-radius limits. Evaluated after a dry run on a branch measures rows affected
+# (Classification.with_impact); a DELETE/UPDATE/MERGE over a limit is escalated to risky_write.
+thresholds:
+  max_affected_row_pct: 10
+  max_affected_rows: null
+
+# Invariants every change must satisfy on the audit branch before it is published, and that are
+# checked again on main afterwards (a failure there rolls the publish back). Table entries
+# override the default field by field. Omit a setting to not check it.
+invariants:
+  default:
+    max_delete_pct: 50         # at most this % of existing rows may be deleted
+    max_row_decrease_pct: 50   # net row count may not shrink by more than this %
+    min_rows: 1                # the table must keep at least this many rows
+  tables:
+    orders:
+      max_delete_pct: 10
+      not_null: [id]           # columns that must contain no NULL
+      unique_key: [id]         # columns that must be unique; also lets the impact report count modified rows
+    prod.orders:
+      max_delete_pct: 10
+      not_null: [id]
+      unique_key: [id]         # a key also gives the reviewer a row-by-row diff of every prod write
+    prod.customers:
+      unique_key: [id]
+    # keys for the other tables, so a small UPDATE of them still diffs row by row
+    orders_staging:
+      unique_key: [id]
+    customers:
+      unique_key: [id]
+    events:
+      unique_key: [event_id]
+    customers_pii:
+      unique_key: [customer_id]
+
+# Which namespaces are production. Every write there is asked about; `dev` is the same as v1.
+# A namespace that is not listed here counts as `prod` too (a namespace added later fails
+# closed); add `default_environment: dev` to make unlisted namespaces dev instead.
+# Names are matched without regard to case.
+environments:
+  db: dev
+  prod: prod
+
+# Ask instead of publishing an UPDATE/MERGE whose diff cannot be paired by a key.
+require_table_key: true
+
+# Default task scope, used when the caller does not pass one. Empty scope allows no table.
+task_scope:
+  allowed_namespaces:
+    - db

@@ -56,7 +56,13 @@ _TOP_LEVEL_KEYS = {
     "thresholds",
     "task_scope",
     "invariants",
+    "environments",
+    "default_environment",
+    "require_table_key",
 }
+ENVIRONMENTS = frozenset({"dev", "prod"})
+# statements whose result a reviewer can only follow row by row when the table has a key
+_KEY_PAIRED_VERBS = frozenset({"UPDATE", "MERGE"})
 
 
 class PolicyError(ValueError):
@@ -134,6 +140,15 @@ class Policy:
     thresholds: Thresholds = field(default_factory=Thresholds)
     task_scope: TaskScope | None = None
     invariants: InvariantsConfig = field(default_factory=InvariantsConfig)
+    # namespace -> "dev" | "prod". Every write to a prod namespace needs approval, whatever its
+    # size or class. A namespace that is not listed gets `default_environment`; unset, that is
+    # prod once any environment is listed (a namespace added later fails closed), and dev for a
+    # policy with no `environments` at all (v1 behaviour).
+    environments: dict[str, str] = field(default_factory=dict)
+    default_environment: str | None = None
+    # An UPDATE or MERGE on a table without a key is shown to a reviewer as deleted plus added
+    # rows, so it is not published without one ("unkeyed diff").
+    require_table_key: bool = False
     version: str | None = None  # a label for humans; it takes no part in `digest`
 
     @property
@@ -155,7 +170,7 @@ class Policy:
                 "allowed_namespaces": sorted(s.allowed_namespaces),
             }
 
-        return {
+        canonical = {
             "default_namespace": self.default_namespace,
             "class_decisions": {k.value: v.value for k, v in sorted(self.class_decisions.items())},
             "protected_tables": sorted(self.protected_tables),
@@ -168,6 +183,16 @@ class Policy:
                 "tables": {t: asdict(i) for t, i in sorted(self.invariants.tables.items())},
             },
         }
+        # only when set, so a policy without them keeps the digest it always had
+        if self.environments:
+            canonical["environments"] = dict(sorted(self.environments.items()))
+        if self.environments or self.default_environment is not None:
+            # also alone: it decides every namespace once environments are added, and a waiting
+            # action must go stale when it is switched
+            canonical["default_environment"] = self.effective_default_environment
+        if self.require_table_key:
+            canonical["require_table_key"] = True
+        return canonical
 
     def __post_init__(self) -> None:
         decisions = self.class_decisions
@@ -178,6 +203,11 @@ class Policy:
             raise PolicyError("unknown and out_of_scope must be deny (the guard fails closed)")
         if decisions[C.IRREVERSIBLE] not in (Decision.ASK, Decision.DENY):
             raise PolicyError("irreversible must be ask or deny; it can never be auto-allowed")
+        bad = {ns: env for ns, env in self.environments.items() if env not in ENVIRONMENTS}
+        if bad:
+            raise PolicyError(f"environments must map to one of {sorted(ENVIRONMENTS)}: {bad}")
+        if self.default_environment is not None and self.default_environment not in ENVIRONMENTS:
+            raise PolicyError(f"default_environment must be one of {sorted(ENVIRONMENTS)}")
 
     # -- loading -------------------------------------------------------------------------------
 
@@ -238,6 +268,9 @@ class Policy:
             thresholds=_thresholds(_mapping(data, "thresholds")),
             task_scope=scope,
             invariants=_invariants(data.get("invariants"), namespace),
+            environments=_environments(data),
+            default_environment=_default_environment(data),
+            require_table_key=_flag(data, "require_table_key"),
             version=None if data.get("version") is None else str(data["version"]),
         )
 
@@ -304,7 +337,52 @@ class Policy:
             reasons.extend(f"retention violation: {v}" for v in violations)
 
         decision = Decision.DENY if forced_deny else self.class_decisions[klass]
+        if decision in _AUTO and klass is not C.READ:
+            for reason in self._approval_rules(stmt, impact):
+                decision = Decision.ASK
+                reasons.append(reason)
         return StatementDecision(stmt.index, klass, decision, tuple(reasons))
+
+    def _approval_rules(self, stmt: StatementClass, impact: Impact | None) -> list[str]:
+        """Why a write that the class would let through still needs a person."""
+        why = []
+        production = [t for t in stmt.write_tables if self.environment_of(t) == "prod"]
+        if production:
+            why.append(f"writes to production always need approval: {', '.join(production)}")
+        if (
+            self.require_table_key
+            and stmt.verb in _KEY_PAIRED_VERBS
+            and impact is not None
+            and impact.keyed is False
+            and impact.rows_affected != 0
+        ):
+            why.append(
+                "unkeyed diff: the table has neither identifier fields nor a unique_key, so a "
+                "reviewer would see each updated row as one deleted and one added row"
+            )
+        return why
+
+    @property
+    def effective_default_environment(self) -> str:
+        if self.default_environment is not None:
+            return self.default_environment
+        return "prod" if self.environments else "dev"
+
+    def environment_of(self, table: str) -> str:
+        """The environment of `table`: prod if any namespace part is a listed production
+        namespace, else dev if one is listed as dev, else the default. Matching ignores case, as
+        the classifier does for unquoted names."""
+        if not self.environments:
+            return self.effective_default_environment
+        namespace = table.rsplit(".", 1)[0] if "." in table else self.default_namespace
+        found = {
+            self.environments[p]
+            for p in (namespace.lower(), *namespace.lower().split("."))
+            if p in self.environments
+        }
+        if "prod" in found:
+            return "prod"
+        return "dev" if "dev" in found else self.effective_default_environment
 
     def _impact_exceeded(self, impact: Impact) -> str:
         """Return why the measured impact is over a limit, or '' when within limits."""
@@ -318,6 +396,9 @@ class Policy:
 
 
 # -- helpers -----------------------------------------------------------------------------------
+
+
+_AUTO = frozenset({Decision.ALLOW, Decision.ALLOW_VIA_BRANCH})
 
 
 def _aware(moment: datetime) -> datetime:
@@ -398,6 +479,30 @@ def _retention_rule(cfg: Mapping[str, Any], base: RetentionRule) -> RetentionRul
             cfg.get("min_orphan_age_days", base.min_orphan_age_days), "min_orphan_age_days"
         ),
     )
+
+
+def _environments(data: Mapping[str, Any]) -> dict[str, str]:
+    mapping = _mapping(data, "environments")
+    namespace_names = [str(ns).strip().lower() for ns in mapping]
+    if len(set(namespace_names)) != len(namespace_names):
+        raise PolicyError("environments lists a namespace twice")
+    return {str(ns).strip().lower(): str(env).strip().lower() for ns, env in mapping.items()}
+
+
+def _default_environment(data: Mapping[str, Any]) -> str | None:
+    value = data.get("default_environment")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PolicyError("default_environment must be dev or prod")
+    return value.strip().lower()
+
+
+def _flag(data: Mapping[str, Any], key: str) -> bool:
+    value = data.get(key, False)
+    if not isinstance(value, bool):
+        raise PolicyError(f"{key} must be true or false")
+    return value
 
 
 def _invariants(cfg: Any, namespace: str) -> InvariantsConfig:

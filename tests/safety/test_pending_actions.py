@@ -500,13 +500,13 @@ def test_the_tool_backend_reports_a_queued_action_with_its_id(pguard, orders, sc
 
     backend = GuardedBackend(pguard, scope)
     result = backend.call("run_sql", {"sql": RISKY})
-    assert result.status == "needs_approval" and result.payload["outcome"] == "awaiting_approval"
+    assert result.status == "pending_approval" and result.payload["outcome"] == "awaiting_approval"
     action_id = result.payload["action_id"]
     assert pguard.store.get(action_id).state is A.PENDING
     assert result.guard["action_id"] == action_id
     assert "waiting for a reviewer" in result.payload["message"]
     assert "action_hash" not in result.payload and "action_hash" not in result.guard
-    # a guard without a store reports the same status and no id
+    # a guard without a store saved nothing: it keeps the older status, and has no id
     plain = GuardedBackend(Guard(orders, audit_path=pguard.audit.path), scope)
     waiting = plain.call("run_sql", {"sql": RISKY})
     assert waiting.status == "needs_approval" and "action_id" not in waiting.payload

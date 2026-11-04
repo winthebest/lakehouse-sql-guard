@@ -16,6 +16,18 @@ Conditions:
     guarded  every call goes through `Guard.submit`. Approval requests are answered by a scripted
              approver per prompt that approves only the actions listed in the prompt's
              `expected.approve` and rejects everything else.
+    guarded-pending
+             the flow the MCP server offers. An action that needs approval is rehearsed, saved in
+             an action store and reported to the agent as `pending_approval`; the agent may call
+             `get_action_status` but cannot decide anything. When the agent ends its turn the
+             harness resolves each action it left pending with the same decision table as the
+             scripted approver (`Guard.resolve`), then scores the tables. An action that went
+             stale because an earlier one changed the table counts as what it is: not applied.
+
+`--policy PATH` picks the policy file for every condition (default `config/policy.example.yaml`);
+a replay must be given the policy the transcripts were recorded with. `--pilot` plays one prompt
+of each label once and prints what the whole run would cost, without running it; `--budget USD`
+stops a live run as soon as its cost passes the limit.
 """
 
 from __future__ import annotations
@@ -27,7 +39,7 @@ import re
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -49,6 +61,7 @@ from bench.safety.agent import (
 )
 from bench.safety.fixtures import POLICY_PATH, SIM_NOW, World, capture_state, temp_world
 from bench.safety.prompt_spec import (
+    LABELS,
     Prompt,
     PromptError,
     ScriptedApprover,
@@ -56,12 +69,30 @@ from bench.safety.prompt_spec import (
 )
 from bench.safety.scorer import RunEvidence, RunScore, ScoredRun, ToolEvent, score_run, summarize
 from bench.safety.state import StateSnapshot
-from sqlguard.safety.tools import GuardedBackend, RawBackend, ToolBackend
+from sqlguard.safety import (
+    ActionStore,
+    Policy,
+    PolicyError,
+    ProofRequest,
+    SqlAction,
+    classify,
+)
+from sqlguard.safety.guard import PendingActionError
+from sqlguard.safety.store import ActionRecord, StoreError, decode_action
+from sqlguard.safety.tools import (
+    GuardedBackend,
+    RawBackend,
+    ToolBackend,
+    ToolResult,
+    action_to_dict,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = ROOT / "results" / "safety"
 TRANSCRIPT_DIR = ROOT / "transcripts" / "safety"
-CONDITIONS = ("raw", "guarded")
+CONDITIONS = ("raw", "guarded", "guarded-pending")
+DEFAULT_CONDITIONS = ("raw", "guarded")  # what `--condition both` means
+PENDING = "guarded-pending"
 SCHEMA_VERSION = 2
 
 
@@ -75,7 +106,129 @@ def make_backend(condition: str, world: World, prompt: Prompt) -> ToolBackend:
     if condition == "guarded":
         approver = ScriptedApprover(prompt.id, prompt.approve)
         return GuardedBackend(world.guard(), prompt.task_scope.to_scope(), approver)
+    if condition == PENDING:
+        # as in the MCP server: a store, a fixed requester, no approver and no proof verifier
+        guard = world.guard(store=_store(world), requester=_AGENT)
+        return GuardedBackend(guard, prompt.task_scope.to_scope())
     raise ValueError(f"unknown condition {condition!r}")
+
+
+_AGENT = "bench-agent"
+
+
+def _store(world: World) -> ActionStore:
+    return ActionStore(world.root / "actions.db")
+
+
+class _ScriptedProofs:
+    """Accepts exactly the proof the harness mints for its own scripted decision."""
+
+    @staticmethod
+    def proof(action_id: str, decision: str) -> str:
+        return f"scripted:{action_id}:{decision}"
+
+    def verify(self, request: ProofRequest, proof: str) -> bool:
+        return proof == self.proof(request.action_id, request.decision)
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """How the harness settled one action the agent left pending."""
+
+    action_id: str
+    decision: str  # approve | reject
+    outcome: str  # the guard outcome, or why it could not be decided
+    action: dict[str, Any]
+    reasons: tuple[str, ...] = ()
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "type": "resolution",
+            "action_id": self.action_id,
+            "decision": self.decision,
+            "outcome": self.outcome,
+            "action": self.action,
+            "reasons": list(self.reasons),
+        }
+
+
+def settle_pending(
+    condition: str, world: World, prompt: Prompt, results: Sequence[ToolResult]
+) -> list[Resolution]:
+    """Decide the actions the agent left pending, in the order it submitted them.
+
+    The decision is the scripted approver's: approve exactly what `expected.approve` lists,
+    reject the rest. Nothing is decided for any other condition.
+    """
+    if condition != PENDING:
+        return []
+    store = _store(world)
+    approver = ScriptedApprover(prompt.id, prompt.approve)
+    reviewer = world.guard(store=store, proof_verifier=_ScriptedProofs(), requester=_AGENT)
+    resolutions: list[Resolution] = []
+    seen: set[str] = set()
+    for result in results:
+        action_id = (result.guard or {}).get("action_id")
+        if result.status != "pending_approval" or not action_id or action_id in seen:
+            continue
+        seen.add(action_id)
+        record = store.get(action_id)
+        if record is None:
+            resolutions.append(Resolution(action_id, "reject", "missing", {}))
+            continue
+        action = _action_of(record)
+        tables = (
+            (record.table,)
+            if record.maintenance_json
+            else classify(action, world.catalog).write_tables
+        )
+        decision = "approve" if approver.decides(action, tables) else "reject"
+        try:
+            decided = reviewer.resolve(
+                action_id,
+                decision,  # type: ignore[arg-type]
+                approver.approver_id,
+                _ScriptedProofs.proof(action_id, decision),
+            )
+            outcome, reasons = decided.outcome.value, tuple(decided.reasons)
+        except (PendingActionError, StoreError) as err:
+            outcome, reasons = type(err).__name__, (str(err),)
+        resolutions.append(
+            Resolution(action_id, decision, outcome, action_to_dict(action), reasons)
+        )
+    return resolutions
+
+
+def _action_of(record: ActionRecord):
+    maintenance = record.maintenance_data
+    if maintenance is not None:
+        return decode_action(maintenance["action"])
+    return SqlAction(record.sql_normalized or "", record.dialect)
+
+
+def events_with_resolutions(
+    results: Sequence[tuple[ToolResult, float]], resolutions: Sequence[Resolution]
+) -> list[ToolEvent]:
+    """The run's tool events; a call that left an action pending carries how it was settled.
+
+    The settlement goes where an approver's answer would: `approvals`, so the scorer counts a
+    scripted approval or rejection the same way in both approval conditions.
+    """
+    by_id = {r.action_id: r for r in resolutions}
+    events = []
+    for result, elapsed in results:
+        record = {**result.to_dict(), "elapsed_s": elapsed}
+        resolution = by_id.get((result.guard or {}).get("action_id") or "")
+        if resolution is not None and result.status == "pending_approval":
+            record["approvals"] = [
+                {
+                    "action": resolution.action,
+                    "approved": resolution.decision == "approve",
+                    "resolved_as": resolution.outcome,
+                }
+            ]
+        events.append(ToolEvent.from_record(record))
+    return events
 
 
 def _sha256(text: str) -> str:
@@ -109,6 +262,8 @@ class LiveConfig:
     conditions: tuple[str, ...]
     runs: int
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS
+    policy: Path = POLICY_PATH
+    budget_usd: float | None = None  # stop the run once its cost reaches this
 
 
 def _score(
@@ -135,7 +290,7 @@ def execute_run(
     """One prompt, one condition, one run index, against a fresh warehouse."""
     writer = TranscriptWriter(transcript)
     try:
-        with temp_world(prompt.setup) as world:
+        with temp_world(prompt.setup, config.policy) as world:
             before = capture_state(world, prompt.probes())
             backend = make_backend(condition, world, prompt)
             system_text = system_prompt(world.now)
@@ -157,7 +312,7 @@ def execute_run(
                     "max_tokens": MAX_TOKENS,
                     "effort": EFFORT,
                     "sdk_version": sdk_version(),
-                    "policy_sha256": _sha256(POLICY_PATH.read_text(encoding="utf-8")),
+                    "policy_sha256": _sha256(config.policy.read_text(encoding="utf-8")),
                 }
             )
             agent = run_agent(
@@ -169,11 +324,13 @@ def execute_run(
                 writer.emit,
                 max_tool_calls=config.max_tool_calls,
             )
+            resolutions = settle_pending(
+                condition, world, prompt, [result for result, _ in agent.results]
+            )
+            for resolution in resolutions:
+                writer.emit(resolution.to_record())
             after = capture_state(world, prompt.probes())
-            events = [
-                ToolEvent.from_record({**result.to_dict(), "elapsed_s": elapsed})
-                for result, elapsed in agent.results
-            ]
+            events = events_with_resolutions(agent.results, resolutions)
             score = _score(prompt, world, events, agent.final_text, before, after)
             cost = cost_usd(model, agent.usage)
             writer.emit(
@@ -237,6 +394,7 @@ def play(
     calls: Sequence[dict[str, Any]],
     final_text: str,
     source: str = "",
+    policy: Path | str = POLICY_PATH,
 ) -> tuple[RunScore, list[ToolEvent], list[str]]:
     """Execute tool calls on a fresh warehouse and score the result.
 
@@ -245,16 +403,23 @@ def play(
     present, a call whose replayed status or guard outcome differs is reported as drift.
     """
     drift: list[str] = []
-    events: list[ToolEvent] = []
-    with temp_world(prompt.setup) as world:
+    results: list[tuple[ToolResult, float]] = []
+    ids: dict[str, str] = {}  # action id in the recording -> action id in this replay
+    with temp_world(prompt.setup, policy) as world:
         before = capture_state(world, prompt.probes())
         backend = make_backend(condition, world, prompt)
         for call in calls:
-            result = dispatch(backend, call["name"], call["input"])
+            arguments = call["input"]
+            if call["name"] == "get_action_status" and isinstance(arguments, dict):
+                arguments = {**arguments, "action_id": ids.get(arguments.get("action_id"), "")}
+            result = dispatch(backend, call["name"], arguments)
+            results.append((result, call.get("elapsed_s", 0.0)))
+            recorded_id = (call.get("result") or {}).get("action_id")
+            if recorded_id and (result.guard or {}).get("action_id"):
+                ids[recorded_id] = result.guard["action_id"]
             event = ToolEvent.from_record(
                 {**result.to_dict(), "elapsed_s": call.get("elapsed_s", 0.0)}
             )
-            events.append(event)
             recorded = call.get("status")
             recorded_outcome = (call.get("guard") or {}).get("outcome")
             if recorded is not None and (event.status, event.guard_outcome) != (
@@ -265,13 +430,18 @@ def play(
                     f"{source} step {call.get('step')} {call['name']}: recorded "
                     f"{recorded}/{recorded_outcome}, replayed {event.status}/{event.guard_outcome}"
                 )
+        resolutions = settle_pending(condition, world, prompt, [r for r, _ in results])
         after = capture_state(world, prompt.probes())
+        events = events_with_resolutions(results, resolutions)
         score = _score(prompt, world, events, final_text, before, after)
     return score, events, drift
 
 
 def replay_run(
-    records: list[dict[str, Any]], prompts: dict[str, Prompt], source: str
+    records: list[dict[str, Any]],
+    prompts: dict[str, Prompt],
+    source: str,
+    policy: Path = POLICY_PATH,
 ) -> tuple[ScoredRun, list[str], dict[str, Any]]:
     """Re-execute the recorded tool_use calls on a fresh warehouse and score the outcome.
 
@@ -310,7 +480,12 @@ def replay_run(
         if block is None:
             raise ReplayError(f"{source}: tool call {record['call_id']} has no tool_use block")
         calls.append({**record, "name": block["name"], "input": block["input"]})
-    score, events, drift = play(prompt, condition, calls, end.get("final_text") or "", source)
+    score, events, drift = play(
+        prompt, condition, calls, end.get("final_text") or "", source, policy
+    )
+    recorded_policy = start.get("policy_sha256")
+    if recorded_policy and recorded_policy != _sha256(policy.read_text(encoding="utf-8")):
+        drift.append(f"{source}: replayed under a policy other than the one recorded")
     if end.get("score") and end["score"]["category"] != score.category:
         drift.append(
             f"{source}: recorded category {end['score']['category']}, replayed {score.category}"
@@ -402,7 +577,11 @@ def write_results(
 
 
 def replay(
-    transcript_dir: Path, prompts: list[Prompt], split: str, out_dir: Path
+    transcript_dir: Path,
+    prompts: list[Prompt],
+    split: str,
+    out_dir: Path,
+    policy: Path = POLICY_PATH,
 ) -> tuple[Path, Path, str, list[str]]:
     files = sorted(transcript_dir.rglob("*.jsonl"))
     if not files:
@@ -412,7 +591,9 @@ def replay(
     reported: dict[str, set[str]] = defaultdict(set)
     for path in files:
         records = read_transcript(path)
-        scored, run_drift, start = replay_run(records, by_id, str(path.relative_to(transcript_dir)))
+        scored, run_drift, start = replay_run(
+            records, by_id, str(path.relative_to(transcript_dir)), policy
+        )
         runs.append(scored)
         starts.append(start)
         drift += run_drift
@@ -436,6 +617,18 @@ def replay(
 # -- live ----------------------------------------------------------------------------------------
 
 
+def _shown(path: Path) -> str:
+    """`path` for a results file: relative to the repository, or just its name; never absolute."""
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
+class BudgetExceeded(RuntimeError):
+    """A live run reached its `--budget`; what was played so far is reported."""
+
+
 def run_live(
     config: LiveConfig,
     prompts: list[Prompt],
@@ -451,32 +644,130 @@ def run_live(
     total_cost = 0.0
     total = len(config.models) * len(config.conditions) * config.runs * len(prompts)
     done = 0
+    try:
+        for model in config.models:
+            client = client_factory()
+            for condition in config.conditions:
+                for run_index in range(1, config.runs + 1):
+                    for prompt in prompts:
+                        if config.budget_usd is not None and total_cost >= config.budget_usd:
+                            raise BudgetExceeded(
+                                f"spent ${total_cost:.4f} of the ${config.budget_usd:.2f} budget "
+                                f"after {done} of {total} runs"
+                            )
+                        done += 1
+                        path = (
+                            transcript_root
+                            / tag
+                            / _slug(model)
+                            / condition
+                            / f"{prompt.id}__run{run_index}.jsonl"
+                        )
+                        path.unlink(missing_ok=True)
+                        scored = execute_run(
+                            prompt, condition, client, model, run_index, config, path
+                        )
+                        runs.append(scored)
+                        start = read_transcript(path)
+                        starts.append(start[0])
+                        for record in start:
+                            if record.get("type") == "run_end":
+                                reported[model].update(record.get("reported_models") or ())
+                        total_cost += scored.cost_usd or 0.0
+                        log(_progress(done, total, model, condition, scored, total_cost, config))
+    except BudgetExceeded as err:
+        log(f"STOPPED: {err}")
+    return write_results(
+        out_dir,
+        tag,
+        runs,
+        prompts,
+        starts,
+        reported,
+        [],
+        _shown(transcript_root / tag),
+        config.split,
+    )[0:3]
+
+
+# -- cost pilot ----------------------------------------------------------------------------------
+
+
+def pilot_sample(prompts: Sequence[Prompt]) -> list[Prompt]:
+    """The first prompt of each label: a benign, a risky and an ambiguous one."""
+    first: dict[str, Prompt] = {}
+    for prompt in prompts:
+        first.setdefault(prompt.label, prompt)
+    return [first[label] for label in LABELS if label in first]
+
+
+def run_pilot(
+    config: LiveConfig,
+    prompts: list[Prompt],
+    client_factory: Callable[[], Any],
+    transcript_root: Path,
+    tag: str,
+    log: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Play one run of a small sample, then say what the whole planned run would cost.
+
+    The estimate is the measured mean cost of a run per model and condition times the number of
+    runs planned (prompts x runs). It is an extrapolation from a few runs, not a bound.
+    """
+    sample = pilot_sample(prompts)
+    one = replace(config, runs=1)
+    spent = 0.0
+    per_group: dict[tuple[str, str], list[float]] = defaultdict(list)
+    unknown = False
     for model in config.models:
         client = client_factory()
         for condition in config.conditions:
-            for run_index in range(1, config.runs + 1):
-                for prompt in prompts:
-                    done += 1
-                    path = (
-                        transcript_root
-                        / tag
-                        / _slug(model)
-                        / condition
-                        / f"{prompt.id}__run{run_index}.jsonl"
-                    )
-                    path.unlink(missing_ok=True)
-                    scored = execute_run(prompt, condition, client, model, run_index, config, path)
-                    runs.append(scored)
-                    start = read_transcript(path)
-                    starts.append(start[0])
-                    for record in start:
-                        if record.get("type") == "run_end":
-                            reported[model].update(record.get("reported_models") or ())
-                    total_cost += scored.cost_usd or 0.0
-                    log(_progress(done, total, model, condition, scored, total_cost, config))
-    return write_results(
-        out_dir, tag, runs, prompts, starts, reported, [], str(transcript_root / tag), config.split
-    )[0:3]
+            for prompt in sample:
+                path = transcript_root / tag / _slug(model) / condition / f"{prompt.id}__run1.jsonl"
+                path.unlink(missing_ok=True)
+                scored = execute_run(prompt, condition, client, model, 1, one, path)
+                if scored.cost_usd is None:
+                    unknown = True
+                cost = scored.cost_usd or 0.0
+                spent += cost
+                per_group[(model, condition)].append(cost)
+                log(
+                    f"pilot {model} {condition} {prompt.id}: {scored.score.category}, "
+                    f"${cost:.4f}" + (f" ERROR {scored.error[:60]}" if scored.error else "")
+                )
+    planned = len(prompts) * config.runs
+    groups = {
+        f"{model}/{condition}": {
+            "mean_cost_per_run": sum(costs) / len(costs),
+            "runs_planned": planned,
+            "estimated_cost": sum(costs) / len(costs) * planned,
+        }
+        for (model, condition), costs in per_group.items()
+    }
+    estimate = sum(g["estimated_cost"] for g in groups.values())
+    return {
+        "pilot_runs": sum(len(c) for c in per_group.values()),
+        "pilot_cost": spent,
+        "groups": groups,
+        "estimated_total": estimate,
+        "cost_unknown": unknown,
+    }
+
+
+def format_pilot(result: dict[str, Any]) -> str:
+    lines = [
+        f"pilot: {result['pilot_runs']} runs cost ${result['pilot_cost']:.4f}",
+        "estimated cost of the full run (mean cost per run x runs planned):",
+    ]
+    for name, group in sorted(result["groups"].items()):
+        lines.append(
+            f"  {name}: ${group['mean_cost_per_run']:.4f} per run x {group['runs_planned']} runs"
+            f" = ${group['estimated_cost']:.2f}"
+        )
+    lines.append(f"estimated total: ${result['estimated_total']:.2f}")
+    if result["cost_unknown"]:
+        lines.append("WARNING: a model has no entry in the price table; its cost counts as 0")
+    return "\n".join(lines)
 
 
 def _progress(
@@ -516,13 +807,35 @@ def build_parser() -> argparse.ArgumentParser:
             f"Main: {MAIN_MODEL}; cheaper comparison: {COMPARISON_MODEL}"
         ),
     )
-    parser.add_argument("--condition", choices=[*CONDITIONS, "both"], default="both")
+    parser.add_argument(
+        "--condition",
+        choices=[*CONDITIONS, "both", "all"],
+        default="both",
+        help="both = raw + guarded (default); all = raw + guarded + guarded-pending",
+    )
     parser.add_argument("--runs", type=int, default=3, help="runs per prompt and condition")
     parser.add_argument("--split", default="dev", help="prompt split (dev, holdout) or a YAML path")
     parser.add_argument(
         "--only", action="append", metavar="PROMPT_ID", help="run only these prompts"
     )
     parser.add_argument("--max-tool-calls", type=int, default=DEFAULT_MAX_TOOL_CALLS)
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        default=POLICY_PATH,
+        help="policy file for every condition; a replay needs the one the run was recorded with",
+    )
+    parser.add_argument(
+        "--pilot",
+        action="store_true",
+        help="play one prompt per label once and print the estimated cost of the full run",
+    )
+    parser.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="stop a live run once its cost reaches this amount",
+    )
     parser.add_argument(
         "--replay", type=Path, metavar="TRANSCRIPT_DIR", help="re-score; needs no credentials"
     )
@@ -547,11 +860,15 @@ def main(
             parser.error(f"unknown prompt ids: {unknown}")
         prompts = [p for p in prompts if p.id in set(args.only)]
     split = Path(args.split).stem
+    try:
+        Policy.load(args.policy)
+    except PolicyError as err:
+        parser.error(str(err))
 
     if args.replay is not None:
         try:
             json_path, md_path, markdown, drift = replay(
-                args.replay, prompts, split, args.results_dir
+                args.replay, prompts, split, args.results_dir, args.policy
             )
         except ReplayError as err:
             print(f"replay failed: {err}", file=sys.stderr)
@@ -566,14 +883,35 @@ def main(
         parser.error("--model is required for a live run")
     if args.runs < 1 or args.max_tool_calls < 1:
         parser.error("--runs and --max-tool-calls must be at least 1")
+    if args.budget is not None and args.budget <= 0:
+        parser.error("--budget must be positive")
+    conditions = {"both": DEFAULT_CONDITIONS, "all": CONDITIONS}.get(
+        args.condition, (args.condition,)
+    )
     config = LiveConfig(
         split=split,
         models=tuple(args.model),
-        conditions=CONDITIONS if args.condition == "both" else (args.condition,),
+        conditions=tuple(conditions),
         runs=args.runs,
         max_tool_calls=args.max_tool_calls,
+        policy=args.policy,
+        budget_usd=args.budget,
     )
     tag = f"{split}-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
+    if args.pilot:
+        try:
+            result = run_pilot(
+                config,
+                prompts,
+                client_factory or make_client,
+                args.transcripts_dir,
+                f"pilot-{tag}",
+            )
+        except FatalModelError as err:
+            print(f"stopped: {err}", file=sys.stderr)
+            return 2
+        print(format_pilot(result))
+        return 0
     try:
         json_path, md_path, markdown = run_live(
             config,

@@ -233,11 +233,15 @@ def test_mcp_serves_a_catalog_from_pyiceberg_yaml(home: Path, warehouse: Path, t
 
     write_pyiceberg_yaml(home, warehouse)
     audit = tmp_path / "audit.jsonl"
-    tools = build_tools(ServerConfig(catalog=NAME, audit_log=audit, spec_dir=Path(SPEC).parent))
+    store = tmp_path / "actions.db"
+    config = ServerConfig(catalog=NAME, audit_log=audit, store=store, spec_dir=Path(SPEC).parent)
+    tools = build_tools(config)
     assert tools.warehouse is None
     assert tools.backend.catalog.table_names() == ["orders"]
     with pytest.raises(ConfigError, match="--audit-log is required"):
         build_tools(ServerConfig(catalog=NAME))
+    with pytest.raises(ConfigError, match="--store is required"):
+        build_tools(ServerConfig(catalog=NAME, audit_log=audit))
     with pytest.raises(ConfigError, match="cannot open catalog"):
         build_tools(ServerConfig(catalog="missing", audit_log=audit))
     # without a local warehouse a client cannot point the leakage check at one

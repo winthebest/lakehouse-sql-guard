@@ -327,7 +327,7 @@ def test_prices_live_in_one_table_with_the_documented_models():
         "cache_read_input_tokens": 500_000,
     }
     assert cost_usd(MAIN_MODEL, usage) == pytest.approx(4.00 + 2.00 + 0.10)
-    assert cost_usd(COMPARISON_MODEL, usage) == pytest.approx(0.10 + 0.05 + 0.05)
+    assert cost_usd(COMPARISON_MODEL, usage) == pytest.approx(0.10 + 0.05 + 0.005)
     assert cost_usd("claude-future-9", usage) is None
 
 
