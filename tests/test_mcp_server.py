@@ -28,6 +28,7 @@ from sqlguard.mcp_server import (
     build_tools,
 )
 from sqlguard.safety import ActionState, ActionStore, Guard, Outcome, Policy, SqlAction, TaskScope
+from sqlguard.safety import tools as tools_module
 from sqlguard.safety.tools import STATUS_TOOL, TOOL_NAMES, TOOL_SPECS
 from tests.leakage.conftest import SPEC
 
@@ -406,6 +407,79 @@ async def test_the_instructions_name_the_new_status_and_the_status_tool() -> Non
     assert STATUS_TOOL in INSTRUCTIONS and "cannot approve" in INSTRUCTIONS
 
 
+# -- bounded output -----------------------------------------------------------------------------
+
+
+def many_statements(count: int) -> str:
+    return "; ".join(f"DELETE FROM orders WHERE id = {i % ROWS + 1}" for i in range(count))
+
+
+@pytest.mark.anyio
+async def test_a_held_action_with_1500_statements_still_returns_a_short_result(
+    client: Client, warehouse: Path
+) -> None:
+    result = await client.call_tool("run_sql", {"sql": many_statements(1500)})
+    structured = result.structured_content
+    assert structured["status"] == "pending_approval"
+    text = result.content[0].text
+    assert len(text) < 6000 and len(json.dumps(structured)) < 12000
+    payload = structured["payload"]
+    assert list(payload)[:3] == ["status", "action_id", "summary"]  # what the agent needs, first
+    reasons = payload["reasons"]
+    assert len(reasons) == tools_module.MAX_REASONS + 1
+    assert reasons[-1].startswith("... and ") and reasons[-1].endswith(" more reasons")
+    assert len(set(reasons)) == len(reasons)
+    assert structured["guard"]["reasons"] == reasons
+    assert current_ids(warehouse) == list(range(1, ROWS + 1))
+
+
+@pytest.mark.anyio
+async def test_any_result_over_the_cap_is_cut_to_its_essentials(
+    client: Client, warehouse: Path
+) -> None:
+    wide = LakehouseCatalog.local(warehouse)
+    wide.create_table(
+        "notes", pa.table({"id": pa.array([1, 2], pa.int64()), "text": ["x" * 30000] * 2})
+    )
+    result = await client.call_tool("run_sql", {"sql": "SELECT * FROM notes"})
+    assert not result.is_error
+    assert len(json.dumps(result.structured_content)) < tools_module.MAX_RESULT_CHARS
+    payload = result.structured_content["payload"]
+    assert payload["status"] == "ok" and "too large to return" in payload["truncated"]
+    assert "rows" not in payload
+
+
+def test_reasons_are_deduplicated_and_counted() -> None:
+    assert tools_module.bounded_reasons(["a", "a", "b"]) == ["a", "b"]
+    many = [f"r{i}" for i in range(25)]
+    shown = tools_module.bounded_reasons(many)
+    assert shown[:10] == many[:10] and shown[10] == "... and 15 more reasons"
+
+
+# -- the status tool's errors --------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_store_failure_is_generic_to_the_agent_and_detailed_in_the_log(
+    client: Client,
+    config: ServerConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from sqlguard.safety.store import StoreError
+
+    def broken(self, action_id):
+        raise StoreError(f"cannot read action {action_id} in {config.store}")
+
+    monkeypatch.setattr(ActionStore, "get", broken)
+    with caplog.at_level("WARNING", logger="sqlguard.tools"):
+        result = await client.call_tool(STATUS_TOOL, {"action_id": "a" * 32})
+    assert result.is_error
+    assert str(config.store) not in json.dumps(result.structured_content)
+    assert "could not be read" in result.content[0].text
+    assert str(config.store) in caplog.text  # the detail stays in the server's log
+
+
 # -- startup housekeeping ------------------------------------------------------------------------
 
 
@@ -567,7 +641,7 @@ def test_store_review_url_and_requester_come_from_flags_then_environment(tmp_pat
             "--store",
             str(tmp_path / "s.db"),
             "--review-url",
-            "https://review.example",
+            "https://localhost:9443",
             "--requester",
             "x",
         ],
@@ -575,7 +649,7 @@ def test_store_review_url_and_requester_come_from_flags_then_environment(tmp_pat
     )
     assert (flagged.store, flagged.review_url, flagged.requester) == (
         tmp_path / "s.db",
-        "https://review.example",
+        "https://localhost:9443",
         "x",
     )
     assert build_config([], {"SQLGUARD_WAREHOUSE": "/w"}).requester == DEFAULT_REQUESTER
@@ -584,9 +658,12 @@ def test_store_review_url_and_requester_come_from_flags_then_environment(tmp_pat
 @pytest.mark.parametrize(
     "flag",
     [
-        ["--review-url", "ftp://host/"],
-        ["--review-url", "http://user:secret@host/"],
-        ["--review-url", "http://host/?token=1"],
+        ["--review-url", "ftp://127.0.0.1/"],
+        ["--review-url", "http://user:secret@127.0.0.1/"],
+        ["--review-url", "http://127.0.0.1/?token=1"],
+        ["--review-url", "http://127.0.0.1/#frag"],
+        ["--review-url", "http://127.0.0.1:99999"],
+        ["--review-url", "http://review.example.com:8765"],
         ["--review-url", "not a url"],
         ["--requester", "   "],
         ["--requester", "x" * 65],
@@ -596,6 +673,44 @@ def test_a_bad_review_url_or_requester_stops_startup(flag: list[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
         build_config(["--warehouse", "/w", *flag], {})
     assert exit_info.value.code == 2
+
+
+SECRET_PREFIX = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"http://127.0.0.1:8765/s/{SECRET_PREFIX}",
+        f"http://127.0.0.1:8765/s/{SECRET_PREFIX}/",
+        f"http://127.0.0.1:8765/s/{SECRET_PREFIX}/login?token=abc",
+        "http://127.0.0.1:8765/anything",
+        f"http://localhost:8765/s/{SECRET_PREFIX}/",
+    ],
+)
+def test_a_review_url_with_a_path_is_refused_and_the_secret_is_not_echoed(
+    url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        build_config(["--warehouse", "/w", "--review-url", url], {})
+    assert exit_info.value.code == 2
+    err = capsys.readouterr().err
+    assert "server address only" in err and "never paste" in err
+    assert SECRET_PREFIX not in err  # the refusal does not repeat what it refuses
+
+
+@pytest.mark.parametrize(
+    ("given", "kept"),
+    [
+        ("http://127.0.0.1:8765", "http://127.0.0.1:8765"),
+        ("http://127.0.0.1:8765/", "http://127.0.0.1:8765"),
+        ("HTTPS://LocalHost:9443", "https://localhost:9443"),
+        ("http://[::1]:8765/", "http://[::1]:8765"),
+        ("http://localhost", "http://localhost"),
+    ],
+)
+def test_a_review_url_is_kept_as_scheme_host_and_port(given: str, kept: str) -> None:
+    assert build_config(["--warehouse", "/w", "--review-url", given], {}).review_url == kept
 
 
 def test_the_store_defaults_to_the_warehouse_and_is_private(warehouse: Path) -> None:

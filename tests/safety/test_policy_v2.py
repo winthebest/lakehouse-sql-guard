@@ -115,12 +115,53 @@ def test_a_retention_violation_on_prod_stays_a_denial(v2: Policy) -> None:
 
 def test_a_three_part_name_cannot_hide_a_prod_namespace() -> None:
     policy = Policy(
-        environments={"prod": "prod"}, task_scope=TaskScope.of(namespaces=["lake.prod"])
+        environments={"prod": "prod", "db": "dev"},
+        task_scope=TaskScope.of(namespaces=["lake.prod"]),
     )
     assert policy.environment_of("lake.prod.orders") == "prod"
     assert policy.environment_of("db.orders") == "dev"
     decided = policy.decide(classify(SqlAction("DELETE FROM lake.prod.orders WHERE id = 1")))
     assert decided.decision is Decision.ASK
+
+
+def test_the_environment_of_a_table_is_matched_without_regard_to_case(v2: Policy) -> None:
+    for table in ("PROD.orders", "Prod.orders", "prod.orders", "lake.PROD.orders"):
+        assert v2.environment_of(table) == "prod", table
+    assert v2.environment_of("DB.orders") == "dev"
+    # a quoted upper-case namespace reaches the policy with its case; it is still prod
+    quoted = Policy(
+        environments={"prod": "prod", "db": "dev"}, task_scope=TaskScope.of(namespaces=["PROD"])
+    )
+    assert quoted.environment_of("PROD.orders") == "prod"
+
+
+def test_a_namespace_that_is_not_listed_fails_closed_to_prod(v2: Policy) -> None:
+    assert v2.environment_of("staging.orders") == "prod"
+    assert v2.effective_default_environment == "prod"
+    scope = TaskScope.of(namespaces=["db", "staging"])
+    decided = decide(v2, "DELETE FROM staging.orders WHERE id = 1", scope=scope)
+    assert decided.decision is Decision.ASK
+    assert any("production" in r and "staging.orders" in r for r in decided.reasons)
+    # a policy with no environments at all is v1: everything is dev
+    assert Policy().environment_of("staging.orders") == "dev"
+    assert decide(Policy(), "DELETE FROM staging.orders WHERE id = 1", scope=scope).decision is (
+        Decision.ALLOW_VIA_BRANCH
+    )
+
+
+def test_an_explicit_default_environment_wins_and_is_part_of_the_digest(v2: Policy) -> None:
+    lenient = Policy.from_dict(
+        {"environments": {"prod": "prod", "db": "dev"}, "default_environment": "dev"}
+    )
+    assert lenient.environment_of("staging.orders") == "dev"
+    assert lenient.environment_of("prod.orders") == "prod"
+    strict = Policy.from_dict({"environments": {"prod": "prod", "db": "dev"}})
+    assert strict.environment_of("staging.orders") == "prod"
+    assert lenient.digest != strict.digest
+    with pytest.raises(PolicyError, match="default_environment must be"):
+        Policy.from_dict({"default_environment": "production"})
+    with pytest.raises(PolicyError, match="default_environment must be dev or prod"):
+        Policy.from_dict({"default_environment": 3})
 
 
 def test_environment_names_are_matched_case_insensitively() -> None:

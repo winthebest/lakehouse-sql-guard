@@ -4,8 +4,8 @@
 #
 #   environments        namespace -> dev | prod. A write to a prod namespace needs approval whatever
 #                       its size or class: a one-row UPDATE of prod.orders is `ask`, not
-#                       `allow_via_branch`. Namespaces that are not listed behave as dev. Reads are
-#                       not affected.
+#                       `allow_via_branch`. Namespaces that are not listed behave as prod unless
+#                       `default_environment: dev` is set. Reads are not affected.
 #   require_table_key   an UPDATE or MERGE on a table that has neither Iceberg identifier fields nor
 #                       an `invariants.tables.<t>.unique_key` is `ask` with the reason "unkeyed
 #                       diff": without a key the reviewer sees each updated row as one deleted and
@@ -82,6 +82,9 @@ invariants:
       unique_key: [customer_id]
 
 # Which namespaces are production. Every write there is asked about; `dev` is the same as v1.
+# A namespace that is not listed here counts as `prod` too (a namespace added later fails
+# closed); add `default_environment: dev` to make unlisted namespaces dev instead.
+# Names are matched without regard to case.
 environments:
   db: dev
   prod: prod

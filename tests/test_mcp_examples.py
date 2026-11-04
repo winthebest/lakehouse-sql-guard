@@ -131,6 +131,41 @@ def test_only_read_only_tools_are_allowed_without_asking(permissions) -> None:
     assert not any(token in tool for tool in allowed for token in ("approve", "resolve"))
 
 
+@pytest.fixture(scope="module")
+def sandbox() -> dict:
+    settings = json.loads((EXAMPLES / "claude-code.settings.json").read_text(encoding="utf-8"))
+    return settings["sandbox"]
+
+
+def test_the_sandbox_is_on_and_cannot_be_talked_out_of(sandbox) -> None:
+    assert sandbox["enabled"] is True
+    assert sandbox["failIfUnavailable"] is True  # no silent fallback to an unsandboxed shell
+    assert sandbox["allowUnsandboxedCommands"] is False  # no retry outside it
+
+
+def test_every_variable_the_project_file_expands_is_unset_in_the_agents_shell(sandbox) -> None:
+    env = json.loads((EXAMPLES / "claude-code.mcp.json").read_text(encoding="utf-8"))["mcpServers"][
+        SERVER
+    ]["env"]
+    expanded = {re.fullmatch(r"\$\{([A-Z_]+)\}", value).group(1) for value in env.values()}
+    denied = {e["name"] for e in sandbox["credentials"]["envVars"] if e["mode"] == "deny"}
+    assert expanded and expanded <= denied
+    assert set(env) <= denied  # and the names the server itself is given
+
+
+def test_the_sandbox_denies_the_credential_files_and_the_approval_state(sandbox) -> None:
+    files = {f["path"] for f in sandbox["credentials"]["files"] if f["mode"] == "deny"}
+    assert {"~/.pyiceberg.yaml", "~/.claude.json"} <= files
+    args = json.loads((EXAMPLES / "claude-code.mcp.json").read_text(encoding="utf-8"))[
+        "mcpServers"
+    ][SERVER]["args"]
+    config = build_config([expand(a) for a in args[3:]], {})
+    for path in (config.store, config.audit_log, config.policy):
+        assert f"~/{path.parent.relative_to('/home/me')}" in files
+    writable_never = set(sandbox["filesystem"]["denyWrite"])
+    assert f"~/{config.policy.parent.relative_to('/home/me')}" in writable_never
+
+
 # -- the commands in docs/mcp.md -----------------------------------------------------------------
 
 

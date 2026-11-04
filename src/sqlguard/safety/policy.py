@@ -57,6 +57,7 @@ _TOP_LEVEL_KEYS = {
     "task_scope",
     "invariants",
     "environments",
+    "default_environment",
     "require_table_key",
 }
 ENVIRONMENTS = frozenset({"dev", "prod"})
@@ -140,8 +141,11 @@ class Policy:
     task_scope: TaskScope | None = None
     invariants: InvariantsConfig = field(default_factory=InvariantsConfig)
     # namespace -> "dev" | "prod". Every write to a prod namespace needs approval, whatever its
-    # size or class; a namespace that is not listed behaves as dev.
+    # size or class. A namespace that is not listed gets `default_environment`; unset, that is
+    # prod once any environment is listed (a namespace added later fails closed), and dev for a
+    # policy with no `environments` at all (v1 behaviour).
     environments: dict[str, str] = field(default_factory=dict)
+    default_environment: str | None = None
     # An UPDATE or MERGE on a table without a key is shown to a reviewer as deleted plus added
     # rows, so it is not published without one ("unkeyed diff").
     require_table_key: bool = False
@@ -182,6 +186,7 @@ class Policy:
         # only when set, so a policy without them keeps the digest it always had
         if self.environments:
             canonical["environments"] = dict(sorted(self.environments.items()))
+            canonical["default_environment"] = self.effective_default_environment
         if self.require_table_key:
             canonical["require_table_key"] = True
         return canonical
@@ -198,6 +203,8 @@ class Policy:
         bad = {ns: env for ns, env in self.environments.items() if env not in ENVIRONMENTS}
         if bad:
             raise PolicyError(f"environments must map to one of {sorted(ENVIRONMENTS)}: {bad}")
+        if self.default_environment is not None and self.default_environment not in ENVIRONMENTS:
+            raise PolicyError(f"default_environment must be one of {sorted(ENVIRONMENTS)}")
 
     # -- loading -------------------------------------------------------------------------------
 
@@ -259,6 +266,7 @@ class Policy:
             task_scope=scope,
             invariants=_invariants(data.get("invariants"), namespace),
             environments=_environments(data),
+            default_environment=_default_environment(data),
             require_table_key=_flag(data, "require_table_key"),
             version=None if data.get("version") is None else str(data["version"]),
         )
@@ -351,13 +359,27 @@ class Policy:
             )
         return why
 
+    @property
+    def effective_default_environment(self) -> str:
+        if self.default_environment is not None:
+            return self.default_environment
+        return "prod" if self.environments else "dev"
+
     def environment_of(self, table: str) -> str:
-        """`prod` when any namespace part of `table` is a production namespace, else `dev`."""
+        """The environment of `table`: prod if any namespace part is a listed production
+        namespace, else dev if one is listed as dev, else the default. Matching ignores case, as
+        the classifier does for unquoted names."""
         if not self.environments:
-            return "dev"
+            return self.effective_default_environment
         namespace = table.rsplit(".", 1)[0] if "." in table else self.default_namespace
-        parts = [namespace, *namespace.split(".")]
-        return "prod" if any(self.environments.get(p) == "prod" for p in parts) else "dev"
+        found = {
+            self.environments[p]
+            for p in (namespace.lower(), *namespace.lower().split("."))
+            if p in self.environments
+        }
+        if "prod" in found:
+            return "prod"
+        return "dev" if "dev" in found else self.effective_default_environment
 
     def _impact_exceeded(self, impact: Impact) -> str:
         """Return why the measured impact is over a limit, or '' when within limits."""
@@ -462,6 +484,15 @@ def _environments(data: Mapping[str, Any]) -> dict[str, str]:
     if len(set(namespace_names)) != len(namespace_names):
         raise PolicyError("environments lists a namespace twice")
     return {str(ns).strip().lower(): str(env).strip().lower() for ns, env in mapping.items()}
+
+
+def _default_environment(data: Mapping[str, Any]) -> str | None:
+    value = data.get("default_environment")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PolicyError("default_environment must be dev or prod")
+    return value.strip().lower()
 
 
 def _flag(data: Mapping[str, Any], key: str) -> bool:

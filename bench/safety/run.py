@@ -617,6 +617,14 @@ def replay(
 # -- live ----------------------------------------------------------------------------------------
 
 
+def _shown(path: Path) -> str:
+    """`path` for a results file: relative to the repository, or just its name; never absolute."""
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
 class BudgetExceeded(RuntimeError):
     """A live run reached its `--budget`; what was played so far is reported."""
 
@@ -670,7 +678,15 @@ def run_live(
     except BudgetExceeded as err:
         log(f"STOPPED: {err}")
     return write_results(
-        out_dir, tag, runs, prompts, starts, reported, [], str(transcript_root / tag), config.split
+        out_dir,
+        tag,
+        runs,
+        prompts,
+        starts,
+        reported,
+        [],
+        _shown(transcript_root / tag),
+        config.split,
     )[0:3]
 
 

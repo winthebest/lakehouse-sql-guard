@@ -15,7 +15,7 @@ from pyiceberg.exceptions import CommitFailedException, CommitStateUnknownExcept
 from pyiceberg.table.update.snapshot import ManageSnapshots
 
 from sqlguard.core.catalog import LakehouseCatalog
-from sqlguard.safety import FastForward, Policy, SqlAction
+from sqlguard.safety import FastForward, Policy, SqlAction, TaskScope
 from sqlguard.safety.executor import (
     BranchDiverged,
     BranchHandle,
@@ -426,6 +426,24 @@ def test_the_tool_result_does_not_claim_a_failed_verification_or_an_unpublished_
     assert "may or may not have landed" in result.payload["message"]
     assert "Verification failed" not in result.payload["message"]
     assert result.guard["published"] is None and result.guard["needs_attention"] is True
+
+
+def test_an_unconfirmed_publish_is_unknown_not_false_in_the_result_and_the_audit_log(
+    orders, scope, audit_path, audit, aftermath
+):
+    aftermath.before_raise = CommitStateUnknownException("gateway timeout")
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED
+    assert result.published is None and result.to_dict()["published"] is None
+    completed = [r for r in audit.read() if r.get("phase") == "completed"][-1]
+    assert completed["published"] is None and completed["needs_attention"] is True
+    # a plain refusal is still a definite "no"
+    refused = guard_for(orders, audit_path, DuckDBIcebergAdapter(orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), TaskScope.of(namespaces=["other"])
+    )
+    assert refused.published is False
 
 
 def test_unknown_commit_that_cannot_be_read_back_needs_attention(

@@ -41,5 +41,61 @@
       "Read(~/.config/google-chrome/**)",
       "Read(~/.mozilla/**)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "credentials": {
+      "envVars": [
+        {
+          "name": "LAKEHOUSE_CATALOG_URI",
+          "mode": "deny"
+        },
+        {
+          "name": "LAKEHOUSE_CATALOG_CREDENTIAL",
+          "mode": "deny"
+        },
+        {
+          "name": "PYICEBERG_CATALOG__LAKE__URI",
+          "mode": "deny"
+        },
+        {
+          "name": "PYICEBERG_CATALOG__LAKE__CREDENTIAL",
+          "mode": "deny"
+        }
+      ],
+      "files": [
+        {
+          "path": "~/.pyiceberg.yaml",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.claude.json",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.config/lakehouse-guard",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.local/state/lakehouse-guard",
+          "mode": "deny"
+        }
+      ]
+    },
+    "filesystem": {
+      "denyRead": [
+        "~/Library/Application Support/Google/Chrome",
+        "~/Library/Cookies",
+        "~/Library/Safari",
+        "~/.config/google-chrome",
+        "~/.mozilla"
+      ],
+      "denyWrite": [
+        "~/.config/lakehouse-guard",
+        "~/.local/state/lakehouse-guard"
+      ]
+    }
   }
 }

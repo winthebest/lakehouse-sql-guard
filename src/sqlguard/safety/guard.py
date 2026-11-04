@@ -147,8 +147,8 @@ class Outcome(StrEnum):
     ROLLBACK_BLOCKED = "rollback_blocked"
     # The publish was attempted and its result cannot be established: the commit may or may not
     # have landed, or main holds a snapshot other than the one that was approved. Nothing is
-    # undone (that could destroy another writer's commit); `GuardResult.published` is False
-    # here only because it is not known to be True, so read the table before trying again.
+    # undone (that could destroy another writer's commit); `GuardResult.published` and the audit
+    # record say None (unknown), so read the table before trying again.
     PUBLISH_UNCONFIRMED = "publish_unconfirmed"
     MAINTENANCE_DONE = "maintenance_done"
     UNSUPPORTED = "unsupported"  # the adapter cannot execute this kind of action
@@ -182,7 +182,9 @@ class GuardResult:
     reasons: tuple[str, ...]
     audit_id: str
     executed: bool  # statements ran (possibly only on a discarded branch)
-    published: bool  # main now holds the change (or its pointer was moved on purpose)
+    # main now holds the change (or its pointer was moved on purpose); None when that cannot be
+    # established (`Outcome.PUBLISH_UNCONFIRMED`): the table may or may not hold the change
+    published: bool | None
     rolled_back: bool = False
     impact: ImpactReport | None = None
     invariants: tuple[InvariantResult, ...] = ()
@@ -337,6 +339,11 @@ class _Run:
     owner: str | None = None  # who holds the publishing action (see `Guard.resolve`)
     before_commit: Callable[[], None] | None = None  # called right before the commit
     maintenance_plan: MaintenancePlan | None = None  # verified at approval, applied right after
+
+    @property
+    def known_published(self) -> bool | None:
+        """`published`, or None where it is not known (the publish could not be confirmed)."""
+        return None if self.outcome is Outcome.PUBLISH_UNCONFIRMED else self.published
 
     def set_decision(self, decided: PolicyDecision) -> None:
         self.decision = decided.decision
@@ -1277,7 +1284,7 @@ class Guard:
             raise RuntimeError("no action store")
         summary = {
             "outcome": run.outcome.value,
-            "published": run.published,
+            "published": run.known_published,
             "rolled_back": run.rolled_back,
             "audit_id": run.audit_id,
         }
@@ -1834,7 +1841,7 @@ class Guard:
             "outcome": run.outcome if phase == "completed" else None,
             "needs_attention": run.outcome in _ATTENTION_OUTCOMES,
             "executed": run.executed,
-            "published": run.published,
+            "published": run.known_published,
             "rolled_back": run.rolled_back,
             "branch": run.branch,
             "impact": run.impact.to_dict() if run.impact else None,
@@ -1871,7 +1878,7 @@ class Guard:
             reasons=tuple(run.reasons),
             audit_id=run.audit_id,
             executed=run.executed,
-            published=run.published,
+            published=run.known_published,
             rolled_back=run.rolled_back,
             impact=run.impact,
             invariants=tuple(run.invariants),

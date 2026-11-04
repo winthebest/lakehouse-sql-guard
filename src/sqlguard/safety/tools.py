@@ -14,7 +14,8 @@ guarded backend whose Guard has an action store and no approver adds a seventh,
     GuardedBackend  sends every `run_sql` / maintenance call through `Guard.submit`. A denial,
                     a pending or rejected approval, or a failed check comes back to the agent as
                     a structured result with the reasons, so it can change approach. An action
-                    that needs approval is `pending_approval`; nothing ran.
+                    that needs approval is `pending_approval` when it was saved for a person and
+                    `needs_approval` when there is no store; nothing ran either way.
 
 `list_tables` and `describe_table` read catalog metadata (names, columns, row count, snapshot
 ids) in both backends; they touch no table data and have no side effects, so they are not
@@ -30,8 +31,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
@@ -278,7 +279,8 @@ class ApprovalEvent:
 class ToolResult:
     """Outcome of one tool call.
 
-    `status` is one of ok, blocked, pending_approval, approval_rejected, error, invalid_arguments.
+    `status` is one of ok, blocked, pending_approval (queued in an action store), needs_approval
+    (no approver and nothing saved), approval_rejected, error, invalid_arguments.
     `payload` is JSON-safe and is exactly what the agent receives. `klass` is the static
     reversibility class of the requested action in either backend; `guard` is the Guard's
     verdict (guarded backend only); `approvals` lists the approver calls made for this call.
@@ -684,6 +686,9 @@ _STATE_MESSAGES = {
     ActionState.FAILED: "It was approved but could not be applied; the table is as before.",
     ActionState.NEEDS_ATTENTION: "A person has to look at the table; do not retry.",
 }
+MAX_REASONS = 10  # reasons shown to the agent; a statement-heavy action has thousands
+MAX_RESULT_CHARS = 40_000  # about 10k tokens: well under the 25k a host such as Claude Code allows
+_FIRST_KEYS = ("status", "action_id", "summary", "expires_at", "action_hash_prefix", "message")
 _HASH_PREFIX = 6  # enough for a person to compare with the review screen, not a secret to guess
 
 
@@ -691,11 +696,11 @@ class GuardedBackend(_Backend):
     """Every `run_sql` and maintenance call goes through `Guard.submit`.
 
     `approver` answers the guard's approval requests (the benchmark passes a scripted one). Without
-    one, an action that needs approval is reported as `pending_approval` and nothing runs. When the
-    Guard has an action store the change was also rehearsed and saved: the result carries its
-    `action_id`, a reviewer decides it out of band with `Guard.resolve`, and the backend offers
-    the `get_action_status` tool to follow it. Only actions this guard's requester label submitted
-    can be looked up.
+    one, an action that needs approval is reported as `needs_approval` and nothing runs. When the
+    Guard has an action store the change was also rehearsed and saved, and the status is
+    `pending_approval`: the result carries its `action_id`, a reviewer decides it out of band with
+    `Guard.resolve`, and the backend offers the `get_action_status` tool to follow it. Only actions
+    this guard's requester label submitted can be looked up.
     """
 
     condition = "guarded"
@@ -733,7 +738,8 @@ class GuardedBackend(_Backend):
         if result.outcome in _OK:
             status = "ok"
         elif result.outcome is Outcome.AWAITING_APPROVAL:
-            status = "pending_approval"
+            # queued for a person (a store) or just refused for want of an approver (v1 meaning)
+            status = "pending_approval" if result.action_id else "needs_approval"
         elif result.outcome is Outcome.REJECTED:
             status = "approval_rejected"
         elif result.outcome in _ERRORS:
@@ -741,14 +747,19 @@ class GuardedBackend(_Backend):
         else:
             status = "blocked"
         payload["status"] = status
-        return ToolResult(
-            name,
-            status,
-            _json_safe(payload),
-            mutating=static.klass is not ReversibilityClass.READ,
-            klass=static.klass.value,
-            guard=_json_safe(self._guard_summary(result)),
-            approvals=approvals,
+        # what the agent must see first, whatever else the result carries
+        ordered = {k: payload[k] for k in _FIRST_KEYS if k in payload}
+        ordered.update(payload)
+        return bounded_result(
+            ToolResult(
+                name,
+                status,
+                _json_safe(ordered),
+                mutating=static.klass is not ReversibilityClass.READ,
+                klass=static.klass.value,
+                guard=_json_safe(self._guard_summary(result)),
+                approvals=approvals,
+            )
         )
 
     def _recording_approver(self) -> Approver | None:
@@ -794,7 +805,7 @@ class GuardedBackend(_Backend):
             payload["message"] = _MESSAGES.get(result.outcome, "Not run.")
             if result.action_id is not None:  # saved for a reviewer (a Guard with an action store)
                 payload.update(self._pending_fields(result))
-            payload["reasons"] = [_clip(r) for r in result.reasons]
+            payload["reasons"] = bounded_reasons(result.reasons)
             if result.error:
                 payload["error"] = _clip(result.error)
             if result.plan is not None:
@@ -832,9 +843,9 @@ class GuardedBackend(_Backend):
         record = None
         try:
             record = store.get(action_id.strip()) if store is not None else None
-        except StoreError as err:
+        except StoreError:  # the text can carry the store's path: keep it in the log
             _log.warning("could not read action %s", action_id, exc_info=True)
-            return _failure(STATUS_TOOL, "error", _clip(f"the action store failed: {err}"))
+            return _failure(STATUS_TOOL, "error", "the action store could not be read")
         if record is None or record.requester != self.guard.requester:
             return _failure(STATUS_TOOL, "error", "no action with this id")
         payload: dict[str, Any] = {
@@ -856,7 +867,7 @@ class GuardedBackend(_Backend):
             "decision": result.decision.value,
             "outcome": result.outcome.value,
             "class": result.klass.value,
-            "reasons": list(result.reasons),
+            "reasons": bounded_reasons(result.reasons),
             "executed": result.executed,
             # None: not known to be False, the publish could not be confirmed
             "published": None
@@ -867,6 +878,38 @@ class GuardedBackend(_Backend):
             "audit_id": result.audit_id,
             **({"action_id": result.action_id} if result.action_id else {}),
         }
+
+
+def bounded_reasons(reasons: Sequence[str]) -> list[str]:
+    """Distinct reasons in order, at most `MAX_REASONS`, each clipped, then "... and N more"."""
+    distinct = list(dict.fromkeys(_clip(r) for r in reasons))
+    if len(distinct) <= MAX_REASONS:
+        return distinct
+    return [*distinct[:MAX_REASONS], f"... and {len(distinct) - MAX_REASONS} more reasons"]
+
+
+def bounded_result(result: ToolResult) -> ToolResult:
+    """`result`, or when it is too large for a host to take, its essentials and a note.
+
+    Keeps status, action id, summary and the like first; the rows or lists that made it large
+    are dropped, which the note says.
+    """
+    size = len(json.dumps(result.to_dict(), default=str))
+    if size <= MAX_RESULT_CHARS:
+        return result
+    payload = {k: result.payload[k] for k in _FIRST_KEYS if k in result.payload}
+    for key in ("outcome", "decision", "class", "review_url"):
+        if key in result.payload:
+            payload[key] = result.payload[key]
+    payload.setdefault("status", result.status)
+    payload["truncated"] = (
+        f"the full result was {size} characters, too large to return; narrow the request"
+    )
+    guard = None
+    if result.guard:
+        keys = ("decision", "outcome", "class", "published", "needs_attention", "action_id")
+        guard = {k: result.guard[k] for k in keys if k in result.guard}
+    return replace(result, payload=payload, guard=guard, approvals=())
 
 
 def _summary(result: GuardResult) -> str:
@@ -931,6 +974,8 @@ __all__ = [
     "TOOL_SPECS",
     "ApprovalEvent",
     "GuardedBackend",
+    "MAX_REASONS",
+    "MAX_RESULT_CHARS",
     "RawBackend",
     "ToolArgumentError",
     "ToolBackend",
@@ -938,6 +983,8 @@ __all__ = [
     "ToolSpec",
     "action_kind",
     "action_to_dict",
+    "bounded_reasons",
+    "bounded_result",
     "tool_schemas",
     "validate_arguments",
 ]

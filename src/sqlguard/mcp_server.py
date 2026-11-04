@@ -40,7 +40,8 @@ agent can read. Configuration comes from flags or, when a flag is absent, enviro
     --policy           SQLGUARD_POLICY           policy YAML (default: strict built-in policy)
     --audit-log        SQLGUARD_AUDIT_LOG        audit JSONL (<warehouse>/sqlguard-audit.jsonl)
     --store            SQLGUARD_STORE            action store (<warehouse>/sqlguard-actions.db)
-    --review-url       SQLGUARD_REVIEW_URL       where the person reviews, echoed to the agent
+    --review-url       SQLGUARD_REVIEW_URL       scheme://host:port of the review UI (no path:
+                                                 serve's link is secret), echoed to the agent
     --requester        SQLGUARD_REQUESTER        fixed label on every action this server queues
                                                  (mcp); the per-requester queue limit counts it
     --scope-table      SQLGUARD_SCOPE_TABLES     tables the task may touch (comma-separated)
@@ -93,6 +94,7 @@ from sqlguard.safety.tools import (
     GuardedBackend,
     ToolResult,
     ToolSpec,
+    bounded_result,
 )
 
 _log = logging.getLogger("sqlguard.mcp")
@@ -213,11 +215,11 @@ class LakehouseTools:
     def call(self, name: str, arguments: Mapping[str, Any]) -> ToolResult:
         with self._lock:
             if name == LEAKAGE_TOOL:
-                return self._check_training_sql(arguments)
+                return bounded_result(self._check_training_sql(arguments))
             result = self.backend.call(name, arguments)
             if result.status == "pending_approval" and self.review_url:
-                return replace(result, payload={**result.payload, "review_url": self.review_url})
-            return result
+                result = replace(result, payload={**result.payload, "review_url": self.review_url})
+            return bounded_result(result)
 
     # -- leakage ---------------------------------------------------------------------------------
 
@@ -345,15 +347,41 @@ def _split(value: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in (value or "").split(",") if part.strip())
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
 def _review_url(value: str | None) -> str | None:
+    """The address of the review UI, as scheme://host[:port] and nothing else.
+
+    `sqlguard serve` puts the UI under a secret path and prints a link that carries it. That path
+    is what stops a program on another local port from using the person's session cookie, so it
+    must never reach the agent: this accepts no path, query or fragment.
+    """
     if not value:
         return None
-    parts = urlsplit(value.strip())
+    text = value.strip()
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError as err:
+        raise ConfigError(f"--review-url is not a valid URL: {err}") from err
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ConfigError("--review-url must be an http(s) URL")
-    if parts.username or parts.password or parts.query or parts.fragment:
-        raise ConfigError("--review-url must not carry credentials, a query or a fragment")
-    return value.strip().rstrip("/")
+        raise ConfigError("--review-url must be an http(s) URL such as http://127.0.0.1:8765")
+    if parts.hostname.lower() not in _LOOPBACK_HOSTS:
+        raise ConfigError("--review-url must point at this machine (127.0.0.1, localhost or ::1)")
+    if (
+        parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or parts.username
+        or parts.password
+    ):
+        raise ConfigError(
+            "--review-url must be the server address only (scheme://host:port); never paste "
+            "the link that `sqlguard serve` prints, its path is a secret"
+        )
+    netloc = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    return f"{parts.scheme}://{netloc}" + (f":{port}" if port is not None else "")
 
 
 def _requester(value: str) -> str:
