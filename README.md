@@ -90,7 +90,8 @@ returned with their measured impact; nothing is approved automatically. Client c
 
 `docker compose -f docker/docker-compose.yml up -d && docker/demo.sh` starts Spark 4 with
 an Iceberg REST catalog and S3-compatible storage, then shows a wrong `DELETE` held for
-approval and an approved change published with Iceberg's `fast_forward` procedure.
+approval and an approved change published by moving `main` to the exact snapshot that was
+rehearsed and approved (a compare-and-swap on the catalog).
 
 ## Results
 
