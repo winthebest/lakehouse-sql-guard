@@ -1,17 +1,22 @@
 """Thin wrapper over a PyIceberg catalog: schemas for sqlglot, snapshots, refs, Arrow reads.
 
-Only this module and the safety executor talk to PyIceberg directly.
+Only this module and the safety executor talk to PyIceberg directly. `LakehouseCatalog.local`
+opens the file-based catalog used by tests and demos; `LakehouseCatalog.from_config` opens any
+catalog PyIceberg can load (REST, Glue, SQL).
 """
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow as pa
-from pyiceberg.catalog import Catalog
+from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.catalog.sql import SqlCatalog
+from pyiceberg.exceptions import NoSuchNamespaceError
 from pyiceberg.table import Table
 from pyiceberg.types import (
     BinaryType,
@@ -27,6 +32,7 @@ from pyiceberg.types import (
     TimestampType,
     TimestamptzType,
 )
+from pyiceberg.utils.config import Config, merge_config
 
 from sqlguard.core.lineage import Schema
 
@@ -71,6 +77,38 @@ class SnapshotInfo:
     sequence_number: int | None = None
 
 
+def add_catalog_args(parser: argparse.ArgumentParser) -> None:
+    """Add the flags that select the lakehouse: `--catalog NAME` or `--warehouse PATH`.
+
+    Shared by every CLI entry point so they open catalogs the same way; read the result with
+    `catalog_from_args`. The namespace flag is `--catalog-namespace` because some commands
+    already use `--namespace` for something else.
+    """
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--catalog",
+        metavar="NAME",
+        help="PyIceberg catalog name (~/.pyiceberg.yaml or PYICEBERG_CATALOG__* variables)",
+    )
+    group.add_argument("--warehouse", help="local Iceberg warehouse (schema + snapshots)")
+    parser.add_argument(
+        "--catalog-namespace",
+        default=DEFAULT_NAMESPACE,
+        metavar="NS",
+        help=f"namespace of bare table names (default: {DEFAULT_NAMESPACE})",
+    )
+
+
+def catalog_from_args(args: argparse.Namespace) -> LakehouseCatalog | None:
+    """The catalog chosen by `add_catalog_args` flags, or None when neither was given."""
+    namespace = getattr(args, "catalog_namespace", DEFAULT_NAMESPACE)
+    if getattr(args, "catalog", None):
+        return LakehouseCatalog.from_config(args.catalog, namespace=namespace)
+    if getattr(args, "warehouse", None):
+        return LakehouseCatalog.local(args.warehouse, namespace)
+    return None
+
+
 class HistoryGap(LookupError):
     """The table state at a requested time is older than its retained snapshot history."""
 
@@ -91,6 +129,38 @@ class LakehouseCatalog:
             "sqlguard", uri=f"sqlite:///{root / 'catalog.db'}", warehouse=f"file://{root}"
         )
         catalog.create_namespace_if_not_exists(namespace)
+        return cls(catalog, namespace)
+
+    @classmethod
+    def from_config(
+        cls,
+        name: str | None = None,
+        properties: Mapping[str, str] | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
+    ) -> LakehouseCatalog:
+        """Open any PyIceberg catalog (REST, Glue, SQL, ...) configured the PyIceberg way.
+
+        `name` selects the entry under `catalog:` in `~/.pyiceberg.yaml` (or `$PYICEBERG_HOME`),
+        or the `PYICEBERG_CATALOG__<NAME>__*` environment variables; None means the configured
+        default catalog. `properties` override those values. The configuration is read when this
+        is called, not when PyIceberg was imported. Unlike `local`, nothing is created: the
+        namespace must already exist. Raises ValueError for a catalog that cannot be opened.
+
+        A SQL catalog keeps each table under the catalog *name* it was created with, so a
+        warehouse made by `local` (named `sqlguard`) is read back with `name="sqlguard"`.
+        """
+        config = Config()
+        name = name or config.get_default_catalog_name()
+        merged = merge_config(config.get_catalog_config(name) or {}, dict(properties or {}))
+        try:
+            catalog = load_catalog(name, **merged)
+            found = catalog.namespace_exists(namespace)
+        except NoSuchNamespaceError:
+            found = False
+        except Exception as err:  # noqa: BLE001 - bad config, unreachable service, bad credentials
+            raise ValueError(f"cannot open catalog {name!r}: {err}") from err
+        if not found:
+            raise ValueError(f"namespace {namespace!r} does not exist in catalog {name!r}")
         return cls(catalog, namespace)
 
     def identifier(self, table: str) -> str:
