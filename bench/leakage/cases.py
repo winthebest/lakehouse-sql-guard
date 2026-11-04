@@ -11,6 +11,9 @@ Every combination of parameter values becomes one case. Splits are by template:
 - `dev`: tuned on; the rules and thresholds were developed against these.
 - `dev_v1b`: the v1 held-out templates. They were seen while the rules were extended, so they are
   development data now and a result on them is in-sample.
+- `holdout_v2`: written by independent authors after the rules were frozen.
+
+`splits.yaml` lists the splits, the spec each is checked with, and which were seen.
 
 Usage: python -m bench.leakage.cases --seed 42 --split dev --out bench/leakage/cases.jsonl
 """
@@ -25,8 +28,11 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from bench.leakage.splits import load_splits
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-SPLITS = ("dev", "dev_v1b")
+SPLITS = tuple(load_splits())
+DEFAULT_SPLITS = tuple(name for name, split in load_splits().items() if split.seen)
 LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6", "L7")
 _HEADER = re.compile(r"^--\s*(leak|param\s+(\w+))\s*:\s*(.*)$")
 

@@ -13,11 +13,19 @@ score says (an analysis crash scores 1.0, an unsettled hint scores below the cut
 lists them separately (`n_unverifiable`, `unverifiable_cases`) so they are never hidden inside
 the FPR or recall.
 
+Rows of the comparison (static-only and combined for each):
+- (a) v1: the detector of git tag `v0.1.1`, run from its own virtualenv (see `v1_runner`);
+- (b) v2 with a spec that has only the fields v1 knew;
+- (c) v2 with the full spec (the rows named `static`, `replay`, `combined`);
+- the baseline.
+A query a row cannot read scores "not detected" and is listed with the reason.
+
 Protocol: `prereg` picks each detector's threshold on the dev split (FPR <= 5%) and writes it
-with the commit SHA, the splits it saw, and a hash of the spec; `run --splits ...` evaluates the
-named splits with those thresholds. `dev` and `dev_v1b` were both seen while the rules were
-developed, so a run over them is in-sample tracking. A result only counts as held-out for a split
-written after the rules and the spec were frozen.
+with the commit SHA, the splits it had seen, and a hash of every spec; `run --splits ...`
+evaluates the named splits with those thresholds, each with the spec `splits.yaml` gives it.
+Which splits are in-sample comes from the pre-registration and `splits.yaml`, never from a list
+in this file: a result only counts as held-out for a split written after the rules and the spec
+were frozen.
 """
 
 from __future__ import annotations
@@ -25,34 +33,61 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from bench.leakage import optimism
-from bench.leakage.baseline import baseline_score
+from bench.leakage.baseline import baseline_score, bind_relations
 from bench.leakage.cases import (
+    DEFAULT_SPLITS,
     LEAK_TYPES,
     SPLITS,
+    TEMPLATES_DIR,
     LeakCase,
     generate_cases,
     load_templates,
     render,
 )
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
-from bench.leakage.world import WorldConfig, build_world
+from bench.leakage.splits import load_splits, seen_splits
+from bench.leakage.v1_runner import (
+    V1_TAG,
+    V1Score,
+    apply_v1_taxonomy,
+    describe_unverifiable,
+    ensure_v1_python,
+    run_v1,
+    tag_commit,
+    v1_spec_data,
+)
+from bench.leakage.world import SCHEMAS, WorldConfig, build_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
 from sqlguard.leakage.validator import UNCHECKED, LeakageReport, Weights, validate
 
-DETECTORS = ("baseline", "static", "replay", "combined")
+DETECTORS = ("baseline", "static", "replay", "combined")  # the baseline and row (c)
+V1_ROWS = ("v1_static", "v1_combined")  # row (a)
+V1_SPEC_ROWS = ("v2v1_static", "v2v1_combined")  # row (b)
+ALL_ROWS = (*DETECTORS, *V1_ROWS, *V1_SPEC_ROWS)
+ROW_NAMES = {
+    "static": "(c) v2 static",
+    "replay": "(c) v2 replay",
+    "combined": "(c) v2 combined",
+    "v1_static": "(a) v1 static",
+    "v1_combined": "(a) v1 combined",
+    "v2v1_static": "(b) v2, v1 spec fields, static",
+    "v2v1_combined": "(b) v2, v1 spec fields, combined",
+}
 SYNTHETIC_SPEC = Path(__file__).parent / "spec.yaml"
 RESULTS_DIR = Path("results/leakage")
-DEFAULT_SPLITS = ("dev", "dev_v1b")
-IN_SAMPLE = frozenset({"dev", "dev_v1b"})  # seen while the rules and the spec were developed
 MAX_FPR = 0.05
 OPTIMISM_CUTOFF = datetime(2026, 1, 24)
 
@@ -78,25 +113,28 @@ def git_sha() -> tuple[str, bool]:
 
 def unverifiable_reason(report: LeakageReport) -> str:
     """Why a validator report is `unverifiable` (empty for any other verdict)."""
-    if report.verdict != "unverifiable":
-        return ""
-    unchecked = [f.message for f in report.findings if f.rule_id in UNCHECKED]
-    if unchecked:
-        return "; ".join(unchecked)
-    if report.replay is not None and report.replay.reason:
-        return report.replay.reason
-    return "a static hint (L4) can only be settled by replay"
+    return describe_unverifiable(report, UNCHECKED)
 
 
 def score_cases(
-    cases: list[LeakCase], catalog: LakehouseCatalog, spec: LeakageSpec, seed: int
+    cases: list[LeakCase],
+    catalog: LakehouseCatalog,
+    spec: LeakageSpec,
+    seed: int,
+    *,
+    v1_spec: LeakageSpec | None = None,
+    v1_scores: list[V1Score] | None = None,
 ) -> list[Scored]:
+    """Score `cases` with the baseline and row (c); also row (b) when `v1_spec` (the spec without
+    the fields added after v1) is given, and row (a) when `v1_scores` (one per case) is given."""
     schema = catalog.schema_for()
     replayer = Replayer(catalog, spec, max_points=24, seed=seed)
+    ablation = Replayer(catalog, v1_spec, max_points=24, seed=seed) if v1_spec else None
     current = replayer.current()
+    bind_relations(current, spec)
     weights = Weights.load()
     scored = []
-    for case in cases:
+    for position, case in enumerate(cases):
         seconds = {}
         t = time.perf_counter()
         base = baseline_score(current, case.sql, spec)
@@ -109,21 +147,36 @@ def score_cases(
         seconds["replay"] = time.perf_counter() - t
         combined = validate(case.sql, spec, schema=schema, replay=replayer, weights=weights)
         replay_score = replay.mismatch_rate if replay.status is ReplayStatus.MISMATCH else 0.0
+        scores = {
+            "baseline": base,
+            "static": static.score,
+            "replay": replay_score,
+            "combined": combined.score,
+        }
         reasons = {
             "static": unverifiable_reason(static),
             "combined": unverifiable_reason(combined),
             "replay": replay.reason if replay.status is ReplayStatus.UNVERIFIABLE else "",
         }
+        if ablation is not None:
+            static_b = validate(case.sql, v1_spec, schema=schema, weights=weights)
+            combined_b = validate(
+                case.sql, v1_spec, schema=schema, replay=ablation, weights=weights
+            )
+            scores |= {"v2v1_static": static_b.score, "v2v1_combined": combined_b.score}
+            reasons |= {
+                "v2v1_static": unverifiable_reason(static_b),
+                "v2v1_combined": unverifiable_reason(combined_b),
+            }
+        if v1_scores is not None:
+            v1 = apply_v1_taxonomy(v1_scores[position], case.leak_type)
+            scores |= {"v1_static": v1.static, "v1_combined": v1.combined}
+            reasons |= {f"v1_{d}": r for d, r in v1.reasons.items()}
         reasons = {d: r for d, r in reasons.items() if r}
         scored.append(
             Scored(
                 case,
-                {
-                    "baseline": base,
-                    "static": static.score,
-                    "replay": replay_score,
-                    "combined": combined.score,
-                },
+                scores,
                 combined.leak_types,
                 seconds,
                 {d: "unverifiable" for d in reasons},
@@ -133,15 +186,25 @@ def score_cases(
     return scored
 
 
+def rows_of(scored: list[Scored], only: dict | None = None) -> list[str]:
+    """Rows scored for every case (and, with `only`, that have a threshold in it)."""
+    return [
+        d for d in ALL_ROWS if all(d in s.scores for s in scored) and (only is None or d in only)
+    ]
+
+
 def thresholds(scored: list[Scored]) -> dict[str, float]:
     labels = [s.case.is_leaky for s in scored]
-    return {d: threshold_at_fpr(labels, [s.scores[d] for s in scored], MAX_FPR) for d in DETECTORS}
+    return {
+        d: threshold_at_fpr(labels, [s.scores[d] for s in scored], MAX_FPR) for d in rows_of(scored)
+    }
 
 
 def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
     labels = [s.case.is_leaky for s in scored]
     report: dict = {"n_cases": len(scored), "n_leaky": sum(labels), "detectors": {}}
-    for d in DETECTORS:
+    rows = rows_of(scored, cut)
+    for d in rows:
         scores = [s.scores[d] for s in scored]
         c = confusion(labels, scores, cut[d])
         by_type = {}
@@ -188,42 +251,114 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
             "reason": s.reasons[d],
         }
         for s in scored
-        for d in DETECTORS
+        for d in rows
         if d in s.verdicts
     ]
     return report
 
 
+def world_dir(root: Path, seed: int) -> Path:
+    return root / f"synthetic-{seed}"
+
+
 def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
-    catalog = LakehouseCatalog.local(root / f"synthetic-{seed}")
-    if not catalog.table_names():
+    """The synthetic world for `seed` under `root`, generated on first use.
+
+    A directory generated before a table was added to the world lacks it, so it is regenerated
+    (the other tables come out the same: the generator is deterministic).
+    """
+    path = world_dir(root, seed)
+    catalog = LakehouseCatalog.local(path)
+    if set(catalog.table_names()) != set(SCHEMAS):
+        if catalog.table_names():
+            shutil.rmtree(path)
+            catalog = LakehouseCatalog.local(path)
         build_world(catalog, WorldConfig(seed=seed))
     return catalog
 
 
-def prereg(seed: int, warehouse: Path, out_dir: Path = RESULTS_DIR) -> Path:
-    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+def v1_spec_for(spec_path: Path) -> LeakageSpec:
+    """The spec of `spec_path` reduced to the fields the first rule set had (row (b))."""
+    return LeakageSpec.from_dict(
+        v1_spec_data(yaml.safe_load(spec_path.read_text(encoding="utf-8")))
+    )
+
+
+def score_v1(cases: list[LeakCase], spec_path: Path, warehouse: Path, seed: int) -> list[V1Score]:
+    """Row (a): the v1 detector, in its own virtualenv, over the world in `warehouse`."""
+    spec_data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory(prefix="sqlguard-v1-") as work:
+        return run_v1(
+            [c.sql for c in cases],
+            spec_data=spec_data,
+            warehouse=world_dir(warehouse, seed),
+            seed=seed,
+            python=ensure_v1_python(),
+            work_dir=Path(work),
+        )
+
+
+def score_split(
+    split: str, seed: int, warehouse: Path, catalog: LakehouseCatalog, with_v1: bool
+) -> list[Scored]:
+    """Every row for one split, with the spec `splits.yaml` gives it."""
+    spec_path = load_splits()[split].spec
+    cases = generate_cases(seed, (split,))
+    v1 = score_v1(cases, spec_path, warehouse, seed) if with_v1 else None
+    return score_cases(
+        cases,
+        catalog,
+        LeakageSpec.from_yaml(spec_path),
+        seed,
+        v1_spec=v1_spec_for(spec_path),
+        v1_scores=v1,
+    )
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
+    """What `prereg` writes: thresholds fit on dev, and what existed when they were fit."""
     catalog = synthetic_world(warehouse, seed)
-    dev = score_cases(generate_cases(seed, ("dev",)), catalog, spec, seed)
-    sha, dirty = git_sha()
-    if dirty:
-        raise SystemExit("commit your changes first: pre-registration must point at a clean SHA")
+    dev = score_split("dev", seed, warehouse, catalog, with_v1)
+    sha, _ = git_sha()
     weights = Weights.load()
-    payload = {
+    manifest = load_splits()
+    cut = thresholds(dev)
+    return {
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_sha": sha,
         "seed": seed,
-        "splits_seen": ["dev"],
-        "spec_sha256": hashlib.sha256(SYNTHETIC_SPEC.read_bytes()).hexdigest(),
+        "fit_splits": ["dev"],
+        "seen_splits": sorted(seen_splits()),
+        "specs": {
+            name: {"file": split.spec.name, "sha256": _sha256(split.spec)}
+            for name, split in manifest.items()
+        },
+        "spec_sha256": _sha256(SYNTHETIC_SPEC),
+        # a split with no template file yet is the evidence that nothing was written before this
+        "template_files": {
+            name: len(list((TEMPLATES_DIR / name).glob("*.sql"))) for name in manifest
+        },
+        "v1": {"tag": V1_TAG, "commit": tag_commit()} if with_v1 else None,
         "max_fpr": MAX_FPR,
         # null = the detector cannot reach FPR <= max_fpr with any positive threshold
-        "thresholds": {d: (None if t == float("inf") else t) for d, t in thresholds(dev).items()},
+        "thresholds": {d: (None if t == float("inf") else t) for d, t in cut.items()},
         "weights": {"rules": weights.rules, "replay_mismatch": weights.replay_mismatch},
         "dev_summary": {
             d: {"recall": m["recall"], "fpr": m["fpr"]}
-            for d, m in evaluate(dev, thresholds(dev))["detectors"].items()
+            for d, m in evaluate(dev, cut)["detectors"].items()
         },
     }
+
+
+def prereg(seed: int, warehouse: Path, out_dir: Path = RESULTS_DIR, with_v1: bool = True) -> Path:
+    sha, dirty = git_sha()
+    if dirty:
+        raise SystemExit("commit your changes first: pre-registration must point at a clean SHA")
+    payload = prereg_payload(seed, warehouse, with_v1)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"prereg-{sha}.json"
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -257,23 +392,33 @@ def run(
     with_real: bool,
     out_dir: Path = RESULTS_DIR,
     splits: tuple[str, ...] = DEFAULT_SPLITS,
+    *,
+    with_v1: bool = True,
+    with_fixes: bool = False,
 ) -> Path:
-    """Score the template `splits` with the pre-registered thresholds and write the report."""
+    """Score the template `splits` with the pre-registered thresholds and write the report.
+
+    Row (a) needs the v1 virtualenv and a pre-registration that has its thresholds; `with_v1=False`
+    leaves it out. `with_fixes` adds the fix-suggestion rates by verification level.
+    """
     unknown = [name for name in splits if not load_templates(name)]
     if not splits or unknown:
         raise SystemExit(f"no templates for split(s) {unknown or splits}; known: {SPLITS}")
     started = time.perf_counter()
     pre = latest_prereg(out_dir)
     cut = {d: float("inf") if t is None else t for d, t in pre["thresholds"].items()}
-    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    with_v1 = with_v1 and all(d in cut for d in V1_ROWS)
     catalog = synthetic_world(warehouse, seed)
     results = {}
     curves = {}
+    fixes = {}
     for split in splits:
-        scored = score_cases(generate_cases(seed, (split,)), catalog, spec, seed)
+        scored = score_split(split, seed, warehouse, catalog, with_v1)
         results[split] = evaluate(scored, cut)
         labels = [s.case.is_leaky for s in scored]
         curves[split] = {d: roc_curve(labels, [s.scores[d] for s in scored]) for d in DETECTORS}
+        if with_fixes:
+            fixes[split] = _fix_rates(split, seed, catalog)
     sha, dirty = git_sha()
     result = {
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -283,9 +428,13 @@ def run(
         "prereg_sha": pre["git_sha"],
         "thresholds": pre["thresholds"],
         "splits": results,
-        "in_sample_splits": [name for name in splits if name in IN_SAMPLE],
-        "optimism_gap": optimism.run(catalog, spec, OPTIMISM_CUTOFF),
+        "in_sample_splits": [name for name in splits if name in seen_splits(pre)],
+        "specs": {name: load_splits()[name].spec.name for name in splits},
+        "optimism_gap": optimism.run(
+            catalog, LeakageSpec.from_yaml(SYNTHETIC_SPEC), OPTIMISM_CUTOFF
+        ),
         "real_data": _real(seed, warehouse, cut) if with_real else None,
+        "fixes": fixes or None,
     }
     result["runtime_seconds"] = round(time.perf_counter() - started, 1)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -296,9 +445,18 @@ def run(
     return out_dir / f"{stem}.json"
 
 
+def _fix_rates(split: str, seed: int, catalog: LakehouseCatalog) -> dict:
+    """Share of the split's leaky L1-L5 cases by the verification of their suggested fix."""
+    from bench.leakage import fixes_eval
+
+    spec = LeakageSpec.from_yaml(load_splits()[split].spec)
+    return fixes_eval.evaluate(generate_cases(seed, (split,)), catalog, spec, seed)
+
+
 def markdown(result: dict) -> str:
-    seen = [name for name in result["splits"] if name in IN_SAMPLE]
-    fresh = [name for name in result["splits"] if name not in IN_SAMPLE]
+    in_sample = set(result["in_sample_splits"])
+    seen = [name for name in result["splits"] if name in in_sample]
+    fresh = [name for name in result["splits"] if name not in in_sample]
     lines = [
         f"# Leakage benchmark — {result['git_sha']} (prereg {result['prereg_sha']})",
         "",
@@ -315,6 +473,18 @@ def markdown(result: dict) -> str:
         ]
     if fresh:
         lines += [f"Not seen during development: {', '.join(fresh)}.", ""]
+    if result.get("specs"):
+        lines += [
+            "Spec per split: " + ", ".join(f"{n} `{f}`" for n, f in result["specs"].items()),
+            "",
+        ]
+    if any(d.startswith("v1_") for m in result["splits"].values() for d in m["detectors"]):
+        lines += [
+            "Rows: (a) v1 = the detector of tag `v0.1.1` in its own virtualenv; (b) v2 with a "
+            "spec that has only the fields v1 knew; (c) v2 with the full spec. A query a row "
+            'cannot read scores "not detected" and is listed below with the reason.',
+            "",
+        ]
     sections = dict(result["splits"])
     if result.get("real_data"):
         sections["real (Online Retail II)"] = result["real_data"]
@@ -328,7 +498,8 @@ def markdown(result: dict) -> str:
         for d, m in split["detectors"].items():
             ms = "" if m["median_ms"] is None else m["median_ms"]
             lines.append(
-                f"| {d} | {m['recall']:.2f} {_ci(m, 'recall')} | {m['fpr']:.2f} {_ci(m, 'fpr')} | "
+                f"| {ROW_NAMES.get(d, d)} | {m['recall']:.2f} {_ci(m, 'recall')} | "
+                f"{m['fpr']:.2f} {_ci(m, 'fpr')} | "
                 f"{m['precision']:.2f} | {m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
             )
         types = sorted({t for m in split["detectors"].values() for t in m["recall_by_type"]})
@@ -336,7 +507,7 @@ def markdown(result: dict) -> str:
         lines.append("|---" * (len(types) + 1) + "|")
         for d, m in split["detectors"].items():
             row = " | ".join(f"{m['recall_by_type'].get(t, 0):.2f}" for t in types)
-            lines.append(f"| {d} | {row} |")
+            lines.append(f"| {ROW_NAMES.get(d, d)} | {row} |")
         lines += ["", f"Attribution accuracy (combined): {split['attribution_accuracy']}", ""]
         counts = {
             d: m["n_unverifiable"] for d, m in split["detectors"].items() if m["n_unverifiable"]
@@ -344,15 +515,34 @@ def markdown(result: dict) -> str:
         if counts:
             lines += [
                 "Unverifiable cases (the product fails closed on these): "
-                + ", ".join(f"{d} {n}" for d, n in counts.items()),
+                + ", ".join(f"{ROW_NAMES.get(d, d)} {n}" for d, n in counts.items()),
                 "",
             ]
             lines += [
-                f"- `{u['case_id']}` ({u['truth']}) {u['detector']}, score {u['score']}: "
+                f"- `{u['case_id']}` ({u['truth']}) {ROW_NAMES.get(u['detector'], u['detector'])}, "
+                f"score {u['score']}: "
                 f"{u['reason']}"
                 for u in split["unverifiable_cases"]
             ]
             lines.append("")
+    for split, rates in (result.get("fixes") or {}).items():
+        if split == next(iter(result["fixes"])):
+            levels = list(rates["rates"])
+            lines += [
+                "## Fix suggestions by verification level",
+                "",
+                "Share of the leaky L1-L5 cases (L6 and L7 are explained, not rewritten) by the "
+                "verification of the last rewrite.",
+                "",
+                "| split | cases | suggested | " + " | ".join(levels) + " |",
+                "|---|---|---|" + "---|" * len(levels),
+            ]
+        shares = " | ".join(f"{rates['rates'][lv]:.3f} ({rates['counts'][lv]})" for lv in levels)
+        lines.append(
+            f"| {split} | {rates['n_cases']} | {rates['suggestion_rate']:.3f} | {shares} |"
+        )
+    if result.get("fixes"):
+        lines.append("")
     gap = result["optimism_gap"]
     lines += [
         "## Optimism gap (logistic regression, synthetic world)",
@@ -426,11 +616,26 @@ def main(argv: list[str] | None = None) -> None:
         choices=SPLITS,
         help="template splits to score (default: dev dev_v1b)",
     )
+    parser.add_argument(
+        "--skip-v1", action="store_true", help="leave out row (a), the v1 detector (no virtualenv)"
+    )
+    parser.add_argument(
+        "--fixes", action="store_true", help="also report fix rates by verification level"
+    )
     args = parser.parse_args(argv)
     if args.action == "prereg":
-        print(f"pre-registration written to {prereg(args.seed, args.warehouse, args.out_dir)}")
+        path = prereg(args.seed, args.warehouse, args.out_dir, not args.skip_v1)
+        print(f"pre-registration written to {path}")
     else:
-        path = run(args.seed, args.warehouse, args.real, args.out_dir, tuple(args.splits))
+        path = run(
+            args.seed,
+            args.warehouse,
+            args.real,
+            args.out_dir,
+            tuple(args.splits),
+            with_v1=not args.skip_v1,
+            with_fixes=args.fixes,
+        )
         print(f"results written to {path}")
 
 

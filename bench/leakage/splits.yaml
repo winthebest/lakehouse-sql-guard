@@ -1,0 +1,17 @@
+# Template splits of the leakage benchmark.
+#   spec: the LeakageSpec every query of the split is checked with (relative to this directory)
+#   seen: true when the rules, weights or spec were developed while looking at the split. A split
+#         written after the rules were frozen is `seen: false` until a result on it has been read
+#         and the rules change again.
+# `run` reads the in-sample splits from the pre-registration (`seen_splits`) when it has them,
+# else from here.
+splits:
+  dev:
+    spec: spec.yaml
+    seen: true
+  dev_v1b:
+    spec: spec.yaml
+    seen: true
+  holdout_v2:
+    spec: spec_holdout_v2.yaml
+    seen: false

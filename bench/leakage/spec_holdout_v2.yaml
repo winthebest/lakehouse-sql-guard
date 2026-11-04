@@ -1,0 +1,40 @@
+# LeakageSpec for the held-out v2 templates over the synthetic churn world (bench/leakage/world.py).
+# It extends spec.yaml with the SCD2 table `plan_history` and with the warehouse's qualified
+# relation names (dbt-style `database.schema.model`), which `relations` maps to catalog tables.
+label_table: labels
+entity_keys: [user_id]
+prediction_ts: label_ts
+label_columns: [churned]
+time_columns:
+  events: event_ts
+  user_stats: updated_at
+  plan_history: valid_from
+availability_columns:
+  events: ingested_at
+  plan_history: ingested_at
+boundary: strict
+# Both follow from the world generator's parameters (see world.declared_spec_fields and
+# world.declared_plan_history_fields): a row is loaded less than this long after it happened.
+max_ingest_delay:
+  events: 8 days
+  plan_history: 8 days
+label_known_after: 14 days
+static_tables: [entities]
+outcome_columns:
+  - user_outcomes.refund_after_churn
+  - user_outcomes.days_to_churn
+# A query may name a table by its bare catalog name (`events`) or by any name listed here.
+relations:
+  analytics.staging.stg_events: events
+  analytics.staging.stg_user_stats: user_stats
+  analytics.staging.stg_entities: entities
+  analytics.staging.stg_user_outcomes: user_outcomes
+  analytics.snapshots.plan_history_snapshot: plan_history
+  analytics.marts.fct_training_spine: labels
+  staging.stg_events: events
+  staging.stg_user_stats: user_stats
+  staging.stg_entities: entities
+  staging.stg_user_outcomes: user_outcomes
+  snapshots.plan_history_snapshot: plan_history
+  marts.fct_training_spine: labels
+dialect: duckdb

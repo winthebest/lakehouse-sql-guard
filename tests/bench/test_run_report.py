@@ -53,6 +53,7 @@ def test_markdown_lists_unverifiable_cases(world):
         "git_sha": "abc",
         "prereg_sha": "abc",
         "splits": {"dev": split},
+        "in_sample_splits": ["dev"],
         "real_data": None,
         "optimism_gap": {},
     }
@@ -81,25 +82,26 @@ def split_stub() -> dict:
     }
 
 
-def result_for(*names: str) -> dict:
+def result_for(*names: str, in_sample: tuple[str, ...] = ()) -> dict:
     return {
         "git_sha": "abc",
         "prereg_sha": "def",
         "splits": {name: split_stub() for name in names},
+        "in_sample_splits": list(in_sample),
         "real_data": None,
         "optimism_gap": {},
     }
 
 
 def test_report_says_which_splits_were_seen_during_development():
-    text = markdown(result_for("dev", "dev_v1b"))
+    text = markdown(result_for("dev", "dev_v1b", in_sample=("dev", "dev_v1b")))
     assert "In-sample:" in text and "dev, dev_v1b" in text
     assert "before held-out templates existed" not in text
     assert "## dev_v1b" in text and "holdout" not in text
 
 
 def test_a_split_nobody_tuned_on_is_not_called_in_sample():
-    text = markdown(result_for("dev", "holdout_v2"))
+    text = markdown(result_for("dev", "holdout_v2", in_sample=("dev",)))
     assert (
         "**In-sample:** dev was seen" in text and "Not seen during development: holdout_v2" in text
     )
@@ -109,9 +111,9 @@ def test_run_needs_known_splits(tmp_path):
     from bench.leakage.cases import SPLITS
     from bench.leakage.run import main, run
 
-    assert SPLITS == ("dev", "dev_v1b") and "L7" in LEAK_TYPES
+    assert SPLITS == ("dev", "dev_v1b", "holdout_v2") and "L7" in LEAK_TYPES
     with pytest.raises(SystemExit, match="no templates"):
-        run(42, tmp_path, False, tmp_path, splits=("holdout",))
+        run(42, tmp_path, False, tmp_path, splits=("holdout_v2",))
     with pytest.raises(SystemExit):
         main(["run", "--splits", "holdout"])
 
