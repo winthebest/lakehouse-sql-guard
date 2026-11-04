@@ -156,9 +156,20 @@ Reported unverifiable rather than checked:
 26. Approvals wait in a local SQLite store (`--store`). An approval is bound to a hash of the
     action (statement, table, catalog, engine, base and rehearsed snapshots, policy digest,
     row-diff digest, scope); if any of these changed when it is decided, the action ends
-    `stale` and nothing is published. The approver name is a label, not authentication. An
-    agent that runs as the same OS user as the person approving can read the store and its
-    secret, or run the approval commands itself, unless the host denies it those permissions.
+    `stale` and nothing is published. The approver name is a label, not authentication.
+    What actually protects an approval from an agent running as the same OS user:
+    the agent's shell has no catalog credentials (they go to the MCP process through its
+    `env` only, never into a file it can read); it cannot write or read the store, the audit
+    log or the warehouse metadata; and it cannot read the browser profile or the terminal
+    where `sqlguard serve` runs (the printed link and the session cookie are the person's
+    credentials). If it may hold those, nothing here defends: run it without a shell, in a
+    sandbox, or as another user. The CLI's terminal check, retyping the start of the action
+    hash and the HMAC proof stop accidents and naive prompt injection, not a determined
+    agent (`script` or `pty` fake a terminal; `show` prints the hash). Host deny rules match
+    command prefixes only, so `uv run sqlguard ...` or `bash -c ...` pass a rule written for
+    `sqlguard ...`. The web page binds to loopback, checks `Host` and `Origin`, requires a
+    CSRF token and serves everything under a random path prefix with a cookie scoped to it,
+    so another local server the person visits never receives that cookie.
 27. The reviewed row diff is computed from the full base and rehearsed snapshots, so it shows
     exactly what publishing changes, but it is bounded (1M rows or 256 MB by default; larger
     tables are refused, not sampled). Without an Iceberg identifier field or a `unique_key`

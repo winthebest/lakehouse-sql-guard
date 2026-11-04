@@ -307,6 +307,22 @@ unfinished action owns, whose head is not on main's history and is older than th
 lifetime plus an hour; a branch still at its base holds nothing and may belong to a running
 submission, so it stays. The queue holds at most `max_pending` (default 50) pending actions.
 
+### Approval UI
+
+`sqlguard serve` (extra `ui`: Starlette, Jinja2, uvicorn, vendored htmx) and
+`sqlguard approvals list|show|approve|reject` are two front ends to the same
+`ReviewService`. A decision carries a proof `v1.<nonce>.<expiry>.<hmac>` over
+`[action_id, action_hash, decision, approver, nonce, expiry]`, keyed per process and minted
+when the page or command shows the action; `Guard.resolve` spends it in the same
+transaction as the state change. The page refuses to offer Approve when the record hash, the
+displayed SQL, the recomputed diff digest, the policy digest, main, or the branch no longer
+match, and `resolve` re-checks all of them. Notes go to the audit log as `reviewer_note`.
+Housekeeping (`reconcile`, `expire_pending`, `sweep_orphan_branches`) runs at start and
+every `--housekeeping-interval` seconds on its own lock. The orphan sweep looks only at tables
+that have had an action, and at the whole catalog at most once an hour; the branch of a
+`needs_attention` action is never swept. `max_pending_per_requester` (default 10) bounds one
+requester label next to the global `max_pending`.
+
 ### Row diff
 
 `impact.compute_row_diff(table, base_snapshot_id, head_snapshot_id, ...)` extends the impact

@@ -114,6 +114,22 @@ relations: {analytics.main.stg_orders: orders}   # SQL name -> catalog table, fo
 returned with their measured impact; nothing is approved automatically. Client config:
 [examples/mcp-client-config.json](examples/mcp-client-config.json).
 
+### Approve or reject queued actions
+
+With a store, an action that needs a human is rehearsed on a branch and queued instead of
+waiting for an answer. The person reviews it in a local web page or in the terminal:
+
+```bash
+uv sync --extra ui
+uv run sqlguard serve --warehouse ./warehouse --store ./actions.db --policy policy.yaml
+uv run sqlguard approvals list --store ./actions.db --warehouse ./warehouse
+```
+
+`serve` prints a one-time sign-in link to its own terminal; the page shows the SQL, the
+policy reasons, the measured impact and the row diff recomputed from the snapshots, and
+approving publishes exactly the snapshot that was reviewed. What protects an approval (and
+what does not) is in [docs/limitations.md](docs/limitations.md#safety), item 26.
+
 ### Spark demo
 
 `docker/demo.sh` starts Spark 4 on a Lakekeeper REST catalog with S3-compatible storage
