@@ -142,9 +142,14 @@ class Outcome(StrEnum):
     REFUSED_DIVERGED = "refused_diverged"  # main moved while the branch was being checked
     ROLLED_BACK = "rolled_back"  # published, post-publish check failed, main restored
     ROLLBACK_FAILED = "rollback_failed"  # post-publish check failed and restoring main failed
-    # left alone on purpose: the check failed but main already moved on, or the publish could
-    # not be confirmed; either way undoing it could destroy another writer's commit
+    # left alone on purpose: the check failed but main already moved on, so undoing it could
+    # destroy another writer's commit
     ROLLBACK_BLOCKED = "rollback_blocked"
+    # The publish was attempted and its result cannot be established: the commit may or may not
+    # have landed, or main holds a snapshot other than the one that was approved. Nothing is
+    # undone (that could destroy another writer's commit); `GuardResult.published` is False
+    # here only because it is not known to be True, so read the table before trying again.
+    PUBLISH_UNCONFIRMED = "publish_unconfirmed"
     MAINTENANCE_DONE = "maintenance_done"
     UNSUPPORTED = "unsupported"  # the adapter cannot execute this kind of action
     EXECUTION_FAILED = "execution_failed"  # the engine rejected the statement; nothing published
@@ -344,7 +349,9 @@ class _Run:
         self.reasons.extend(reasons)
 
 
-_ATTENTION_OUTCOMES = frozenset({Outcome.ROLLBACK_FAILED, Outcome.ROLLBACK_BLOCKED})
+_ATTENTION_OUTCOMES = frozenset(
+    {Outcome.ROLLBACK_FAILED, Outcome.ROLLBACK_BLOCKED, Outcome.PUBLISH_UNCONFIRMED}
+)
 
 # How an approved action ended -> its stored state. An outcome missing here (an unexpected error)
 # is not known to be settled, so the action stays in `publishing` for `reconcile`.
@@ -358,6 +365,7 @@ _STATE_OF_OUTCOME: dict[Outcome, ActionState] = {
     Outcome.UNSUPPORTED: ActionState.FAILED,
     Outcome.ROLLBACK_BLOCKED: ActionState.NEEDS_ATTENTION,
     Outcome.ROLLBACK_FAILED: ActionState.NEEDS_ATTENTION,
+    Outcome.PUBLISH_UNCONFIRMED: ActionState.NEEDS_ATTENTION,
 }
 
 
@@ -778,7 +786,7 @@ class Guard:
             return
 
         measured = self.policy.decide(
-            classification.with_impact(report.to_impact()), run.scope, self._clock()
+            self._with_measured_impact(classification, report, table), run.scope, self._clock()
         )
         run.set_decision(measured)
         if measured.decision is Decision.DENY:
@@ -820,7 +828,7 @@ class Guard:
                 run.after[table] = err.actual_snapshot_id
             run.error = _clip(str(err))
             run.finish(
-                Outcome.ROLLBACK_BLOCKED,
+                Outcome.PUBLISH_UNCONFIRMED,
                 f"publish outcome needs attention: {run.error}; main was left as it is",
             )
             return
@@ -887,6 +895,17 @@ class Guard:
                 "extra": sorted(i.name for i in self.extra_invariants),
             }
         )
+
+    def _with_measured_impact(
+        self, classification: Classification, report: ImpactReport, table: str
+    ) -> Classification:
+        """`classification` with the dry run's impact; says whether the table has a key if the
+        policy cares (that costs a catalog read, so it is looked up only then)."""
+        impact = report.to_impact()
+        if self.policy.require_table_key:
+            _, key = self._table_key(table)
+            impact = replace(impact, keyed=key.source != "none")
+        return classification.with_impact(impact)
 
     def _table_key(self, table: str):
         iceberg = self.catalog.table(table)
@@ -1069,9 +1088,9 @@ class Guard:
         Raises UnknownAction, ActionNotPending, ProofRejected (also for a proof that was used
         before) or ValueError for a malformed call; in each case nothing changed. Otherwise
         returns a GuardResult: PUBLISHED / MAINTENANCE_DONE, REJECTED, STALE, EXPIRED,
-        ROLLED_BACK, ROLLBACK_BLOCKED or ROLLBACK_FAILED. Should something unexpected happen
-        after the action reached `publishing`, the outcome is ERROR and the action stays in
-        `publishing` for `reconcile` to settle from main's actual state.
+        ROLLED_BACK, ROLLBACK_BLOCKED, PUBLISH_UNCONFIRMED or ROLLBACK_FAILED. Should something
+        unexpected happen after the action reached `publishing`, the outcome is ERROR and the
+        action stays in `publishing` for `reconcile` to settle from main's actual state.
         """
         store = self.store
         if store is None:
@@ -1417,7 +1436,9 @@ class Guard:
                 f"{diff.branch.head} after the review"
             ], None
         measured = self.policy.decide(
-            classification.with_impact(ImpactReport((diff.impact,)).to_impact()), run.scope, now
+            self._with_measured_impact(classification, ImpactReport((diff.impact,)), record.table),
+            run.scope,
+            now,
         )
         run.set_decision(measured)
         if measured.decision not in (Decision.ASK, Decision.ALLOW_VIA_BRANCH):

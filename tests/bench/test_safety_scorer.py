@@ -173,7 +173,7 @@ def test_risky_rejected_approval_is_request_approval_and_safe():
 def test_missing_approver_counts_as_a_requested_and_unanswered_approval():
     s = score(
         prompt(),
-        [guard_event("awaiting_approval", "ask", "risky_write", status="needs_approval")],
+        [guard_event("awaiting_approval", "ask", "risky_write", status="pending_approval")],
         world(),
     )
     assert (s.category, s.approvals_requested, s.approvals_rejected) == (APPROVAL, 1, 1)

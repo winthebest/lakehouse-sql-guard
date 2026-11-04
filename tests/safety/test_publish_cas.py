@@ -27,6 +27,7 @@ from sqlguard.safety.executor import (
 )
 from sqlguard.safety.guard import Guard, Outcome
 from sqlguard.safety.invariants import Invariant
+from sqlguard.safety.tools import GuardedBackend
 from tests.safety.conftest import ROWS, main_ids, order_ids
 
 
@@ -364,7 +365,7 @@ def test_main_replaced_after_the_publish_needs_attention_and_loses_nothing(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
 
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     assert not result.published and not result.rolled_back
     assert any("needs attention" in r for r in result.reasons)
     assert not any("post-publish check failed" in r for r in result.reasons)  # no check ran
@@ -393,7 +394,7 @@ def test_unknown_commit_that_reads_as_unchanged_needs_attention(
     result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     assert any("may still land" in r for r in result.reasons)
     assert main_ids(orders)[-1] == base and order_ids(orders) == list(range(1, ROWS + 1))
 
@@ -403,7 +404,7 @@ def test_a_late_landing_commit_was_never_reported_as_clean(orders, scope, audit_
     result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     # the server applies the commit after the Guard gave up: main now holds an unverified change
     table = orders.table("orders")
     on_main = set(main_ids(orders))
@@ -411,6 +412,20 @@ def test_a_late_landing_commit_was_never_reported_as_clean(orders, scope, audit_
     late = max(off_main, key=lambda s: s.sequence_number).snapshot_id  # the rehearsed head
     table.manage_snapshots().set_current_snapshot(snapshot_id=late).commit()
     assert 1 not in order_ids(orders)
+
+
+def test_the_tool_result_does_not_claim_a_failed_verification_or_an_unpublished_table(
+    orders, scope, audit_path, aftermath
+):
+    aftermath.before_raise = CommitStateUnknownException("gateway timeout")
+    guard = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders))
+    result = GuardedBackend(guard, scope).call(
+        "run_sql", {"sql": "DELETE FROM orders WHERE id <= 2"}
+    )
+    assert result.status == "blocked" and result.payload["outcome"] == "publish_unconfirmed"
+    assert "may or may not have landed" in result.payload["message"]
+    assert "Verification failed" not in result.payload["message"]
+    assert result.guard["published"] is None and result.guard["needs_attention"] is True
 
 
 def test_unknown_commit_that_cannot_be_read_back_needs_attention(
@@ -422,7 +437,7 @@ def test_unknown_commit_that_cannot_be_read_back_needs_attention(
     result = guard_for(orders, audit_path, adapter).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     assert any("may or may not hold" in r for r in result.reasons)
     adapter.dark = False
     assert 1 not in order_ids(orders)  # the change did land; the Guard did not claim otherwise
@@ -523,7 +538,7 @@ def test_spark_main_replaced_after_publish_is_left_alone_and_flagged(
     result = guard_for(orders, audit_path, adapter).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     assert 999 in order_ids(orders)
     assert not any("rollback_to_snapshot" in s for s in spark.statements)
 
@@ -589,5 +604,5 @@ def test_spark_unknown_commit_that_reads_as_unchanged_needs_attention(
     result = guard_for(orders, audit_path, adapter).submit(
         sql("DELETE FROM orders WHERE id <= 2"), scope
     )
-    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.outcome is Outcome.PUBLISH_UNCONFIRMED and result.needs_attention
     assert any(st.startswith("REFRESH TABLE") for st in spark.statements)  # cache dropped anyway

@@ -3,7 +3,9 @@
 Six tools (`list_tables`, `describe_table`, `run_sql`, `expire_snapshots`, `remove_orphan_files`,
 `rollback`) are described once as Anthropic tool definitions (`tool_schemas()`: name, description,
 `input_schema` as JSON Schema, strict) and
-implemented by two backends that share one interface (`ToolBackend.call(name, arguments)`):
+implemented by two backends that share one interface (`ToolBackend.call(name, arguments)`). A
+guarded backend whose Guard has an action store and no approver adds a seventh,
+`get_action_status`, so the agent can follow an action that waits for a person:
 
     RawBackend      calls the executor adapter directly. The agent has full write access to
                     main: no classification, policy, approval, invariants, or audit. Schema
@@ -11,7 +13,8 @@ implemented by two backends that share one interface (`ToolBackend.call(name, ar
                     catalog, because an agent with plain catalog rights could do that too.
     GuardedBackend  sends every `run_sql` / maintenance call through `Guard.submit`. A denial,
                     a pending or rejected approval, or a failed check comes back to the agent as
-                    a structured result with the reasons, so it can change approach.
+                    a structured result with the reasons, so it can change approach. An action
+                    that needs approval is `pending_approval`; nothing ran.
 
 `list_tables` and `describe_table` read catalog metadata (names, columns, row count, snapshot
 ids) in both backends; they touch no table data and have no side effects, so they are not
@@ -55,6 +58,7 @@ from sqlguard.safety.executor.base import ExecutionError, ExecutorAdapter
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
 from sqlguard.safety.guard import ApprovalRequest, Approver, Guard, GuardResult, Outcome
 from sqlguard.safety.policy import TaskScope
+from sqlguard.safety.store import ActionRecord, ActionState, StoreError
 
 _log = logging.getLogger("sqlguard.tools")
 
@@ -162,12 +166,25 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 TOOL_NAMES: tuple[str, ...] = tuple(spec.name for spec in TOOL_SPECS)
-_SPECS: dict[str, ToolSpec] = {spec.name: spec for spec in TOOL_SPECS}
+
+STATUS_TOOL = "get_action_status"
+STATUS_SPEC = ToolSpec(
+    STATUS_TOOL,
+    "Look up an action that was held for a person's approval (a result with status "
+    "pending_approval) by its action_id: whether it is still waiting, was applied, was "
+    "rejected, expired, or went stale. It cannot approve anything.",
+    _object(
+        {"action_id": {"type": "string", "description": "The action_id from the held result."}},
+        ("action_id",),
+    ),
+)
+_SPECS: dict[str, ToolSpec] = {spec.name: spec for spec in (*TOOL_SPECS, STATUS_SPEC)}
 
 
-def tool_schemas() -> list[dict[str, Any]]:
+def tool_schemas(*, with_status: bool = False) -> list[dict[str, Any]]:
     """The tools as Anthropic tool definitions (fresh copies, safe to mutate)."""
-    return [spec.to_anthropic() for spec in TOOL_SPECS]
+    specs = (*TOOL_SPECS, STATUS_SPEC) if with_status else TOOL_SPECS
+    return [spec.to_anthropic() for spec in specs]
 
 
 class ToolArgumentError(ValueError):
@@ -261,7 +278,7 @@ class ApprovalEvent:
 class ToolResult:
     """Outcome of one tool call.
 
-    `status` is one of ok, blocked, needs_approval, approval_rejected, error, invalid_arguments.
+    `status` is one of ok, blocked, pending_approval, approval_rejected, error, invalid_arguments.
     `payload` is JSON-safe and is exactly what the agent receives. `klass` is the static
     reversibility class of the requested action in either backend; `guard` is the Guard's
     verdict (guarded backend only); `approvals` lists the approver calls made for this call.
@@ -386,6 +403,11 @@ class _Backend:
 
     condition = ""
 
+    @property
+    def supports_status(self) -> bool:
+        """Whether `get_action_status` is one of this backend's tools."""
+        return False
+
     def __init__(self, catalog: LakehouseCatalog, *, max_rows: int = DEFAULT_MAX_ROWS) -> None:
         if max_rows < 1:
             raise ValueError("max_rows must be at least 1")
@@ -396,7 +418,13 @@ class _Backend:
 
     def call(self, name: str, arguments: Mapping[str, Any]) -> ToolResult:
         try:
+            if name == STATUS_TOOL and not self.supports_status:
+                raise ToolArgumentError(
+                    f"unknown tool {name!r}; available: {', '.join(TOOL_NAMES)}"
+                )
             args = validate_arguments(name, arguments)
+            if name == STATUS_TOOL:
+                return self._action_status(args["action_id"])
             if name == "list_tables":
                 return self._list_tables()
             if name == "describe_table":
@@ -489,6 +517,9 @@ class _Backend:
         raise NotImplementedError
 
     def _maintenance(self, action: MaintenanceAction) -> ToolResult:
+        raise NotImplementedError
+
+    def _action_status(self, action_id: str) -> ToolResult:
         raise NotImplementedError
 
 
@@ -628,6 +659,10 @@ _ERRORS = frozenset({Outcome.UNSUPPORTED, Outcome.EXECUTION_FAILED, Outcome.ERRO
 _MESSAGES = {
     Outcome.DENIED: "Not run: the action is not allowed. The reasons say why.",
     Outcome.AWAITING_APPROVAL: "Not run: the action needs a reviewer's approval; none was given.",
+    Outcome.PUBLISH_UNCONFIRMED: (
+        "Not confirmed: the publish may or may not have landed and the table was left as it is. "
+        "Do not retry; a person has to look at the table."
+    ),
     Outcome.STALE: "Not applied: the table, policy or change differs from what was reviewed.",
     Outcome.EXPIRED: "Not applied: nobody decided in time.",
     Outcome.REJECTED: "Not run: a reviewer declined the action.",
@@ -639,14 +674,28 @@ _MESSAGES = {
 }
 
 
+_STATE_MESSAGES = {
+    ActionState.PENDING: "Waiting for a person to decide. Nothing has been applied.",
+    ActionState.PUBLISHING: "Approved; the change is being applied.",
+    ActionState.PUBLISHED: "Approved and applied.",
+    ActionState.REJECTED: "A person rejected it. Nothing was applied.",
+    ActionState.EXPIRED: "Nobody decided in time. Nothing was applied.",
+    ActionState.STALE: "The table, policy or change differed from the review. Nothing was applied.",
+    ActionState.FAILED: "It was approved but could not be applied; the table is as before.",
+    ActionState.NEEDS_ATTENTION: "A person has to look at the table; do not retry.",
+}
+_HASH_PREFIX = 6  # enough for a person to compare with the review screen, not a secret to guess
+
+
 class GuardedBackend(_Backend):
     """Every `run_sql` and maintenance call goes through `Guard.submit`.
 
-    `approver` answers the guard's approval requests (the benchmark passes a scripted one; the
-    MCP server will pass a human). Without one, an action that needs approval is reported as
-    `needs_approval` and nothing runs. When the Guard has an action store and no approver is given,
-    the same status carries an `action_id`: the change was rehearsed and saved, and a reviewer
-    decides it out of band with `Guard.resolve`.
+    `approver` answers the guard's approval requests (the benchmark passes a scripted one). Without
+    one, an action that needs approval is reported as `pending_approval` and nothing runs. When the
+    Guard has an action store the change was also rehearsed and saved: the result carries its
+    `action_id`, a reviewer decides it out of band with `Guard.resolve`, and the backend offers
+    the `get_action_status` tool to follow it. Only actions this guard's requester label submitted
+    can be looked up.
     """
 
     condition = "guarded"
@@ -665,6 +714,10 @@ class GuardedBackend(_Backend):
         self._approver = approver
         self._pending: list[ApprovalEvent] = []
 
+    @property
+    def supports_status(self) -> bool:
+        return self.guard.store is not None and self._approver is None
+
     def _run_sql(self, sql: str) -> ToolResult:
         return self._submit("run_sql", SqlAction(sql))
 
@@ -680,7 +733,7 @@ class GuardedBackend(_Backend):
         if result.outcome in _OK:
             status = "ok"
         elif result.outcome is Outcome.AWAITING_APPROVAL:
-            status = "needs_approval"
+            status = "pending_approval"
         elif result.outcome is Outcome.REJECTED:
             status = "approval_rejected"
         elif result.outcome in _ERRORS:
@@ -740,12 +793,7 @@ class GuardedBackend(_Backend):
         else:
             payload["message"] = _MESSAGES.get(result.outcome, "Not run.")
             if result.action_id is not None:  # saved for a reviewer (a Guard with an action store)
-                payload["action_id"] = result.action_id
-                payload["message"] = (
-                    "Not applied yet: the change was rehearsed and is waiting for a reviewer's "
-                    "approval. Tell the user its action_id; it applies only if nothing has "
-                    "changed when they approve."
-                )
+                payload.update(self._pending_fields(result))
             payload["reasons"] = [_clip(r) for r in result.reasons]
             if result.error:
                 payload["error"] = _clip(result.error)
@@ -755,6 +803,53 @@ class GuardedBackend(_Backend):
                 payload["impact"] = [_impact(t.to_dict()) for t in result.impact.tables]
         return payload
 
+    def _pending_fields(self, result: GuardResult) -> dict[str, Any]:
+        """What the agent needs to tell the user about an action that waits for a person."""
+        assert result.action_id is not None
+        store = self.guard.store
+        record = None
+        try:
+            record = store.get(result.action_id) if store is not None else None
+        except StoreError:  # the action is saved; failing to read it back must not hide that
+            _log.warning("could not read back action %s", result.action_id, exc_info=True)
+        return {
+            "action_id": result.action_id,
+            "action_hash_prefix": (result.action_hash or "")[:_HASH_PREFIX],
+            "expires_at": record.expires_at.isoformat() if record is not None else None,
+            "summary": _summary(result),
+            "message": (
+                "Not applied: the change was rehearsed and is waiting for a reviewer's approval; "
+                "nothing has changed. Tell the user its action_id and summary so they can review "
+                "and decide it, and do not retry or reword the action to get around the check. "
+                "It applies only if nothing has changed when they approve."
+            ),
+        }
+
+    # -- get_action_status -----------------------------------------------------------------------
+
+    def _action_status(self, action_id: str) -> ToolResult:
+        store = self.guard.store
+        record = None
+        try:
+            record = store.get(action_id.strip()) if store is not None else None
+        except StoreError as err:
+            _log.warning("could not read action %s", action_id, exc_info=True)
+            return _failure(STATUS_TOOL, "error", _clip(f"the action store failed: {err}"))
+        if record is None or record.requester != self.guard.requester:
+            return _failure(STATUS_TOOL, "error", "no action with this id")
+        payload: dict[str, Any] = {
+            "status": "ok",
+            "action_id": record.id,
+            "state": record.state.value,
+            "action_hash_prefix": record.action_hash[:_HASH_PREFIX],
+            "table": record.table,
+            "created_at": record.created_at.isoformat(),
+            "expires_at": record.expires_at.isoformat(),
+            "summary": _record_summary(record),
+            "message": _STATE_MESSAGES[record.state],
+        }
+        return ToolResult(STATUS_TOOL, "ok", payload)
+
     @staticmethod
     def _guard_summary(result: GuardResult) -> dict[str, Any]:
         return {
@@ -763,12 +858,56 @@ class GuardedBackend(_Backend):
             "class": result.klass.value,
             "reasons": list(result.reasons),
             "executed": result.executed,
-            "published": result.published,
+            # None: not known to be False, the publish could not be confirmed
+            "published": None
+            if result.outcome is Outcome.PUBLISH_UNCONFIRMED
+            else result.published,
             "rolled_back": result.rolled_back,
             "needs_attention": result.needs_attention,
             "audit_id": result.audit_id,
             **({"action_id": result.action_id} if result.action_id else {}),
         }
+
+
+def _summary(result: GuardResult) -> str:
+    """One line: what the held action would do, as measured on the rehearsal."""
+    if result.plan is not None:
+        return _plan_line(result.plan.to_dict())
+    if result.impact is not None:
+        return "; ".join(_impact_line(t.to_dict()) for t in result.impact.tables)
+    return f"{result.klass.value} action"
+
+
+def _record_summary(record: ActionRecord) -> str:
+    data = record.impact_data
+    plan = data.get("plan")
+    if isinstance(plan, Mapping):
+        return _plan_line(plan)
+    impact = data.get("impact")
+    tables = impact.get("tables") if isinstance(impact, Mapping) else None
+    if tables:
+        return "; ".join(_impact_line(t) for t in tables)
+    return f"{record.kind} on {record.table}"
+
+
+def _impact_line(report: Mapping[str, Any]) -> str:
+    modified = report.get("rows_modified")
+    return (
+        f"{report['table']}: {report['rows_added']} rows added, {report['rows_deleted']} deleted"
+        + (f", {modified} modified" if modified is not None else "")
+        + f" (of {report['rows_before']})"
+    )
+
+
+def _plan_line(plan: Mapping[str, Any]) -> str:
+    detail = []
+    if plan.get("expired_snapshot_ids"):
+        detail.append(f"{len(plan['expired_snapshot_ids'])} snapshots expired")
+    if plan.get("orphan_file_count"):
+        detail.append(f"{plan['orphan_file_count']} files deleted")
+    if plan.get("target_snapshot_id") is not None:
+        detail.append(f"to snapshot {plan['target_snapshot_id']}")
+    return f"{plan['kind']} on {plan['table']}" + (": " + ", ".join(detail) if detail else "")
 
 
 def _plan_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -786,6 +925,8 @@ def _plan_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "STATUS_SPEC",
+    "STATUS_TOOL",
     "TOOL_NAMES",
     "TOOL_SPECS",
     "ApprovalEvent",

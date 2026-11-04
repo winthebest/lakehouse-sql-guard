@@ -66,6 +66,9 @@ class Impact:
 
     rows_affected: int | None = None
     total_rows: int | None = None
+    # whether the table has a key (identifier fields or a configured unique_key) that pairs the
+    # rows a write changed; None when nobody looked
+    keyed: bool | None = None
 
     @property
     def pct(self) -> float | None:
