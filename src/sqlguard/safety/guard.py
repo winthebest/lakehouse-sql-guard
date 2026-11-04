@@ -18,8 +18,10 @@ Pipeline for every submission:
 
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
 main pointer to the snapshot that was measured and verified (not to whatever the branch holds by
-then). An engine that cannot run a write on an isolated branch (`Capabilities.branch_write`) is
-never given one: such writes are denied. Every submission appends a completion record
+then). A publish whose result cannot be confirmed, or that other writers have replaced, is never
+rolled back: it is reported as needing attention. An engine that cannot run a write on an
+isolated branch (`Capabilities.branch_write`) is never given one: such writes are denied.
+Every submission appends a completion record
 to the audit log (denials and failures included), and anything with side effects first appends
 a "started" record. Any unexpected error fails closed (nothing published, branch
 dropped) and is reported as `Outcome.ERROR`.
@@ -57,6 +59,7 @@ from sqlguard.safety.executor.base import (
     ExecutorAdapter,
     MaintenancePlan,
     PublishMismatch,
+    PublishStateUnknown,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
@@ -96,7 +99,9 @@ class Outcome(StrEnum):
     REFUSED_DIVERGED = "refused_diverged"  # main moved while the branch was being checked
     ROLLED_BACK = "rolled_back"  # published, post-publish check failed, main restored
     ROLLBACK_FAILED = "rollback_failed"  # post-publish check failed and restoring main failed
-    ROLLBACK_BLOCKED = "rollback_blocked"  # check failed but main already moved on; left alone
+    # left alone on purpose: the check failed but main already moved on, or the publish could
+    # not be confirmed; either way undoing it could destroy another writer's commit
+    ROLLBACK_BLOCKED = "rollback_blocked"
     MAINTENANCE_DONE = "maintenance_done"
     UNSUPPORTED = "unsupported"  # the adapter cannot execute this kind of action
     EXECUTION_FAILED = "execution_failed"  # the engine rejected the statement; nothing published
@@ -258,8 +263,8 @@ class Guard:
 
     @property
     def _capabilities(self) -> Capabilities:
-        # an adapter written before capabilities existed is assumed to do everything it implements
-        return getattr(self.adapter, "capabilities", None) or Capabilities.full()
+        # an adapter that declares nothing is assumed to be able to do nothing
+        return getattr(self.adapter, "capabilities", None) or Capabilities()
 
     @property
     def _engine(self) -> str:
@@ -569,16 +574,15 @@ class Guard:
                 f"{err}; nothing was published, re-submit against the current state",
             )
             return
-        except PublishMismatch as err:
-            # main moved but is not on the approved snapshot: put it back where it was cut from
-            run.published = True
-            run.after[table] = err.actual_snapshot_id
-            self._roll_back(
-                run,
-                table,
-                recorded.base_snapshot_id,
-                err.actual_snapshot_id,
-                [_clip(str(err))],
+        except (PublishMismatch, PublishStateUnknown) as err:
+            # Main may hold other writers' commits (or ours); undoing anything could destroy
+            # their work, so leave main alone and ask for a person.
+            if isinstance(err, PublishMismatch):
+                run.after[table] = err.actual_snapshot_id
+            run.error = _clip(str(err))
+            run.finish(
+                Outcome.ROLLBACK_BLOCKED,
+                f"publish outcome needs attention: {run.error}; main was left as it is",
             )
             return
         if not published.changed:

@@ -12,7 +12,9 @@ How a write is executed
      fast-forward would follow the branch ref, taking anything written to it after approval). It
      first checks that main still sits on the snapshot the branch was cut from, and the commit
      itself carries PyIceberg's `AssertRefSnapshotId` requirement, so a concurrent writer makes
-     the publish fail instead of being overwritten. Afterwards main must sit on `expected_head`.
+     the publish fail instead of being overwritten. Afterwards main is read back and must be on
+     `expected_head` or have it in its history; if the commit's outcome is uncertain (timeout, 5xx)
+     that read decides, and nothing is ever rolled back from here.
 
 Behaviours verified against pyiceberg 0.12 and locked by tests (a version bump that changes them
 turns those tests red): branch overwrite leaves main untouched; `rollback_to_snapshot` only moves
@@ -27,6 +29,7 @@ action may write one table.
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import replace
@@ -59,6 +62,7 @@ from sqlguard.safety.executor.base import (
     PlannedSnapshot,
     PublishMismatch,
     PublishResult,
+    PublishStateUnknown,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.orphan_files import (
@@ -74,6 +78,10 @@ AUDIT_BRANCH_PREFIX = "sqlguard-"  # branches the guard creates; never valid pub
 _BRANCH_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _RUNNABLE = (exp.Insert, exp.Update, exp.Delete, exp.Merge)
 _READ_ONLY = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe)
+
+
+def _describe(error: Exception | None) -> str:
+    return "no error" if error is None else f"{type(error).__name__}: {str(error)[:200]}"
 
 
 def _millis(moment: datetime) -> int:
@@ -237,17 +245,66 @@ class DuckDBIcebergAdapter:
                 f"snapshot {expected_head} does not descend from the base snapshot "
                 f"{branch.base_snapshot_id} of {branch.table}"
             )
+        committed: int | None = None  # main as the catalog's commit response reports it
+        cause: Exception | None = None
         try:
             iceberg.manage_snapshots().set_current_snapshot(snapshot_id=expected_head).commit()
+            committed = self._current_id(iceberg)
         except CommitFailedException as err:
             raise BranchDiverged(f"main of {branch.table} changed during publish: {err}") from err
-        now = self._current_id(self._load(branch.table))
-        if now != expected_head:
-            raise PublishMismatch(
-                f"main of {branch.table} is at snapshot {now} after publishing {expected_head}",
-                now,
-            )
+        except Exception as err:  # noqa: BLE001 - unknown state: timeout, 5xx, lost connection
+            cause = err
+        self._settle(branch, expected_head, committed, cause)
         return PublishResult(branch.table, main_id, expected_head, changed=True)
+
+    # How hard to try to read main back after a commit whose outcome is uncertain.
+    _READBACK_ATTEMPTS = 3
+    _READBACK_DELAY_SECONDS = 0.5
+
+    def _settle(
+        self,
+        branch: BranchHandle,
+        expected_head: int,
+        committed: int | None,
+        cause: Exception | None,
+    ) -> None:
+        """Decide from main's actual state whether the publish landed; never roll anything back.
+
+        Landed means main is on `expected_head` or has it in its history (other writers
+        committed on top of it). `committed` is main according to the commit response (None when
+        the commit raised `cause`, so its outcome is unknown).
+        """
+        iceberg = self._read_back(branch.table)
+        if iceberg is None:
+            if committed == expected_head:
+                return  # the catalog confirmed our commit; only the second look failed
+            raise PublishStateUnknown(
+                f"could not read {branch.table} back after publishing snapshot {expected_head} "
+                f"({_describe(cause)}); main may or may not hold it"
+            ) from cause
+        now = self._current_id(iceberg)
+        if now == expected_head or expected_head in self._ancestry(iceberg, now):
+            return
+        if cause is not None and now == branch.base_snapshot_id:
+            raise ExecutionError(
+                f"publishing {expected_head} to {branch.table} failed ({_describe(cause)}); "
+                "main is unchanged"
+            ) from cause
+        raise PublishMismatch(
+            f"main of {branch.table} is at snapshot {now} and does not include the published "
+            f"snapshot {expected_head}",
+            now,
+        )
+
+    def _read_back(self, table: str) -> Table | None:
+        for attempt in range(self._READBACK_ATTEMPTS):
+            if attempt:
+                time.sleep(self._READBACK_DELAY_SECONDS)
+            try:
+                return self._load(table)
+            except Exception:  # noqa: BLE001 - any failure to read means "try again, then give up"
+                continue
+        return None
 
     def drop_branch(self, branch: BranchHandle) -> None:
         if branch.name == MAIN:

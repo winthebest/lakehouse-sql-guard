@@ -12,7 +12,8 @@ Spark session, so it suits tables that do not fit in memory:
     `set_current_snapshot(expected_head)` against the same catalog, guarded by the catalog's own
     compare-and-swap on the main ref, so main moves to exactly the snapshot that was approved
     (Iceberg's fast-forward procedure follows the branch ref and would take later writes too). A
-    main that moved since the branch was cut is `BranchDiverged`.
+    main that moved since the branch was cut is `BranchDiverged`. Spark's table cache is
+    refreshed (`REFRESH TABLE`) afterwards, because that commit bypasses it.
   * `rollback` / `expire_snapshots` / `remove_orphan_files` are the matching
     `CALL <catalog>.system.<procedure>` statements; moving main to an approved ref snapshot
     is the same PyIceberg commit as `publish`. Orphan cleanup is planned with the procedure's
@@ -333,6 +334,18 @@ class SparkIcebergAdapter:
     def _call(self, procedure: str, **arguments: Any) -> list[Any]:
         return self._run(procedure_call(self.spark_catalog, procedure, **arguments))
 
+    def _refresh(self, table: str) -> None:
+        """Drop Spark's cached metadata of `table`.
+
+        Iceberg's SparkCatalog caches tables, and a commit made through PyIceberg bypasses that
+        cache, so the next Spark read could otherwise still see the old main. A failed refresh
+        is logged, not raised: the commit it follows has already decided the outcome.
+        """
+        try:
+            self._run(f"REFRESH TABLE {self._table_ident(table)}")
+        except ExecutionError as err:
+            _log.warning("could not refresh Spark's cache of %s after a commit: %s", table, err)
+
     def _table_ident(self, table: str) -> str:
         return table_identifier(self.spark_catalog, self.catalog.identifier(table))
 
@@ -439,7 +452,10 @@ class SparkIcebergAdapter:
         return self._meta.diff(branch, key)
 
     def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
-        return self._meta.publish(branch, expected_head)
+        try:
+            return self._meta.publish(branch, expected_head)
+        finally:
+            self._refresh(branch.table)  # main may have moved behind Spark's back
 
     def drop_branch(self, branch: BranchHandle) -> None:
         if branch.name == MAIN:
@@ -496,7 +512,10 @@ class SparkIcebergAdapter:
             raise ExecutionError("plan has no target snapshot")
         if isinstance(action, FastForward):
             self._meta._require_publishable_ref(action.to)
-            return self._meta.apply_maintenance(action, plan)  # PyIceberg commit, see module doc
+            try:
+                return self._meta.apply_maintenance(action, plan)  # PyIceberg commit, module doc
+            finally:
+                self._refresh(plan.table)
         elif isinstance(action, RollbackToSnapshot) and action.ref is None:
             self._call("rollback_to_snapshot", table=plan.table, snapshot_id=int(target))
         elif isinstance(action, RollbackToSnapshot):

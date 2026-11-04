@@ -98,11 +98,12 @@ def test_a_policy_denial_keeps_its_own_reasons(readonly_guard):
     assert "no isolated rehearsal on readonly-engine" not in result.reasons
 
 
-def test_an_adapter_without_capabilities_is_assumed_capable(orders, audit_path, scope):
-    class Legacy(DuckDBIcebergAdapter):
-        capabilities = None  # an adapter written before capabilities existed
+def test_an_adapter_that_declares_nothing_is_assumed_to_do_nothing(orders, audit_path, scope):
+    class Silent(DuckDBIcebergAdapter):
+        capabilities = None  # an adapter that never said what it can do
 
-    guard = Guard(orders, Policy(), audit_path=audit_path, adapter=Legacy(orders))
+    guard = Guard(orders, Policy(), audit_path=audit_path, adapter=Silent(orders))
     result = guard.submit(sql("DELETE FROM orders WHERE id = 1"), scope)
-    assert result.outcome is Outcome.PUBLISHED
-    assert order_ids(orders) == list(range(2, ROWS + 1))
+    assert result.outcome is Outcome.DENIED
+    assert "no isolated rehearsal on duckdb" in result.reasons
+    assert order_ids(orders) == list(range(1, ROWS + 1))

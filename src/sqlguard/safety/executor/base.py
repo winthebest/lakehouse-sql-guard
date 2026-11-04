@@ -43,15 +43,23 @@ class BranchDiverged(ExecutionError):
 
 
 class PublishMismatch(ExecutionError):
-    """Main was moved by the publish commit but does not sit on the snapshot that was approved.
+    """The publish commit went through, but main no longer has the approved snapshot in its history.
 
-    Unlike other execution errors this one is raised after main changed, so the caller must
-    restore main (`actual_snapshot_id` is where it is now).
+    Someone replaced main afterwards, so the approved change is not live. Nothing is rolled
+    back: main holds another writer's work and needs a person to look. `actual_snapshot_id` is
+    where main is now.
     """
 
     def __init__(self, message: str, actual_snapshot_id: int | None) -> None:
         super().__init__(message)
         self.actual_snapshot_id = actual_snapshot_id
+
+
+class PublishStateUnknown(ExecutionError):
+    """The publish commit may or may not have landed and main could not be read back to find out.
+
+    Main might hold the approved change; the caller must not report it as "not published".
+    """
 
 
 @dataclass(frozen=True)
@@ -195,9 +203,11 @@ class ExecutorAdapter(Protocol):
     def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
         """Move main to snapshot `expected_head`, which must descend from the branch's base.
 
-        Raises BranchDiverged if main is no longer at the base (or moves during the commit), and
-        PublishMismatch if main is not on `expected_head` once the commit returns. Whatever the
-        branch has been given since `expected_head` was recorded is not published.
+        Raises BranchDiverged if main is no longer at the base (or moves during the commit).
+        After the commit main is read back: it must be on `expected_head`, or have it in its
+        history (other writers committed on top; that is a success). If it does not, raises
+        PublishMismatch; if the outcome of the commit cannot be determined, PublishStateUnknown.
+        Whatever the branch has been given since `expected_head` was recorded is not published.
         """
         ...
 

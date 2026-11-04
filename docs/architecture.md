@@ -123,7 +123,7 @@ near the engine: a SQL write on an engine that cannot run DML on an isolated bra
 denied up front with the reason `no isolated rehearsal on <engine>` (also when the policy
 would only have asked for approval), because the rehearsal is what makes a write safe to
 publish. Reads and policy denials are unaffected. An adapter without a `capabilities`
-attribute is treated as fully capable. `DuckDBIcebergAdapter` and `SparkIcebergAdapter`
+attribute is treated as capable of nothing. `DuckDBIcebergAdapter` and `SparkIcebergAdapter`
 declare everything except `changelog`.
 
 ### Publish by snapshot id
@@ -139,11 +139,30 @@ code against the same catalog: reload the table; main must still be the branch's
 (`BranchDiverged` otherwise); `expected_head == base` is a no-op; the base must be an
 ancestor of `expected_head`; `set_current_snapshot(snapshot_id=expected_head)`, whose
 commit carries the catalog's own assertion on the main ref (a writer that slips in makes
-it fail with `BranchDiverged`); finally main must sit on `expected_head`, else
-`PublishMismatch` (an `ExecutionError` carrying where main is now). After a
-`PublishMismatch` main has moved, so the Guard rolls it back to the base and reports
-`rolled_back` with `published=False`. The approved fast-forward *maintenance action* moves
-main to the snapshot recorded in its plan the same way.
+it fail with `BranchDiverged`). Then main is read back and the publish counts as landed when
+main is on `expected_head` **or has it in its history** (other writers committed on top).
+
+Nothing is ever rolled back from the publish step, because undoing it past another writer's
+commit would destroy their work:
+
+- Other writers on top, post-publish verification passes: `published`.
+- Other writers on top, verification fails: the rollback's compare-and-swap refuses
+  (main is no longer on the published snapshot), so the result is `rollback_blocked` with
+  `needs_attention`.
+- Main no longer has `expected_head` in its history (`PublishMismatch`), or the commit's
+  outcome is unknown and main cannot be read back (`PublishStateUnknown`): `rollback_blocked`
+  with `needs_attention`, main untouched.
+- An unknown commit state (`CommitStateUnknownException`, 5xx, timeout, lost connection) is
+  settled by reading main back, with retries: on `expected_head` or beyond is a success;
+  still at the base is a plain not-published failure; anything else is the attention cases
+  above. A confirmed commit response is trusted if the read-back itself fails.
+
+On Spark the table cache is refreshed (`REFRESH TABLE`) after each such commit, since a
+PyIceberg commit bypasses Iceberg's `SparkCatalog` cache. The approved fast-forward
+*maintenance action* moves main to the snapshot recorded in its plan the same way.
+
+`BranchDiff.branch` (the handle carrying the measured head) is a required field; code that
+builds a `BranchDiff` itself must supply it.
 
 A SQL catalog stores every table under the catalog name it was created with, so a
 warehouse written by `LakehouseCatalog.local` (name `sqlguard`) is opened by
@@ -161,7 +180,11 @@ registration order, so a new group needs its own module and no edit to another g
 `approvals.py` is reserved and registers nothing yet. Catalog flags come from
 `core.catalog.add_catalog_args` / `catalog_from_args` and are shared by the groups that
 open a lakehouse (`--catalog NAME` or `--warehouse PATH`, plus `--catalog-namespace`);
-`sqlguard-mcp` takes `--catalog` / `SQLGUARD_CATALOG` as an alternative to `--warehouse`.
+`sqlguard-mcp` takes `--catalog` / `SQLGUARD_CATALOG` as an alternative to `--warehouse`; it
+keeps its own flag parsing (environment-variable defaults, `--namespace`, parse and open are
+separate steps) and shares only `from_config`. Its default executor rewrites whole tables in
+memory, so `--catalog` should not be pointed at a large production table yet.
+`from_config` errors have URI passwords and secret-looking values removed before they are shown.
 
 ## Benchmarks (`bench/`)
 

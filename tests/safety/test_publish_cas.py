@@ -11,19 +11,22 @@ import re
 
 import pyarrow as pa
 import pytest
+from pyiceberg.exceptions import CommitStateUnknownException
 from pyiceberg.table.update.snapshot import ManageSnapshots
 
 from sqlguard.core.catalog import LakehouseCatalog
-from sqlguard.safety import Policy, SqlAction
+from sqlguard.safety import FastForward, Policy, SqlAction
 from sqlguard.safety.executor import (
     BranchDiverged,
     BranchHandle,
     DuckDBIcebergAdapter,
     ExecutionError,
     PublishMismatch,
+    PublishStateUnknown,
     SparkIcebergAdapter,
 )
 from sqlguard.safety.guard import Guard, Outcome
+from sqlguard.safety.invariants import Invariant
 from tests.safety.conftest import ROWS, main_ids, order_ids
 
 
@@ -33,6 +36,12 @@ def sql(text: str) -> SqlAction:
 
 def racer_row() -> pa.Table:
     return pa.table({"id": pa.array([999], pa.int64()), "customer": ["racer"], "amount": [1.0]})
+
+
+def always_fails() -> Invariant:
+    return Invariant(
+        "deliberately-wrong", lambda ctx: "wrong on purpose", frozenset({"post_publish"})
+    )
 
 
 def branch_head(lake: LakehouseCatalog, branch: BranchHandle) -> int:
@@ -133,74 +142,256 @@ def test_a_snapshot_that_does_not_descend_from_the_base_is_refused(adapter, orde
     assert adapter.current_snapshot_id("orders") == branch.base_snapshot_id
 
 
+class Aftermath:
+    """What happens around the next snapshot-ref commit (the publish), set up with `arm_*`."""
+
+    def __init__(self, monkeypatch, lake: LakehouseCatalog) -> None:
+        self.lake = lake
+        self.live = True  # hooks only fire while this is set; `wrap` limits it to publish()
+        self.after: list = []  # callables run once, in order, after the commit has landed
+        self.before_raise: Exception | None = None  # raised instead of committing
+        self.then_raise: Exception | None = None  # raised after committing
+        original = ManageSnapshots.commit
+
+        def commit(me):
+            if not self.live:
+                return original(me)
+            if self.before_raise is not None:
+                error, self.before_raise = self.before_raise, None
+                raise error
+            result = original(me)
+            after, self.after = self.after, []
+            for step in after:
+                step()
+            if self.then_raise is not None:
+                error, self.then_raise = self.then_raise, None
+                raise error
+            return result
+
+        monkeypatch.setattr(ManageSnapshots, "commit", commit)
+
+    def wrap(self, adapter_class, *args):
+        """An `adapter_class(*args)` whose `publish` is the only place the hooks fire."""
+        aftermath = self
+
+        class Wrapped(adapter_class):
+            def publish(self, branch, expected_head):
+                aftermath.live = True
+                try:
+                    return super().publish(branch, expected_head)
+                finally:
+                    aftermath.live = False
+
+        aftermath.live = False
+        return Wrapped(*args)
+
+    def writer_commits_on_top(self) -> None:
+        self.after.append(lambda: self.lake.table("orders").append(racer_row()))
+
+    def main_is_replaced(self, base: int) -> None:
+        """Someone rewinds main to `base` and commits their own row: our snapshot is gone."""
+
+        def replace() -> None:
+            table = self.lake.table("orders")
+            table.manage_snapshots().rollback_to_snapshot(base).commit()
+            self.lake.table("orders").append(racer_row())
+
+        self.after.append(replace)
+
+
 @pytest.fixture
-def land_a_writer_after_the_next_publish(monkeypatch, orders):
-    """Arm with `arm()`: a second writer's commit lands right after the next snapshot-ref commit."""
-    state = {"armed": False}
-    original = ManageSnapshots.commit
-
-    def commit_then_racer(self):
-        result = original(self)
-        if state["armed"]:
-            state["armed"] = False
-            orders.table("orders").append(racer_row())
-        return result
-
-    monkeypatch.setattr(ManageSnapshots, "commit", commit_then_racer)
-
-    def arm() -> None:
-        state["armed"] = True
-
-    return arm
+def aftermath(monkeypatch, orders) -> Aftermath:
+    return Aftermath(monkeypatch, orders)
 
 
-def test_main_ending_up_elsewhere_is_reported_with_where_it_is(
-    adapter, orders, land_a_writer_after_the_next_publish
-):
+@pytest.fixture(autouse=True)
+def no_waiting_between_readbacks(monkeypatch):
+    monkeypatch.setattr(DuckDBIcebergAdapter, "_READBACK_DELAY_SECONDS", 0)
+
+
+def recorded_delete(adapter, statement="DELETE FROM orders WHERE id <= 2"):
     branch = adapter.create_branch("orders")
-    adapter.apply_sql(branch, "DELETE FROM orders WHERE id = 1")
-    recorded = adapter.diff(branch).branch
-    land_a_writer_after_the_next_publish()
+    adapter.apply_sql(branch, statement)
+    return adapter.diff(branch).branch
+
+
+def test_a_writer_committing_on_top_of_the_publish_is_not_a_failure(adapter, orders, aftermath):
+    recorded = recorded_delete(adapter)
+    aftermath.writer_commits_on_top()
+    result = adapter.publish(recorded, recorded.head)
+    assert result.changed and result.snapshot_id == recorded.head
+    assert adapter.current_snapshot_id("orders") != recorded.head  # their commit is on top
+    ids = order_ids(orders)
+    assert 999 in ids and 1 not in ids  # both the writer's row and our delete are live
+
+
+def test_main_replaced_after_the_commit_is_a_mismatch_that_names_where_main_is(
+    adapter, orders, aftermath
+):
+    recorded = recorded_delete(adapter)
+    aftermath.main_is_replaced(recorded.base_snapshot_id)
     with pytest.raises(PublishMismatch) as caught:
         adapter.publish(recorded, recorded.head)
     assert caught.value.actual_snapshot_id == adapter.current_snapshot_id("orders")
-    assert caught.value.actual_snapshot_id != recorded.head
+    assert 999 in order_ids(orders)  # nothing was undone
 
 
-# -- the Guard undoes a publish that did not land on the approved snapshot ----------------------
+# -- unknown commit state ----------------------------------------------------------------------
+
+UNKNOWN = [
+    pytest.param(CommitStateUnknownException("gateway timeout"), id="commit-state-unknown"),
+    pytest.param(ConnectionResetError("connection reset"), id="connection-reset"),
+    pytest.param(TimeoutError("timed out"), id="timeout"),
+]
 
 
-class ArmedDuckDB(DuckDBIcebergAdapter):
-    def __init__(self, catalog, arm):
-        super().__init__(catalog)
-        self._arm = arm
-
-    def publish(self, branch, expected_head):
-        self._arm()
-        return super().publish(branch, expected_head)
+@pytest.mark.parametrize("error", UNKNOWN)
+def test_an_unknown_commit_that_landed_counts_as_published(adapter, orders, aftermath, error):
+    recorded = recorded_delete(adapter)
+    aftermath.then_raise = error
+    result = adapter.publish(recorded, recorded.head)
+    assert result.changed and adapter.current_snapshot_id("orders") == recorded.head
 
 
-def test_a_post_publish_mismatch_rolls_main_back_to_the_base(
-    orders, scope, audit, audit_path, land_a_writer_after_the_next_publish
+@pytest.mark.parametrize("error", UNKNOWN)
+def test_an_unknown_commit_that_did_not_land_is_reported_as_not_published(
+    adapter, orders, aftermath, error
+):
+    recorded = recorded_delete(adapter)
+    aftermath.before_raise = error
+    with pytest.raises(ExecutionError, match="main is unchanged") as caught:
+        adapter.publish(recorded, recorded.head)
+    assert not isinstance(caught.value, PublishMismatch | PublishStateUnknown)
+    assert adapter.current_snapshot_id("orders") == recorded.base_snapshot_id
+
+
+class UnreadableAfterPublish(DuckDBIcebergAdapter):
+    """Cannot load tables once `dark` is set (the catalog went away after the commit)."""
+
+    dark = False
+
+    def _load(self, table):
+        if self.dark:
+            raise ConnectionError("catalog unreachable")
+        return super()._load(table)
+
+
+def test_an_unknown_commit_that_cannot_be_read_back_is_state_unknown(orders, aftermath):
+    adapter = UnreadableAfterPublish(orders)
+    recorded = recorded_delete(adapter)
+    aftermath.then_raise = CommitStateUnknownException("gateway timeout")
+    aftermath.after.append(lambda: setattr(adapter, "dark", True))
+    with pytest.raises(PublishStateUnknown, match="may or may not hold"):
+        adapter.publish(recorded, recorded.head)
+
+
+def test_a_confirmed_commit_stays_a_success_when_the_second_look_fails(orders, aftermath):
+    adapter = UnreadableAfterPublish(orders)
+    recorded = recorded_delete(adapter)
+    aftermath.after.append(lambda: setattr(adapter, "dark", True))
+    result = adapter.publish(recorded, recorded.head)  # the commit response confirmed it
+    assert result.changed and result.snapshot_id == recorded.head
+
+
+# -- the Guard never rolls back past someone else's commit ---------------------------------------
+
+
+def guard_for(orders, audit_path, adapter, **kwargs) -> Guard:
+    return Guard(orders, Policy(), audit_path=audit_path, adapter=adapter, **kwargs)
+
+
+def test_a_writer_on_top_of_the_publish_leaves_a_published_result(
+    orders, scope, audit_path, aftermath
 ):
     base = main_ids(orders)[-1]
-    guard = Guard(
+    aftermath.writer_commits_on_top()
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+
+    assert result.outcome is Outcome.PUBLISHED, result.reasons
+    assert result.published and not result.rolled_back and not result.needs_attention
+    assert main_ids(orders)[-1] != base
+    ids = order_ids(orders)
+    assert 999 in ids and 1 not in ids and 2 not in ids
+
+
+def test_failed_verification_with_a_writer_on_top_is_left_alone_and_flagged(
+    orders, scope, audit_path, audit, aftermath
+):
+    aftermath.writer_commits_on_top()
+    guard = guard_for(
         orders,
-        Policy(),
-        audit_path=audit_path,
-        adapter=ArmedDuckDB(orders, land_a_writer_after_the_next_publish),
+        audit_path,
+        aftermath.wrap(DuckDBIcebergAdapter, orders),
+        extra_invariants=[always_fails()],
     )
     result = guard.submit(sql("DELETE FROM orders WHERE id <= 2"), scope)
 
-    assert result.outcome is Outcome.ROLLED_BACK, result.reasons
-    assert result.rolled_back and not result.published and result.executed
-    assert guard.adapter.current_snapshot_id("orders") == base
-    assert order_ids(orders) == list(range(1, ROWS + 1))
-    assert result.snapshots_after == {"db.orders": base}
-    assert any("post-publish check failed" in r for r in result.reasons)
-    assert set(orders.refs("orders")) == {"main"}  # audit branch dropped
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert result.published and not result.rolled_back
+    ids = order_ids(orders)
+    assert 999 in ids and 1 not in ids  # the writer's commit survives; nothing was undone
     completed = [r for r in audit.read() if r["phase"] == "completed"][-1]
-    assert completed["outcome"] == "rolled_back" and completed["published"] is False
+    assert completed["needs_attention"] is True
+
+
+def test_main_replaced_after_the_publish_needs_attention_and_loses_nothing(
+    orders, scope, audit_path, audit, aftermath
+):
+    base = main_ids(orders)[-1]
+    aftermath.main_is_replaced(base)
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert not result.published and not result.rolled_back
+    assert any("needs attention" in r for r in result.reasons)
+    assert not any("post-publish check failed" in r for r in result.reasons)  # no check ran
+    assert 999 in order_ids(orders)
+    assert set(orders.refs("orders")) == {"main"}  # audit branch still cleaned up
+    assert [r["phase"] for r in audit.read()] == ["started", "completed"]
+
+
+@pytest.mark.parametrize("error", UNKNOWN)
+def test_unknown_commit_that_landed_is_verified_and_published(
+    orders, scope, audit_path, aftermath, error
+):
+    aftermath.then_raise = error
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.PUBLISHED and result.published
+
+
+@pytest.mark.parametrize("error", UNKNOWN)
+def test_unknown_commit_that_did_not_land_is_a_clean_failure(
+    orders, scope, audit_path, aftermath, error
+):
+    base = main_ids(orders)[-1]
+    aftermath.before_raise = error
+    result = guard_for(orders, audit_path, aftermath.wrap(DuckDBIcebergAdapter, orders)).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.EXECUTION_FAILED and not result.published
+    assert not result.needs_attention  # main was read back and is unchanged
+    assert main_ids(orders)[-1] == base and order_ids(orders) == list(range(1, ROWS + 1))
+
+
+def test_unknown_commit_that_cannot_be_read_back_needs_attention(
+    orders, scope, audit_path, aftermath
+):
+    adapter = aftermath.wrap(UnreadableAfterPublish, orders)
+    aftermath.then_raise = CommitStateUnknownException("gateway timeout")
+    aftermath.after.append(lambda: setattr(adapter, "dark", True))
+    result = guard_for(orders, audit_path, adapter).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert any("may or may not hold" in r for r in result.reasons)
+    adapter.dark = False
+    assert 1 not in order_ids(orders)  # the change did land; the Guard did not claim otherwise
 
 
 # -- the Spark adapter publishes through PyIceberg, not a Spark procedure ----------------------
@@ -220,6 +411,7 @@ class FakeSpark:
     def __init__(self, lake: LakehouseCatalog) -> None:
         self.lake = lake
         self.statements: list[str] = []
+        self.fail_on: str | None = None
 
     def sql(self, text: str) -> FakeFrame:
         self.statements.append(text)
@@ -235,6 +427,8 @@ class FakeSpark:
         elif match := re.search(r"DROP BRANCH IF EXISTS `([^`]+)`", text):
             if match.group(1) in table.refs():
                 table.manage_snapshots().remove_branch(match.group(1)).commit()
+        elif self.fail_on and self.fail_on in text:
+            raise RuntimeError("boom")
         elif "rollback_to_snapshot" in text:
             target = int(re.search(r"snapshot_id => (\d+)", text).group(1))
             previous = table.current_snapshot().snapshot_id
@@ -274,23 +468,80 @@ def test_spark_publish_refuses_a_moved_main(spark_adapter, orders):
         spark_adapter.publish(recorded, recorded.head)
 
 
-def test_spark_post_publish_mismatch_rolls_main_back(
-    orders, spark_adapter, spark, scope, audit_path, land_a_writer_after_the_next_publish
+def test_spark_publish_with_a_writer_on_top_keeps_their_commit(
+    orders, spark, scope, audit_path, aftermath
 ):
-    base = main_ids(orders)[-1]
-    arm = land_a_writer_after_the_next_publish
+    aftermath.writer_commits_on_top()
+    adapter = aftermath.wrap(SparkIcebergAdapter, orders, spark, "demo")
+    result = guard_for(orders, audit_path, adapter).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.PUBLISHED, result.reasons
+    assert 999 in order_ids(orders) and 1 not in order_ids(orders)
+    assert not any("rollback_to_snapshot" in s for s in spark.statements)
 
-    class ArmedSpark(SparkIcebergAdapter):
-        def publish(self, branch, expected_head):
-            arm()
-            return super().publish(branch, expected_head)
 
-    adapter = ArmedSpark(orders, spark, "demo")
-    guard = Guard(orders, Policy(), audit_path=audit_path, adapter=adapter)
+def test_spark_main_replaced_after_publish_is_left_alone_and_flagged(
+    orders, spark, scope, audit_path, aftermath
+):
+    aftermath.main_is_replaced(main_ids(orders)[-1])
+    adapter = aftermath.wrap(SparkIcebergAdapter, orders, spark, "demo")
+    result = guard_for(orders, audit_path, adapter).submit(
+        sql("DELETE FROM orders WHERE id <= 2"), scope
+    )
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert 999 in order_ids(orders)
+    assert not any("rollback_to_snapshot" in s for s in spark.statements)
+
+
+def test_spark_failed_verification_with_a_writer_on_top_is_not_rolled_back(
+    orders, spark, scope, audit_path, aftermath
+):
+    aftermath.writer_commits_on_top()
+    adapter = aftermath.wrap(SparkIcebergAdapter, orders, spark, "demo")
+    guard = guard_for(orders, audit_path, adapter, extra_invariants=[always_fails()])
     result = guard.submit(sql("DELETE FROM orders WHERE id <= 2"), scope)
+    assert result.outcome is Outcome.ROLLBACK_BLOCKED and result.needs_attention
+    assert 999 in order_ids(orders) and 1 not in order_ids(orders)
+    assert not any("rollback_to_snapshot" in s for s in spark.statements)
 
-    assert result.outcome is Outcome.ROLLED_BACK, result.reasons
-    assert not result.published and result.rolled_back
-    assert adapter.current_snapshot_id("orders") == base
-    assert order_ids(orders) == list(range(1, ROWS + 1))
-    assert any("rollback_to_snapshot" in s for s in spark.statements)
+
+REFRESH = "REFRESH TABLE `demo`.`db`.`orders`"
+
+
+def test_spark_cache_is_refreshed_after_main_moves_outside_spark(spark_adapter, spark):
+    branch = spark_adapter.create_branch("orders")
+    spark_adapter.apply_sql(branch, "DELETE FROM orders WHERE id <= 5")
+    recorded = spark_adapter.diff(branch).branch
+    before = len(spark.statements)
+    spark_adapter.publish(recorded, recorded.head)
+    assert spark.statements[before:] == [REFRESH]
+
+
+def test_spark_cache_is_refreshed_even_when_the_publish_fails(spark_adapter, spark, orders):
+    branch = spark_adapter.create_branch("orders")
+    spark_adapter.apply_sql(branch, "DELETE FROM orders WHERE id <= 5")
+    recorded = spark_adapter.diff(branch).branch
+    orders.table("orders").append(racer_row())
+    with pytest.raises(BranchDiverged):
+        spark_adapter.publish(recorded, recorded.head)
+    assert spark.statements[-1] == REFRESH
+
+
+def test_a_failing_refresh_does_not_undo_a_publish(spark_adapter, spark, orders, caplog):
+    branch = spark_adapter.create_branch("orders")
+    spark_adapter.apply_sql(branch, "DELETE FROM orders WHERE id <= 5")
+    recorded = spark_adapter.diff(branch).branch
+    spark.fail_on = "REFRESH TABLE"
+    result = spark_adapter.publish(recorded, recorded.head)
+    assert result.changed and spark_adapter.current_snapshot_id("orders") == recorded.head
+    assert "could not refresh Spark's cache" in caplog.text
+
+
+def test_an_approved_fast_forward_also_refreshes_the_cache(spark_adapter, spark, orders):
+    base = spark_adapter.current_snapshot_id("orders")
+    orders.table("orders").manage_snapshots().create_branch(base, "release").commit()
+    orders.table("orders").append(racer_row(), branch="release")
+    action = FastForward("orders", to="release")
+    spark_adapter.apply_maintenance(action, spark_adapter.plan_maintenance(action))
+    assert spark.statements[-1] == REFRESH

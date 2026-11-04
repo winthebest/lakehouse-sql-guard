@@ -12,6 +12,7 @@ from sqlguard.safety.executor.base import (
     PlannedSnapshot,
     PublishMismatch,
     PublishResult,
+    PublishStateUnknown,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
@@ -39,6 +40,7 @@ __all__ = [
     "PlannedSnapshot",
     "PublishMismatch",
     "PublishResult",
+    "PublishStateUnknown",
     "SparkIcebergAdapter",
     "UnsupportedAction",
     "delete_orphans",
