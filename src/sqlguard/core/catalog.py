@@ -50,6 +50,11 @@ _SQL_TYPES: dict[type[IcebergType], str] = {
 }
 
 
+def naive_utc(ts: datetime) -> datetime:
+    """`ts` as a naive UTC datetime (naive input is taken to be UTC already)."""
+    return ts.astimezone(UTC).replace(tzinfo=None) if ts.tzinfo else ts
+
+
 def _sql_type(iceberg_type: IcebergType) -> str:
     if isinstance(iceberg_type, DecimalType):
         return f"DECIMAL({iceberg_type.precision}, {iceberg_type.scale})"
@@ -131,7 +136,7 @@ class LakehouseCatalog:
                     parent_id=s.parent_snapshot_id,
                     timestamp_ms=s.timestamp_ms,
                     operation=str(s.summary.operation.value) if s.summary else "unknown",
-                    visible_at=datetime.fromisoformat(logical) if logical else committed,
+                    visible_at=naive_utc(datetime.fromisoformat(logical)) if logical else committed,
                     sequence_number=s.sequence_number,
                 )
             )
@@ -146,6 +151,7 @@ class LakehouseCatalog:
         With `strict_history`, raise HistoryGap when the state at `ts` predates retained
         history (snapshots were expired), instead of silently answering "empty".
         """
+        ts = naive_utc(ts)
         chain = self._main_chain(table)
         visible = [s for s in chain if s.visible_at <= ts]
         if visible:
