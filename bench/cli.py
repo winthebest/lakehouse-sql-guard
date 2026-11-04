@@ -2,6 +2,7 @@
 
 sqlguard-bench leakage prereg --seed 42     # thresholds fit on dev only
 sqlguard-bench leakage run --seed 42 [--real] [--splits dev dev_v1b] [--skip-v1] [--fixes]
+sqlguard-bench leakage duplicates --candidate holdout_v2 [--counts]   # or --candidate-dir DIR
 sqlguard-bench safety tier1
 sqlguard-bench safety agent --model <id> --condition both --runs 3 --split dev [--replay DIR]
 """
@@ -19,7 +20,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="suite", required=True)
 
     leakage = sub.add_parser("leakage", help="temporal leakage benchmark")
-    leakage.add_argument("action", choices=["prereg", "run"])
+    leakage.add_argument("action", choices=["prereg", "run", "duplicates"])
     leakage.add_argument("--seed", type=int, default=42)
     leakage.add_argument("--warehouse", type=Path, default=Path(".warehouse/bench"))
     leakage.add_argument("--real", action="store_true", help="also run on Online Retail II")
@@ -39,6 +40,10 @@ def main(argv: list[str] | None = None) -> None:
     safety.add_argument("action", choices=["tier1", "agent"])
 
     args, rest = parser.parse_known_args(argv)
+    if args.suite == "leakage" and args.action == "duplicates":
+        from bench.leakage import duplicates
+
+        raise SystemExit(duplicates.main(rest))
     if args.suite == "leakage":
         from bench.leakage import run
 
