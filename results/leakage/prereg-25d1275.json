@@ -1,0 +1,41 @@
+{
+  "created_at": "2026-11-04T08:27:13+00:00",
+  "git_sha": "25d1275",
+  "seed": 42,
+  "max_fpr": 0.05,
+  "thresholds": {
+    "baseline": null,
+    "static": 0.2,
+    "replay": 0.03017241379310345,
+    "combined": 0.47000000000000003
+  },
+  "weights": {
+    "rules": {
+      "L1": 0.95,
+      "L2": 0.9,
+      "L3": 0.9,
+      "L4": 0.4,
+      "L5": 0.85,
+      "L6": 0.95
+    },
+    "replay_mismatch": 0.9
+  },
+  "dev_summary": {
+    "baseline": {
+      "recall": 0.0,
+      "fpr": 0.0
+    },
+    "static": {
+      "recall": 1.0,
+      "fpr": 0.0
+    },
+    "replay": {
+      "recall": 1.0,
+      "fpr": 0.0
+    },
+    "combined": {
+      "recall": 1.0,
+      "fpr": 0.0
+    }
+  }
+}
