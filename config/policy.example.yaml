@@ -1,0 +1,45 @@
+# Example safety policy for the Lakehouse SQL Guard.
+# Every key is optional; omitted keys fall back to the strict defaults shown here.
+# Unknown keys are rejected so a typo cannot silently weaken the policy.
+version: 1
+
+# Namespace applied to bare table names such as `orders` -> `db.orders`.
+default_namespace: db
+
+# Decision per reversibility class (allow | allow_via_branch | ask | deny).
+# unknown and out_of_scope must stay deny, and irreversible must be ask or deny.
+class_decisions:
+  read: allow
+  reversible_write: allow_via_branch
+  risky_write: ask
+  schema_breaking: ask
+  irreversible: ask
+  out_of_scope: deny
+  unknown: deny
+
+# Tables an agent may read but never modify, regardless of task scope.
+protected_tables:
+  - customers_pii
+
+# Minimum history that expire_snapshots / remove_orphan_files must leave intact.
+# A violation is a hard deny, not an approval request.
+retention:
+  default:
+    min_snapshot_age_days: 7   # older_than must be at least this many days ago
+    min_snapshots: 1           # retain_last must be at least this many
+    min_orphan_age_days: 3     # orphan-file cleanup must not touch files younger than this
+  tables:
+    orders:
+      min_snapshot_age_days: 30
+      min_snapshots: 5
+
+# Blast-radius limits. Evaluated after a dry run on a branch measures rows affected
+# (Classification.with_impact); a DELETE/UPDATE/MERGE over a limit is escalated to risky_write.
+thresholds:
+  max_affected_row_pct: 10
+  max_affected_rows: null
+
+# Default task scope, used when the caller does not pass one. Empty scope allows no table.
+task_scope:
+  allowed_namespaces:
+    - db
