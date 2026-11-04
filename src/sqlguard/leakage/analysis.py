@@ -140,6 +140,7 @@ class TableRef:
     scope: Scope
     kind: str  # label | temporal | static | outcome | unclassified
     node: exp.Table | None = None
+    index: int = -1  # position of `node` among the tables of the qualified tree
     bounds: list[TimeBound] = field(default_factory=list)
     # every chain of CTE / derived-table uses by which this reference's rows reach the root
     paths: list[Chain] = field(default_factory=lambda: [()])
@@ -260,6 +261,23 @@ class QueryAnalysis:
     @property
     def temporal_refs(self) -> list[TableRef]:
         return [r for r in self.refs if r.temporal]
+
+    def lineage_input(self) -> tuple[exp.Expression, Schema]:
+        """The tree and schema to compute column lineage on.
+
+        Lineage cannot tell the spine's label from older rows of the same table. References whose
+        labels were final at prediction time are renamed in a copy, so only the spine's label
+        still counts as the target.
+        """
+        matured = [r for r in self.refs if r.index >= 0 and r.matured(self.spec.label_known_after)]
+        if not matured:
+            return self.qualified, self.schema
+        tree = self.qualified.copy()
+        tables = list(tree.find_all(exp.Table))
+        for ref in matured:
+            tables[ref.index].set("this", exp.to_identifier(MATURED_LABELS))
+        known = self.schema.get(self.spec.label_table, {})
+        return tree, {**self.schema, MATURED_LABELS: known}
 
     @property
     def unclassified_refs(self) -> list[TableRef]:
@@ -820,6 +838,9 @@ def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     live = _live_scopes(every_scope)
     scopes = [s for s in every_scope if id(s) in live]
     refs = _collect_refs(scopes, spec)
+    positions = {id(t): i for i, t in enumerate(qualified.find_all(exp.Table))}
+    for ref in refs.values():
+        ref.index = positions.get(id(ref.node), -1)
     paths = _scope_paths(scopes)
     for ref in refs.values():
         ref.paths = paths[id(ref.scope)]
@@ -860,7 +881,6 @@ def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     analysis.label_uses = _label_uses(analysis, resolver)
     analysis.windows = _window_issues(analysis, resolver)
     analysis.clock_uses = _clock_uses(analysis, resolver)
-    _hide_matured_labels(analysis)
     return analysis
 
 
@@ -1669,21 +1689,3 @@ def _only_spine_filter(node: exp.Expression, scope: Scope, resolver: _Resolver) 
         (got := resolver.prediction_label(c, scope)) is not None and got.ref.on_spine
         for c in columns
     )
-
-
-def _hide_matured_labels(analysis: QueryAnalysis) -> None:
-    """Rename label references whose labels were final at prediction time in the lineage tree.
-
-    Column lineage cannot tell the spine's label from older rows of the same table. Matured rows
-    become a differently named table, so only the spine's label still counts as the target.
-    """
-    known_after = analysis.spec.label_known_after
-    matured = [r for r in analysis.refs if r.node is not None and r.matured(known_after)]
-    if not matured:
-        return
-    analysis.schema = {
-        **analysis.schema,
-        MATURED_LABELS: analysis.schema.get(analysis.spec.label_table, {}),
-    }
-    for ref in matured:
-        ref.node.set("this", exp.to_identifier(MATURED_LABELS))

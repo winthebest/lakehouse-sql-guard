@@ -24,7 +24,8 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
     spec = analysis.spec
     findings = []
     try:
-        lineage = full_lineage(analysis.qualified, analysis.schema, spec.dialect)
+        tree, schema = analysis.lineage_input()
+        lineage = full_lineage(tree, schema, spec.dialect)
     except LineageError as err:
         findings.append(Finding("LINEAGE", Severity.MEDIUM, f"lineage unavailable: {err}"))
         lineage = {}
