@@ -10,7 +10,7 @@ from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
 from sqlguard.safety import Policy, SqlAction, TaskScope
 from sqlguard.safety.actions import ExpireSnapshots, RollbackToSnapshot
-from sqlguard.safety.executor import Capabilities, DuckDBIcebergAdapter
+from sqlguard.safety.executor import Capabilities, DuckDBIcebergAdapter, UnsupportedAction
 from sqlguard.safety.executor.composite import CompositeAdapter, combined_capabilities
 from sqlguard.safety.executor.trino_iceberg import TrinoIcebergAdapter
 from sqlguard.safety.guard import Guard, Outcome
@@ -146,3 +146,14 @@ def test_reads_through_the_guard_use_trino(guard: Guard, trino: FakeTrino) -> No
     assert result.outcome is Outcome.READ
     assert result.data.column("n").to_pylist() == [ROWS]
     assert trino.statements[-1] == 'SELECT COUNT(*) AS n FROM "lk"."db"."orders"'
+
+
+def test_the_change_feed_comes_from_the_read_engine(
+    composite: CompositeAdapter, trino: FakeTrino, writer: DuckDBIcebergAdapter
+) -> None:
+    trino.canned.append(("table_changes", ([("id", "bigint")], [[7]])))
+    assert composite.changes("orders", 1, 2).column("id").to_pylist() == [7]
+    with pytest.raises(UnsupportedAction):
+        CompositeAdapter(read=writer, write=DuckDBIcebergAdapter(writer.catalog)).changes(
+            "orders", 1, 2
+        )

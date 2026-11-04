@@ -34,6 +34,7 @@ from sqlguard.safety.executor.base import (
     MaintenancePlan,
     MaintenanceResult,
     PublishResult,
+    UnsupportedAction,
 )
 
 _READ_ROLE = frozenset({"changelog"})
@@ -76,6 +77,13 @@ class CompositeAdapter:
 
     def query(self, sql: str, tables: Sequence[str], dialect: str = DEFAULT_DIALECT) -> pa.Table:
         return self.read_engine.query(sql, tables, dialect)
+
+    def changes(self, table: str, start_snapshot_id: int, end_snapshot_id: int) -> pa.Table:
+        """Row changes between two snapshots, from the read engine when it has a change feed."""
+        feed = getattr(self.read_engine, "changes", None)
+        if feed is None:
+            raise UnsupportedAction(f"{self.read_engine.engine} has no change feed")
+        return feed(table, start_snapshot_id, end_snapshot_id)
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         return self.read_engine.diff(branch, key)

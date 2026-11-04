@@ -46,6 +46,7 @@ from typing import Any, Protocol
 
 import pyarrow as pa
 from pyiceberg.exceptions import CommitFailedException
+from pyiceberg.table import Table
 from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
@@ -89,8 +90,9 @@ _NO_BRANCH_WRITES = (
     "Trino cannot create branches or write to them; use a write engine (PyIceberg or Spark)"
 )
 _WARNING_EXPIRE = (
-    "Trino deletes the data and manifest files that no remaining snapshot needs; the expired "
-    "history cannot be rebuilt."
+    "Trino deletes the data and manifest files that no remaining snapshot needs and may run this "
+    "expiry; it has no dry run, so the removed set is checked before and after, not previewed, "
+    "and the expired history cannot be rebuilt."
 )
 
 
@@ -117,7 +119,7 @@ class TrinoConnectionLike(Protocol):
 
 
 def _quote(part: str) -> str:
-    if not _NAME_PART.match(part):
+    if not _NAME_PART.fullmatch(part):
         raise ExecutionError(f"unsupported identifier {part!r}")
     return f'"{part}"'
 
@@ -146,7 +148,7 @@ def _version_clause(version: int | str) -> str:
         raise ExecutionError("invalid table version")
     if isinstance(version, int):
         return f"FOR VERSION AS OF {version}"
-    if not _REF_NAME.match(version):
+    if not _REF_NAME.fullmatch(version):
         raise ExecutionError(f"invalid ref name {version!r}")
     return f"FOR VERSION AS OF '{version}'"
 
@@ -170,15 +172,19 @@ def trino_statement(
 ) -> str:
     """Render one read-only statement as Trino SQL with every table qualified to the catalog.
 
-    A table that is not in `readable` (qualified `ns.name`), or that names a catalog, is refused
-    rather than left to Trino's name resolution, so a query cannot reach another catalog.
+    A table that is not in `readable` (qualified `ns.name`), that names a catalog, or that is a
+    table function is refused rather than left to Trino's name resolution, so a query cannot
+    reach another catalog or an uncleared table. (`UNNEST` and `VALUES` are not tables to sqlglot
+    and pass.)
     """
     tree = ast.copy()
     known = {t.lower(): t for t in readable}
     ctes = {cte.alias.lower() for cte in tree.find_all(exp.CTE) if cte.alias}
     for node in list(tree.find_all(exp.Table)):
-        if not node.name:
-            continue
+        if not isinstance(node.this, exp.Identifier):
+            # A table function (TABLE(...), system.query, table_changes, read_parquet, ...) is not
+            # a table of the cleared list and can reach other catalogs or tables: fail closed.
+            raise ExecutionError(f"table function {node.sql()} is not supported")
         if not node.db and not node.catalog and node.name.lower() in ctes:
             continue
         if node.catalog:
@@ -217,16 +223,19 @@ _TYPE = re.compile(r"^(?P<base>[a-z]+)\s*(?:\((?P<args>[^)]*)\))?(?P<tz>\s+with\
 
 def arrow_type(trino_type: str) -> pa.DataType | None:
     """Arrow type for a Trino type name, or None when the type is not supported."""
-    match = _TYPE.match(trino_type.strip().lower())
+    match = _TYPE.fullmatch(trino_type.strip().lower())
     if match is None:
         return None
     base, args, with_tz = match["base"], match["args"], match["tz"] is not None
-    if base == "timestamp":
-        return pa.timestamp("us", tz="UTC" if with_tz else None)
+    if base in ("timestamp", "time"):
+        # Arrow gets microseconds, so finer precision would silently lose changes: refuse it.
+        if args is not None and (not args.strip().isdigit() or int(args) > 6):
+            return None
+        if base == "timestamp":
+            return pa.timestamp("us", tz="UTC" if with_tz else None)
+        return None if with_tz else pa.time64("us")
     if with_tz:
         return None
-    if base == "time":
-        return pa.time64("us")
     if base == "decimal":
         try:
             precision, scale = (int(p) for p in (args or "").split(","))
@@ -267,11 +276,6 @@ def rows_to_arrow(description: Sequence[Sequence[Any]], rows: Sequence[Sequence[
 def _clip(text: str) -> str:
     text = text.strip()
     return text if len(text) <= _ERROR_LIMIT else text[: _ERROR_LIMIT - 3] + "..."
-
-
-def _millis(moment: datetime) -> int:
-    aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-    return int(aware.timestamp() * 1000)
 
 
 # -- the adapter ----------------------------------------------------------------------------------
@@ -482,50 +486,84 @@ class TrinoIcebergAdapter:
             )
         if snapshot_id == current:
             return
+        # Without an explicit expectation, main as observed just now is the expectation, so a
+        # writer that commits before Trino loads the table is never dropped silently.
+        expected = current if expected_current is None else expected_current
+        refs = self._ref_state(iceberg)
         self._run(
             f"ALTER TABLE {self._ident(table)} EXECUTE rollback_to_snapshot("
             f"snapshot_id => {int(snapshot_id)})"
         )
-        self._verify_rollback(table, snapshot_id, current, expected_current)
+        self._verify_rollback(table, snapshot_id, current, expected)
+        self._check_refs(table, refs, ignore_main=True)
 
-    def _verify_rollback(
-        self, table: str, target: int, before: int | None, expected_current: int | None
-    ) -> None:
+    def _verify_rollback(self, table: str, target: int, before: int | None, expected: int) -> None:
         """Check, from the table's snapshot log, which snapshot the rollback replaced."""
         after = self._meta._load(table)
         now = self._meta._current_id(after)
-        if now != target:
-            raise BranchDiverged(
-                f"main of {table} is at {now} after rolling back to {target}; "
-                "it changed during the rollback and was left as is"
-            )
-        if expected_current is None:
-            return
         log = after.history()
-        replaced = (
-            log[-2].snapshot_id if len(log) >= 2 and log[-1].snapshot_id == target else before
-        )
-        if replaced == expected_current:
+        position = max((i for i, entry in enumerate(log) if entry.snapshot_id == target), default=0)
+        replaced = log[position - 1].snapshot_id if position > 0 else before
+        if now != target:
+            lost = ""
+            if replaced != expected:
+                lost = (
+                    f" The rollback replaced snapshot {replaced} (expected {expected}); that "
+                    "commit is no longer on main, though the snapshot still exists and can be "
+                    "restored."
+                )
+            raise BranchDiverged(
+                f"main of {table} is at {now} after rolling back to {target}; it changed during "
+                f"the rollback and was left as is.{lost}"
+            )
+        if replaced == expected:
             return
-        # A writer committed between our check and Trino's load of the table; put its snapshot back.
+        # A writer committed between our check and Trino's load of the table; put its snapshot
+        # back. `after` was just seen at the target, so the commit asserts main is still there.
         try:
             after.manage_snapshots().set_current_snapshot(snapshot_id=replaced).commit()
         except (CommitFailedException, ValueError) as err:
             raise BranchDiverged(
                 f"main of {table} changed during rollback (was {replaced}, expected "
-                f"{expected_current}) and could not be restored: {err}"
+                f"{expected}) and could not be restored: {err}"
             ) from err
         raise BranchDiverged(
             f"main of {table} changed during rollback (was {replaced}, expected "
-            f"{expected_current}); the newer snapshot was restored"
+            f"{expected}); the newer snapshot was restored"
         )
 
     # -- maintenance -----------------------------------------------------------------------------
 
+    @staticmethod
+    def _ref_state(iceberg: Table) -> dict[str, tuple[str, int]]:
+        return {
+            name: (
+                str(getattr(ref.snapshot_ref_type, "value", ref.snapshot_ref_type)),
+                ref.snapshot_id,
+            )
+            for name, ref in iceberg.refs().items()
+        }
+
+    def _check_refs(
+        self, table: str, before: dict[str, tuple[str, int]], *, ignore_main: bool
+    ) -> None:
+        """Fail loudly if a branch or tag that existed before a Trino run is gone or moved."""
+        after = self._ref_state(self._meta._load(table))
+        changed = sorted(
+            name
+            for name, state in before.items()
+            if after.get(name) != state and not (ignore_main and name == "main")
+        )
+        if changed:
+            raise ExecutionError(
+                f"Trino changed ref(s) {changed} of {table} during maintenance; refs are not part "
+                "of any approved plan and may need restoring from the table's metadata history"
+            )
+
     def plan_maintenance(self, action: MaintenanceAction) -> MaintenancePlan:
         if isinstance(action, ExpireSnapshots):
             plan = self._meta.plan_maintenance(action)
-            if self._trino_threshold(action, plan) is not None:
+            if self._trino_may_expire(action):
                 return replace(plan, warnings=(*plan.warnings, _WARNING_EXPIRE))
             return plan
         if isinstance(action, RollbackToSnapshot):
@@ -566,26 +604,48 @@ class TrinoIcebergAdapter:
         replanned = self._meta.plan_maintenance(replace(action, older_than=older_than))
         return {s.snapshot_id for s in replanned.expired}
 
-    def _trino_threshold(self, action: ExpireSnapshots, plan: MaintenancePlan) -> int | None:
-        """Seconds for `retention_threshold` when Trino may run this expiry, else None.
+    def _trino_may_expire(self, action: ExpireSnapshots) -> bool:
+        """True when the shape of the table and the action leave Trino's expiry equal to the plan.
 
-        Trino expires everything older than `now - threshold` except snapshots a ref points to
-        and the current one. That equals the plan only for a plain age cutoff: no explicit ids,
-        no `retain_last` above 1, and no ref with its own max-snapshot-age (which could make
-        Trino expire a snapshot newer than the cutoff). Also, no snapshot may sit within
-        `clock_margin` of the cutoff, or the clock difference between here and Trino would change
-        the outcome; and the cutoff must lie in the past.
+        Iceberg's expiry (which Trino runs) removes more than snapshots older than the cutoff: it
+        also drops every branch or tag past its max ref age (its own, or the table default
+        `history.expire.max-ref-age-ms`) together with the snapshots only they kept, applies
+        per-ref snapshot-age and minimum-count rules, and honours the other `history.expire.*`
+        properties. The planner treats every ref head as protected and cannot see any of that, so
+        Trino is only trusted on a table whose single ref is a plain `main` with no retention
+        settings anywhere. Also required: an age cutoff alone (no explicit ids, `retain_last`
+        at most 1).
         """
         if action.older_than is None or action.snapshot_ids or (action.retain_last or 1) > 1:
-            return None
+            return False
         try:
             iceberg = self._meta._load(action.table)
         except ExecutionError:
-            return None
-        if any(ref.max_snapshot_age_ms is not None for ref in iceberg.refs().values()):
+            return False
+        refs = iceberg.refs()
+        if set(refs) - {"main"}:
+            return False
+        main = refs.get("main")
+        if main is not None and (
+            main.max_snapshot_age_ms is not None
+            or main.min_snapshots_to_keep is not None
+            or main.max_ref_age_ms is not None
+        ):
+            return False
+        return not any(key.startswith("history.expire.") for key in iceberg.properties)
+
+    def _trino_threshold(self, action: ExpireSnapshots, plan: MaintenancePlan) -> int | None:
+        """Seconds for `retention_threshold` when Trino may run this expiry now, else None.
+
+        On top of `_trino_may_expire`: the cutoff must lie in the past, and no snapshot may sit
+        within `clock_margin` of it, or the clock difference between here and Trino would change
+        the outcome.
+        """
+        if not self._trino_may_expire(action):
             return None
         approved = {s.snapshot_id for s in plan.expired}
         cutoff = action.older_than
+        assert cutoff is not None  # _trino_may_expire
         cutoff = cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=UTC)
         if cutoff >= datetime.now(UTC):
             return None
@@ -602,20 +662,26 @@ class TrinoIcebergAdapter:
     ) -> MaintenanceResult:
         """Let Trino expire only when it will remove exactly the approved snapshots.
 
-        The plan is made again now, from the table as it is: if the set to remove is no longer the
-        approved one, or Trino cannot be shown to remove exactly it, or Trino refuses its own
-        retention floor, PyIceberg expires the approved ids instead (never more than approved).
+        Trino runs only if the approver was shown the warning that it would (decided when the
+        plan was made) and the table is still in a shape where Trino's expiry equals the plan
+        (`_trino_may_expire`, `_trino_threshold`, checked again now). Otherwise, or if Trino
+        refuses its own retention floor, PyIceberg expires the approved ids (never more).
+        Trino has no dry run, so afterwards the removed snapshots and every ref are compared with
+        the plan and a difference is reported (it cannot be undone).
         """
         approved = {s.snapshot_id for s in plan.expired}
         current_plan = self._meta.plan_maintenance(action)
         threshold = (
             self._trino_threshold(action, current_plan)
-            if {s.snapshot_id for s in current_plan.expired} == approved
+            if _WARNING_EXPIRE in plan.warnings
+            and {s.snapshot_id for s in current_plan.expired} == approved
             else None
         )
         if threshold is None:
             return self._meta.apply_maintenance(action, plan)
-        existing = {s.snapshot_id for s in self._meta._load(plan.table).snapshots()}
+        loaded = self._meta._load(plan.table)
+        existing = {s.snapshot_id for s in loaded.snapshots()}
+        refs = self._ref_state(loaded)
         try:
             self._run(
                 f"ALTER TABLE {self._ident(plan.table)} EXECUTE "
@@ -634,6 +700,7 @@ class TrinoIcebergAdapter:
                 f"Trino expired {len(extra)} snapshot(s) outside the approved plan, e.g. "
                 f"{extra[0]}; the expired history cannot be restored"
             )
+        self._check_refs(plan.table, refs, ignore_main=False)
         return MaintenanceResult(
             plan,
             before,

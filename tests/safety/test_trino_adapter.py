@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -17,6 +18,7 @@ from uuid import UUID
 
 import pyarrow as pa
 import pytest
+from pyiceberg.table.update import SetSnapshotRefUpdate
 from sqlglot import parse_one
 
 from sqlguard.core.catalog import LakehouseCatalog
@@ -81,7 +83,8 @@ class FakeTrino:
         self.fail_on: tuple[str, str] | None = None
         self.before_rollback: Callable[[], None] | None = None
         self.after_rollback: Callable[[], None] | None = None
-        self.overreach = False  # expire snapshots that other refs still protect
+        self.overreach = False  # expire everything but the current snapshot, cutoff or not
+        self.before_expire: Callable[[], None] | None = None
         self.description: list[tuple[str, str]] | None = None
         self._rows: list[list[Any]] = []
 
@@ -165,18 +168,34 @@ class FakeTrino:
             self.after_rollback()
 
     def _expire(self, name: str, threshold_s: int) -> None:
+        """Iceberg's expiry as documented, written independently of the adapter's planner:
+        refs past their max ref age are dropped first (a ref's own setting, else the table's
+        `history.expire.max-ref-age-ms`), then snapshots older than the cutoff that no remaining
+        ref points to are expired."""
+        if self.before_expire:
+            self.before_expire()
         table = self.lake.table(name)
-        cutoff = int((self.now - timedelta(seconds=threshold_s)).timestamp() * 1000)
-        protected = {ref.snapshot_id for ref in table.refs().values()}
+        now_ms = int(self.now.timestamp() * 1000)
+        cutoff = now_ms - threshold_s * 1000
+        default_age = int(table.properties.get("history.expire.max-ref-age-ms", 2**62))
+        for ref_name, ref in list(table.refs().items()):
+            if ref_name == "main":
+                continue
+            head_age = now_ms - table.snapshot_by_id(ref.snapshot_id).timestamp_ms
+            limit = ref.max_ref_age_ms if ref.max_ref_age_ms is not None else default_age
+            if head_age > limit:
+                manage = table.manage_snapshots()
+                (manage.remove_branch if ref.snapshot_ref_type == "branch" else manage.remove_tag)(
+                    ref_name
+                ).commit()
+        table = self.lake.table(name)
+        kept = {ref.snapshot_id for ref in table.refs().values()}
         doomed = [
             s.snapshot_id
             for s in table.snapshots()
-            if s.timestamp_ms < cutoff and s.snapshot_id not in protected
+            if s.timestamp_ms < cutoff and s.snapshot_id not in kept
         ]
         if self.overreach:
-            for ref_name in [r for r in table.refs() if r != "main"]:
-                table.manage_snapshots().remove_branch(ref_name).commit()
-            table = self.lake.table(name)
             main = table.current_snapshot().snapshot_id
             doomed = [s.snapshot_id for s in table.snapshots() if s.snapshot_id != main]
         if doomed:
@@ -271,6 +290,43 @@ def test_tables_that_were_not_cleared_are_refused(sql: str) -> None:
         render(sql)
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM TABLE(pg.system.query(query => 'select 1'))",
+        "SELECT * FROM TABLE(system.query(query => 'select 1'))",
+        "SELECT * FROM TABLE(lk.system.table_changes(schema_name => 'db', table_name => 'secrets', "
+        "start_snapshot_id => 1, end_snapshot_id => 2))",
+        "SELECT * FROM read_parquet('x')",
+        "SELECT * FROM generate_series(1, 3)",
+        "SELECT * FROM orders o JOIN TABLE(system.query(query => 'x')) q ON true",
+    ],
+)
+def test_table_functions_are_refused(sql: str) -> None:
+    with pytest.raises(ExecutionError, match="table function"):
+        render(sql)
+
+
+def test_unnest_and_values_are_not_table_functions() -> None:
+    assert "UNNEST" in render("SELECT x FROM orders CROSS JOIN UNNEST(ARRAY[1, 2]) AS u(x)")
+    assert "VALUES" in render("SELECT * FROM (VALUES (1)) AS t(x)")
+
+
+def test_a_table_function_never_reaches_trino(
+    adapter: TrinoIcebergAdapter, trino: FakeTrino
+) -> None:
+    with pytest.raises(ExecutionError, match="table function"):
+        adapter.query("SELECT * FROM TABLE(pg.system.query(query => 'select 1'))", ["orders"])
+    assert trino.statements == []
+
+
+def test_identifiers_with_a_trailing_newline_are_refused() -> None:
+    with pytest.raises(ExecutionError):
+        table_identifier("lk", "db.orders\n")
+    with pytest.raises(ExecutionError):
+        read_statement("lk", "db.orders", ref="branch\n")
+
+
 # -- Trino results to Arrow -----------------------------------------------------------------------
 
 
@@ -305,6 +361,9 @@ def test_the_type_map_is_explicit(trino_type: str, expected: pa.DataType) -> Non
 @pytest.mark.parametrize(
     "trino_type",
     [
+        "timestamp(9)",
+        "timestamp(12) with time zone",
+        "time(9)",
         "array(integer)",
         "map(varchar, integer)",
         "row(a integer)",
@@ -551,6 +610,34 @@ def test_a_writer_who_slips_in_before_trino_loads_the_table_is_restored(
     assert 777 in ids and 101 in ids  # the writer's commit is live again, nothing was lost
 
 
+def test_rollback_without_an_expected_snapshot_protects_a_racing_writer(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    trino.before_rollback = lambda: orders.table("orders").append(row(777))
+    with pytest.raises(BranchDiverged, match="newer snapshot was restored"):
+        adapter.rollback("orders", history[0])
+    assert 777 in orders.read("orders").column("id").to_pylist()
+
+
+def test_two_writers_around_the_rollback_name_the_commit_that_left_main(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    trino.before_rollback = lambda: orders.table("orders").append(row(777))
+    trino.after_rollback = lambda: orders.table("orders").append(row(888))
+    slipped: list[int] = []
+    trino.before_rollback = lambda: (
+        orders.table("orders").append(row(777)),
+        slipped.append(orders.table("orders").current_snapshot().snapshot_id),
+    )
+    with pytest.raises(BranchDiverged) as caught:
+        adapter.rollback("orders", history[0], expected_current=history[-1])
+    message = str(caught.value)
+    assert "left as is" in message and "no longer on main" in message
+    assert f"replaced snapshot {slipped[0]}" in message
+    assert 888 in orders.read("orders").column("id").to_pylist()
+    assert orders.table("orders").snapshot_by_id(slipped[0]) is not None
+
+
 def test_a_writer_after_the_rollback_is_left_alone(
     adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
 ) -> None:
@@ -711,13 +798,152 @@ def test_a_plan_that_changed_since_approval_is_carried_out_by_pyiceberg_at_most(
 def test_trino_removing_more_than_approved_is_reported(
     adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
 ) -> None:
-    orders.table("orders").manage_snapshots().create_branch(history[1], "pinned").commit()
     action = ExpireSnapshots("orders", older_than=CUTOFF)
     plan = adapter.plan_maintenance(action)
-    assert [s.snapshot_id for s in plan.expired] == [history[0]]
-    trino.overreach = True  # a Trino that also expires what the branch protects
+    trino.overreach = True  # a Trino that also takes the snapshot a writer added meanwhile
+    trino.before_expire = lambda: orders.table("orders").append(row(5))
     with pytest.raises(ExecutionError, match="outside the approved plan"):
         adapter.apply_maintenance(action, plan)
+
+
+def tag_with_age(lake: LakehouseCatalog, snapshot: int, name: str = "release") -> None:
+    lake.table("orders").manage_snapshots().create_tag(snapshot, name, max_ref_age_ms=1000).commit()
+
+
+@pytest.mark.usefixtures("clock")
+def test_the_fake_models_ref_age_expiry_the_planner_cannot_see(
+    orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    """Guards the regression test below: this Trino drops an aged tag and its snapshot."""
+    tag_with_age(orders, history[0])
+    plan = TrinoIcebergAdapter(orders, trino, "lk")._meta.plan_maintenance(
+        ExpireSnapshots("orders", older_than=CUTOFF)
+    )
+    assert history[0] not in {s.snapshot_id for s in plan.expired}  # the planner protects it
+    trino.cursor().execute(
+        'ALTER TABLE "lk"."db"."orders" EXECUTE expire_snapshots(retention_threshold => '
+        f"'{int((FUTURE - CUTOFF).total_seconds())}s')"
+    )
+    assert "release" not in orders.refs("orders") and history[0] not in snapshot_ids(orders)
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_retained_tag_keeps_expiry_away_from_trino(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    tag_with_age(orders, history[0])
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    plan = adapter.plan_maintenance(action)
+    assert not any("Trino deletes" in w for w in plan.warnings)
+    result = adapter.apply_maintenance(action, plan)
+    assert trino.altered() == []
+    assert orders.refs("orders")["release"] == history[0]  # the tag and its snapshot survive
+    assert set(result.expired_snapshot_ids) == {s.snapshot_id for s in plan.expired}
+    assert history[0] in snapshot_ids(orders)
+
+
+@pytest.mark.usefixtures("clock")
+def test_the_table_wide_max_ref_age_keeps_expiry_away_from_trino(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    with orders.table("orders").transaction() as tx:
+        tx.set_properties({"history.expire.max-ref-age-ms": "1000"})
+    orders.table("orders").manage_snapshots().create_branch(history[0], "side").commit()
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    adapter.apply_maintenance(action, adapter.plan_maintenance(action))
+    assert trino.altered() == []
+    assert orders.refs("orders")["side"] == history[0]
+
+
+@pytest.mark.usefixtures("clock")
+@pytest.mark.parametrize("ref_kind", ["branch", "tag"])
+def test_any_ref_besides_main_keeps_expiry_away_from_trino(
+    adapter: TrinoIcebergAdapter,
+    orders: LakehouseCatalog,
+    trino: FakeTrino,
+    history: list[int],
+    ref_kind: str,
+) -> None:
+    manage = orders.table("orders").manage_snapshots()
+    (manage.create_branch if ref_kind == "branch" else manage.create_tag)(
+        history[-1], "other"
+    ).commit()
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    adapter.apply_maintenance(action, adapter.plan_maintenance(action))
+    assert trino.altered() == []
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_history_expire_table_property_keeps_expiry_away_from_trino(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    with orders.table("orders").transaction() as tx:
+        tx.set_properties({"history.expire.max-snapshot-age-ms": "1000"})
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    adapter.apply_maintenance(action, adapter.plan_maintenance(action))
+    assert trino.altered() == []
+
+
+@pytest.mark.usefixtures("clock")
+def test_main_with_its_own_retention_keeps_expiry_away_from_trino(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    table = orders.table("orders")
+    with table.transaction() as tx:
+        tx._apply(
+            (
+                SetSnapshotRefUpdate(
+                    ref_name="main",
+                    type="branch",
+                    snapshot_id=history[-1],
+                    min_snapshots_to_keep=2,
+                ),
+            )
+        )
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    adapter.apply_maintenance(action, adapter.plan_maintenance(action))
+    assert trino.altered() == []
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_ref_that_trino_drops_is_reported_even_if_no_snapshot_goes(
+    adapter: TrinoIcebergAdapter,
+    orders: LakehouseCatalog,
+    trino: FakeTrino,
+    history: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defence in depth: force the Trino path past the guard on refs and let Trino drop a tag."""
+    tag_with_age(orders, history[-1], "late")  # on main's head: only the tag goes, no snapshot
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    plan = adapter.plan_maintenance(action)
+    monkeypatch.setattr(adapter, "_trino_may_expire", lambda _action: True)
+    plan = replace(plan, warnings=(*plan.warnings, trino_iceberg._WARNING_EXPIRE))
+    with pytest.raises(ExecutionError, match=r"changed ref\(s\) \['late'\]"):
+        adapter.apply_maintenance(action, plan)
+    assert trino.altered() and "late" not in orders.refs("orders")
+
+
+@pytest.mark.usefixtures("clock")
+def test_the_trino_path_needs_the_warning_the_approver_saw(
+    adapter: TrinoIcebergAdapter, orders: LakehouseCatalog, trino: FakeTrino, history: list[int]
+) -> None:
+    orders.table("orders").manage_snapshots().create_tag(history[-1], "temp").commit()
+    action = ExpireSnapshots("orders", older_than=CUTOFF)
+    plan = adapter.plan_maintenance(action)  # planned while a ref made Trino ineligible
+    assert not plan.warnings
+    orders.table("orders").manage_snapshots().remove_tag("temp").commit()
+    adapter.apply_maintenance(action, plan)  # Trino would be eligible now, but was not approved
+    assert trino.altered() == []
+
+
+def test_the_warning_is_given_whenever_trino_may_run_it(
+    adapter: TrinoIcebergAdapter, history: list[int]
+) -> None:
+    # The cutoff is still in the future, so right now it would go to PyIceberg; the clock moving
+    # past it must not turn an unwarned plan into a Trino run.
+    plan = adapter.plan_maintenance(ExpireSnapshots("orders", older_than=FUTURE))
+    assert any("Trino deletes" in w for w in plan.warnings)
 
 
 @pytest.mark.usefixtures("clock")
