@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__lakehouse-guard__list_tables",
+      "mcp__lakehouse-guard__describe_table",
+      "mcp__lakehouse-guard__get_action_status",
+      "mcp__lakehouse-guard__check_training_sql"
+    ],
+    "deny": [
+      "Bash(sqlguard approvals approve:*)",
+      "Bash(sqlguard approvals reject:*)",
+      "Bash(sqlguard serve:*)",
+      "Bash(sqlguard:*)",
+      "Bash(uv run sqlguard:*)",
+      "Bash(uvx:*)",
+      "Bash(python -m sqlguard:*)",
+      "Bash(python3 -m sqlguard:*)",
+      "Bash(sqlguard-mcp:*)",
+      "Bash(sqlite3:*)",
+      "Bash(duckdb:*)",
+      "Bash(script:*)",
+      "Bash(expect:*)",
+      "Bash(unbuffer:*)",
+      "Bash(bash -c:*)",
+      "Bash(sh -c:*)",
+      "Bash(zsh -c:*)",
+      "Bash(env:*)",
+      "Bash(python -c:*)",
+      "Bash(python3 -c:*)",
+      "Read(~/.pyiceberg.yaml)",
+      "Read(~/.claude.json)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.config/lakehouse-guard/**)",
+      "Edit(~/.config/lakehouse-guard/**)",
+      "Read(~/.local/state/lakehouse-guard/**)",
+      "Edit(~/.local/state/lakehouse-guard/**)",
+      "Read(~/Library/Application Support/Google/Chrome/**)",
+      "Read(~/Library/Cookies/**)",
+      "Read(~/Library/Safari/**)",
+      "Read(~/.config/google-chrome/**)",
+      "Read(~/.mozilla/**)"
+    ]
+  }
+}

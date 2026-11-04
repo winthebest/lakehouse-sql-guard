@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "lakehouse-guard": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "lakehouse-sql-guard[mcp] @ git+https://github.com/winthebest/lakehouse-sql-guard@v0.2.0",
+        "sqlguard-mcp",
+        "--catalog",
+        "lake",
+        "--namespace",
+        "sales",
+        "--scope-namespace",
+        "sales",
+        "--policy",
+        "/Users/YOU/.config/lakehouse-guard/policy.yaml",
+        "--audit-log",
+        "/Users/YOU/.local/state/lakehouse-guard/audit.jsonl",
+        "--store",
+        "/Users/YOU/.local/state/lakehouse-guard/actions.db",
+        "--review-url",
+        "http://127.0.0.1:8765",
+        "--requester",
+        "claude-desktop",
+        "--spec-dir",
+        "/Users/YOU/leakage-specs"
+      ],
+      "env": {
+        "PYICEBERG_CATALOG__LAKE__URI": "https://lakekeeper.example.com/catalog",
+        "PYICEBERG_CATALOG__LAKE__CREDENTIAL": "CLIENT_ID:CLIENT_SECRET"
+      }
+    }
+  }
+}
