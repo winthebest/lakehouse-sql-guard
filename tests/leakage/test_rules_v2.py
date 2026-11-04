@@ -46,15 +46,8 @@ CLEAN = {
         f"FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
         f"AND e.ingested_at < l.label_ts {GROUP}"
     ),
-    # 2: HAVING MAX(ts) and QUALIFY
-    "having max below the prediction": (
-        f"{SEL}, SUM(e.amount) a {LEFT} {GROUP} HAVING MAX(e.ingested_at) < l.label_ts"
-    ),
-    "having max shifted back": (
-        f"{SEL}, SUM(e.amount) a {INNER} {GROUP} "
-        "HAVING MAX(e.ingested_at) <= l.label_ts - INTERVAL 1 SECOND"
-    ),
-    "having min after a lower bound written backwards": (
+    # 2: QUALIFY (HAVING MAX is a leak, see below)
+    "having lower bound beside an ingestion bound": (
         f"{SEL}, SUM(e.amount) a {INNER} AND e.ingested_at < l.label_ts {GROUP} "
         "HAVING l.label_ts - INTERVAL 30 DAY < MIN(e.event_ts)"
     ),
@@ -99,10 +92,6 @@ CLEAN = {
     "cutoff from the label times": f"{FEAT} WHERE l.label_ts < (SELECT MAX(label_ts) FROM labels)",
     "cutoff shifted back": (
         f"{FEAT} WHERE l.label_ts <= (SELECT MIN(label_ts) FROM labels) + INTERVAL 20 DAY"
-    ),
-    # 5: choosing which prediction row to train on
-    "latest prediction per entity": (
-        f"{FEAT} QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) = 1"
     ),
     # 7: the earliest and per-group latest row
     "earliest row before the prediction": (
@@ -198,9 +187,20 @@ LEAKY = {
         "L3",
     ),
     # 2
+    # the group is dropped when any of its rows is stamped later: which rows exist depends on
+    # the future, so a HAVING on MAX / MIN of the time column is no bound
+    "having max below the prediction": (
+        f"{SEL}, SUM(e.amount) a {LEFT} {GROUP} HAVING MAX(e.ingested_at) < l.label_ts",
+        "L3",
+    ),
+    "having max shifted back": (
+        f"{SEL}, SUM(e.amount) a {INNER} {GROUP} "
+        "HAVING MAX(e.ingested_at) <= l.label_ts - INTERVAL 1 SECOND",
+        "L3",
+    ),
     "having max is inclusive": (
         f"{SEL}, SUM(e.amount) a {LEFT} {GROUP} HAVING MAX(e.ingested_at) <= l.label_ts",
-        "L5",
+        "L3",
     ),
     "having min is not an upper bound": (
         f"{SEL}, SUM(e.amount) a {LEFT} {GROUP} HAVING MIN(e.ingested_at) < l.label_ts",
@@ -212,7 +212,7 @@ LEAKY = {
     ),
     "having min after the prediction": (
         f"{SEL}, SUM(e.amount) a {LEFT} {GROUP} HAVING MIN(e.ingested_at) > l.label_ts",
-        "L1",
+        "L3",
     ),
     "qualify bound is inclusive": (
         f"{SEL}, e.amount {INNER} QUALIFY e.ingested_at <= l.label_ts",
@@ -297,6 +297,11 @@ LEAKY = {
     "prediction rank used as a feature": (
         f"{SEL}, ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) AS r "
         "FROM labels l",
+        "L1",
+    ),
+    # keeping only the entity's latest prediction: whether a row exists depends on later ones
+    "latest prediction per entity": (
+        f"{FEAT} QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) = 1",
         "L1",
     ),
     "dedup ordered by the label": (
@@ -482,11 +487,21 @@ MATURED = (
 KNOWN = {"label_known_after": "14 days"}
 
 
-@pytest.mark.parametrize("mature", [14, 21, 30])
-def test_target_encoding_over_matured_labels_is_clean(mature):
-    sql = MATURED.format(mature=mature)
+@pytest.mark.parametrize("op", ["<", "<="])
+@pytest.mark.parametrize("mature", [15, 21, 30])
+def test_target_encoding_over_matured_labels_is_clean(mature, op):
+    sql = MATURED.format(mature=mature).replace("<=", op)
     assert check(sql)[0] == "leaky"  # without the declaration the labels are the outcome
     assert check(sql, **KNOWN) == ("clean", set())
+
+
+def test_maturity_follows_the_boundary_option():
+    """A label stamped exactly `label_known_after` before the prediction is final only when the
+    spec says facts at the prediction time count (`<` is fine either way)."""
+    at_horizon = MATURED.format(mature=14)
+    assert check(at_horizon, **KNOWN)[0] == "leaky"
+    assert check(at_horizon, **KNOWN, boundary="inclusive") == ("clean", set())
+    assert check(at_horizon.replace("<=", "<"), **KNOWN) == ("clean", set())
 
 
 @pytest.mark.parametrize("mature", [1, 7, 13])

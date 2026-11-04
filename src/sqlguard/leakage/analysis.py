@@ -20,8 +20,9 @@ A bound reached through a CTE or derived table covers only the chain of uses it 
 for, so a CTE (or a CTE nested in another) consumed twice must be bounded at both uses.
 
 Predicates are read in their common spellings: `ts < p`, `p - ts > INTERVAL 0`, `epoch(ts) <
-epoch(p)`, `date_diff('day', ts, p) > 0`, `HAVING MAX(ts) < p`, a bound in QUALIFY, and
-`agg(x) FILTER (WHERE ts < p)` when every aggregate that reads the table carries one. A CTE that
+epoch(p)`, `date_diff('day', ts, p) > 0`, a bound in QUALIFY, and `agg(x) FILTER (WHERE ts < p)`
+when every aggregate that reads the table carries one. `HAVING MAX(ts) < p` is not a bound: it
+drops every group that has a later row, so which rows exist depends on the future. A CTE that
 is never used is ignored; a UNION in a CTE or derived table is traced branch by branch.
 """
 
@@ -126,10 +127,6 @@ class TimeBound:
         offset = self.offset_seconds + self.slack_up + delay_seconds
         return self.is_upper and _strict_past(self.op, offset, self.inclusive)
 
-    def covers_label(self, known_after_seconds: float) -> bool:
-        """Do all rows admitted by the bound have a final label (inclusive: final at +delay)?"""
-        return self.is_upper and self.offset_seconds + self.slack_up + known_after_seconds <= 0
-
 
 @dataclass(eq=False)
 class TableRef:
@@ -185,13 +182,13 @@ class TableRef:
         )
 
     def matured(self, known_after: float | None) -> bool:
-        """A non-spine label reference whose rows all have final labels at prediction time."""
+        """A non-spine label reference whose rows all have final labels before prediction time."""
         return (
             bool(known_after)
             and self.kind == "label"
             and bool(self.temporal_paths)
             and all(
-                any(b.covers_label(known_after) and path in b.instances for b in self.bounds)
+                any(b.covers(known_after) and path in b.instances for b in self.bounds)
                 for path in self.temporal_paths
             )
         )
@@ -306,11 +303,6 @@ class _Filter:
     join: exp.Join | None = None
     kind: str = "where"  # where | having | qualify | on | filter
     aggregate_filter: exp.Filter | None = None
-
-    @property
-    def aggregates_ok(self) -> bool:
-        """MAX / MIN of a column may stand in for the column after grouping."""
-        return self.kind in ("having", "qualify")
 
     def filters(self, alias: str) -> bool:
         """Does the predicate restrict the rows of the FROM item named `alias`?"""
@@ -441,17 +433,16 @@ class _Peeled:
     up: float = 0.0  # the true offset is at most offset + up
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False  # went through epoch(): seconds since 1970
-    aggregate: str = ""  # max | min: the column was wrapped in MAX / MIN (HAVING, QUALIFY)
 
 
-def _peel(node: exp.Expression, aggregates: bool = False) -> _Peeled | None:
-    """Strip casts, truncation, epoch(), MAX / MIN (when `aggregates`), and +/- intervals.
+def _peel(node: exp.Expression) -> _Peeled | None:
+    """Strip casts, truncation, epoch(), and +/- intervals.
 
     Returns the base column with the net offset and truncation, or None when the expression has
     a shape we cannot reason about (callers then treat it as no bound).
     """
     offset = trunc = up = down = pending = 0.0
-    epoch, aggregate = False, ""
+    epoch = False
     while True:
         if isinstance(node, exp.Paren):
             node = node.this
@@ -495,14 +486,11 @@ def _peel(node: exp.Expression, aggregates: bool = False) -> _Peeled | None:
             amount = _constant(node.expression)
             pending += amount if isinstance(node, exp.Add) else -amount
             node = node.this
-        elif aggregates and not aggregate and isinstance(node, exp.Max | exp.Min):
-            aggregate = "max" if isinstance(node, exp.Max) else "min"
-            node = node.this
         else:
             break
     if not isinstance(node, exp.Column) or (pending and not epoch):
         return None
-    return _Peeled(node, offset, trunc, up, down, epoch, aggregate)
+    return _Peeled(node, offset, trunc, up, down, epoch)
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -527,12 +515,11 @@ class Resolved:
     up: float = 0.0  # the true offset is at most offset + up (see TimeBound.slack_up)
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False
-    aggregate: str = ""  # max | min when the expression is MAX(col) / MIN(col)
 
     @property
     def exact(self) -> bool:
         """The expression equals the column (at most a lossless timestamp cast)."""
-        return self.offset == 0 and self.trunc == 0 and not self.aggregate
+        return self.offset == 0 and self.trunc == 0
 
 
 class _Resolver:
@@ -591,7 +578,6 @@ class _Resolver:
         *,
         local: bool = False,
         depth: int = 0,
-        aggregates: bool = False,
     ) -> list[Resolved] | None:
         """Trace a time expression to physical columns (several when a UNION feeds it).
 
@@ -600,7 +586,7 @@ class _Resolver:
         branch of a UNION. `local` restricts the first hop to the scope's own FROM items: the
         rows a predicate filters are the ones selected in its scope, never an outer query's.
         """
-        peeled = _peel(node, aggregates)
+        peeled = _peel(node)
         if peeled is None or scope is None or depth > _MAX_DEPTH:
             return None
         column = peeled.column
@@ -628,7 +614,6 @@ class _Resolver:
                     peeled.up,
                     peeled.down,
                     peeled.epoch,
-                    peeled.aggregate,
                 )
             ]
         if not isinstance(source, Scope):
@@ -663,7 +648,6 @@ class _Resolver:
                         peeled.up + g.up,
                         peeled.down + g.down,
                         peeled.epoch or g.epoch,
-                        peeled.aggregate,
                     )
                 )
         return resolved
@@ -1060,16 +1044,11 @@ def _record(
     spec = resolver.spec
     orientations = ((left, right, op, shift), (right, left, _FLIP[op], -shift))
     for feature_node, label_node, normalized, signed in orientations:
-        features = resolver.resolve_all(
-            feature_node, scope, local=True, aggregates=context.aggregates_ok
-        )
+        features = resolver.resolve_all(feature_node, scope, local=True)
         labels = resolver.resolve_all(label_node, scope)
         if not features or not labels:
             continue
-        if any(
-            lab.aggregate or lab.ref.kind != "label" or lab.column != spec.prediction_ts
-            for lab in labels
-        ):
+        if any(lab.ref.kind != "label" or lab.column != spec.prediction_ts for lab in labels):
             continue
         if needs_epoch and not all(f.epoch for f in features + labels):
             continue
@@ -1079,8 +1058,6 @@ def _record(
             ref = feature.ref
             if ref.time_column is None or not context.filters(feature.alias):
                 continue
-            if feature.aggregate and (feature.aggregate == "max") != upper:
-                continue  # MAX(ts) < p bounds every row; MAX(ts) > p says nothing about them
             if feature.column == ref.time_column:
                 role = "time"
             elif feature.column == ref.availability_column:
@@ -1515,50 +1492,11 @@ def _window_issues(analysis: QueryAnalysis, resolver: _Resolver):
                 continue
             if _partitioned_by_time(window, scope, ref, resolver):
                 continue
-            if _spine_selection(window, scope, ref, analysis, resolver):
-                continue
             if ahead and _validity_interval(window, scope, ref, analysis, resolver):
                 continue
             kind = "lookahead" if ahead else "whole_partition"
             issues.append(WindowIssue(ref, kind, window.sql(analysis.spec.dialect)))
     return issues
-
-
-def _spine_selection(window, scope, ref: TableRef, analysis, resolver: _Resolver) -> bool:
-    """`QUALIFY ROW_NUMBER() OVER (PARTITION BY entity ORDER BY prediction_ts DESC) = 1`.
-
-    Ranking the prediction rows only chooses which of them to train on. It stays harmless while
-    the term reads nothing but spine identity / time columns and the rank is not an output.
-    """
-    qualify = window.find_ancestor(exp.Qualify)
-    if (
-        qualify is None
-        or ref.kind != "label"
-        or not ref.on_spine
-        or scope is None
-        or _innermost_select(window) is not qualify.parent
-        or not _rows_are_output(scope, analysis, resolver)
-    ):
-        return False
-    chain = [window]
-    while chain[-1].parent is not qualify:
-        chain.append(chain[-1].parent)
-    index = len(chain) - 1
-    while index > 0 and isinstance(chain[index], exp.And | exp.Paren):
-        index -= 1
-    term = chain[index]
-    if term.find(exp.Select) is not None:
-        return False
-    for column in term.find_all(exp.Column):
-        got = resolver.resolve(column, scope)
-        if (
-            got is None
-            or got.ref.kind != "label"
-            or not got.ref.on_spine
-            or got.column in analysis.spec.label_columns
-        ):
-            return False
-    return True
 
 
 def _reaches(scope: Scope, target: TableRef, resolver: _Resolver, seen: set[int]) -> bool:

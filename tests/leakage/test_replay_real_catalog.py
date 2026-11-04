@@ -242,7 +242,7 @@ def test_inclusive_boundary_sees_facts_stamped_at_the_prediction_time(world, spe
 
 MATURED = (
     f"{SEL}, (SELECT AVG(h.churned) FROM labels h WHERE h.user_id <> l.user_id "
-    "AND h.label_ts <= l.label_ts - INTERVAL {days} DAY) AS rate FROM labels l"
+    "AND h.label_ts < l.label_ts - INTERVAL {days} DAY) AS rate FROM labels l"
 )
 
 
@@ -252,6 +252,14 @@ def test_labels_final_by_the_prediction_time_replay_with_their_values(world, spe
     assert Replayer(world, without, seed=42).run(query).status is ReplayStatus.MISMATCH
     known = replace(spec, label_known_after=14 * 86_400)
     assert Replayer(world, known, seed=42).run(query).status is ReplayStatus.PASS
+
+
+def test_a_label_exactly_at_the_horizon_is_final_only_for_an_inclusive_spec(world, spec):
+    query = MATURED.format(days=14).replace("h.label_ts <", "h.label_ts <=")
+    known = replace(spec, label_known_after=14 * 86_400)
+    assert Replayer(world, known, seed=42).run(query).status is ReplayStatus.MISMATCH
+    inclusive = replace(known, boundary="inclusive")
+    assert Replayer(world, inclusive, seed=42).run(query).status is ReplayStatus.PASS
 
 
 def test_labels_not_yet_final_still_replay_as_unknown(world, spec):
@@ -281,7 +289,7 @@ def test_cutoff_that_depends_on_the_row_is_not_kept_whole(world, spec):
     assert Replayer(world, spec, seed=42).run(query).status is ReplayStatus.MISMATCH
 
 
-# --- shapes the static pass accepts but a point-in-time rerun cannot reproduce -----------------
+# --- row selection by later data: static and replay agree it leaks ------------------------------
 
 WINDOW_14D = "AND e.event_ts >= l.label_ts - INTERVAL 14 DAY"
 
@@ -301,8 +309,8 @@ WINDOW_14D = "AND e.event_ts >= l.label_ts - INTERVAL 14 DAY"
     ],
     ids=["having max", "latest prediction per entity"],
 )
-def test_row_selection_by_later_data_is_clean_statically_but_a_replay_mismatch(world, spec, query):
+def test_row_selection_by_later_data_is_a_leak_statically_and_in_replay(world, spec, query):
     replayer = Replayer(world, spec, seed=42)
-    assert validate(query, spec, catalog=world).verdict == "clean"
+    assert validate(query, spec, catalog=world).verdict == "leaky"
     assert replayer.run(query).status is ReplayStatus.MISMATCH
     assert validate(query, spec, catalog=world, replay=replayer).verdict == "leaky"

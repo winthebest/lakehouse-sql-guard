@@ -197,7 +197,7 @@ class Replayer:
         at `ts`, but their outcomes may not have been. Features over the label table's own
         history (prior-prediction counts, time since the last prediction) therefore replay
         identically, while one that reads an earlier label's value does not. Labels that the
-        spec's `label_known_after` says were final by `ts` keep their values.
+        spec's `label_known_after` says were final before `ts` keep their values.
         """
         key = (ts, history)
         if key not in self._pinned:
@@ -229,7 +229,12 @@ class Replayer:
         earlier = self.labels.filter(pc.less(column, pa.scalar(ts, type=column.type)))
         if self.spec.label_known_after:
             cutoff = pa.scalar(ts - timedelta(seconds=self.spec.label_known_after), column.type)
-            unknown = pc.greater(earlier.column(self.spec.prediction_ts), cutoff)
+            stamped = earlier.column(self.spec.prediction_ts)
+            # final once label_ts + known_after is before ts (at ts too, when inclusive)
+            inclusive = self.spec.boundary == "inclusive"
+            unknown = (
+                pc.greater(stamped, cutoff) if inclusive else pc.greater_equal(stamped, cutoff)
+            )
         else:
             unknown = pa.scalar(True)
         for name in self.spec.label_columns:

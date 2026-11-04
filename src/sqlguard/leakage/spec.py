@@ -104,8 +104,9 @@ class LeakageSpec:
     # table -> seconds: the longest a fact takes to become available after its event time. An
     # event-time bound at least this far before prediction_ts is as good as an availability bound.
     max_ingest_delay: dict[str, float] = field(default_factory=dict)
-    # seconds after a label row's prediction_ts at which its label is final; labels older than
-    # that (inclusive) may be aggregated into features
+    # seconds after a label row's prediction_ts at which its label is final; labels at least that
+    # old may be aggregated into features (judged like any bound: strictly before prediction_ts
+    # unless `boundary` is inclusive)
     label_known_after: float | None = None
     # SQL relation name (`table`, `schema.table`, `catalog.schema.table`) -> catalog table
     relations: dict[str, str] = field(default_factory=dict)
