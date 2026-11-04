@@ -75,7 +75,16 @@ def _relations(value: Any) -> dict[str, str]:
         return {}
     if not isinstance(value, dict):
         raise SpecError(f"relations must be a mapping of relation name -> table, got {value!r}")
-    return {relation_key(r): relation_key(t) for r, t in value.items()}
+    found = {}
+    for relation, table in value.items():
+        key = relation_key(relation)
+        if "." not in key:
+            raise SpecError(
+                f"relations keys are qualified names (schema.table or catalog.schema.table), "
+                f"got the bare name {relation!r}: bare names always mean the catalog table itself"
+            )
+        found[key] = relation_key(table)
+    return found
 
 
 def _mapping(value: Any, key: str) -> dict[str, str]:

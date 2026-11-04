@@ -76,7 +76,30 @@ _CLOCK_NODES = (
     exp.Localtime,
     exp.Localtimestamp,
 )
-_CLOCK_FUNCTIONS = {"now", "getdate", "sysdate", "systimestamp", "sysdatetime", "today"}
+_CLOCK_FUNCTIONS = {
+    "now",
+    "today",
+    "curdate",
+    "curtime",
+    "getdate",
+    "getutcdate",
+    "sysdate",
+    "sysdatetime",
+    "sysutcdatetime",
+    "systimestamp",
+    "utc_date",
+    "utc_time",
+    "utc_timestamp",
+    "localtime",
+    "localtimestamp",
+    "current_localtime",
+    "current_localtimestamp",
+    "get_current_time",
+    "get_current_timestamp",
+    "transaction_timestamp",
+    "statement_timestamp",
+    "clock_timestamp",
+}
 MATURED_LABELS = "__matured_labels"
 _MAX_PATHS = 256
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
@@ -186,6 +209,7 @@ class TableRef:
         return (
             bool(known_after)
             and self.kind == "label"
+            and not self.on_spine  # the spine's own label is the target, whatever else reads it
             and bool(self.temporal_paths)
             and all(
                 any(b.covers(known_after) and path in b.instances for b in self.bounds)
@@ -619,7 +643,8 @@ class _Resolver:
         if not isinstance(source, Scope):
             return None
         branches = _branch_scopes(source)
-        if not branches:
+        by_name = _matched_by_name(source.expression)
+        if not branches or by_name is None:
             return None
         position = _position(branches[0], column.name)
         if position is None:
@@ -627,9 +652,15 @@ class _Resolver:
         resolved: list[Resolved] = []
         for branch in branches:
             projections = branch.expression.selects
-            if position >= len(projections):
+            if by_name:  # UNION BY NAME lines columns up by name, whatever their position
+                matches = [p for p in projections if p.alias_or_name.lower() == column.name.lower()]
+                if len(matches) != 1:
+                    return None
+                projection = matches[0]
+            elif position >= len(projections):
                 return None
-            projection = projections[position]
+            else:
+                projection = projections[position]
             inner = projection.this if isinstance(projection, exp.Alias) else projection
             got = self.resolve_all(inner, branch, local=True, depth=depth + 1)
             if not got:
@@ -716,6 +747,21 @@ def _branch_scopes(scope: Scope) -> list[Scope]:
             return []
         found += inner
     return found
+
+
+def _matched_by_name(expression: exp.Expression) -> bool | None:
+    """True / False when every set operation under `expression` matches columns by name /
+    position; None when they differ (not worth reasoning about: fail closed)."""
+    flags = {
+        bool(op.args.get("by_name"))
+        for op in expression.find_all(exp.SetOperation)
+        if not _under_select(op, expression)
+    }
+    return flags.pop() if len(flags) == 1 else (False if not flags else None)
+
+
+def _under_select(node: exp.Expression, top: exp.Expression) -> bool:
+    return any(isinstance(a, exp.Select) for a in _ancestors(node, top.parent))
 
 
 def _position(scope: Scope, name: str) -> int | None:
@@ -1190,44 +1236,71 @@ def _apply_filter_bounds(analysis: QueryAnalysis, resolver: _Resolver) -> None:
 
 
 def _only_filtered_reads(ref: TableRef, covered: set[int], resolver: _Resolver) -> bool:
+    """Does every consumer of the table's rows in its SELECT sit behind a covered FILTER?
+
+    A joined row that is not filtered out still counts: COUNT(1), SUM(1) or COUNT(spine column)
+    grow with every later row of the entity, so each aggregate of the SELECT must carry a covered
+    FILTER, unless it cannot see how many rows were joined (MAX / MIN, COUNT(DISTINCT ...)) and
+    reads no column of the table. The table's columns may appear only inside covered FILTER
+    aggregates and in its own join condition: a WHERE on it decides which spine rows survive.
+    """
     select = ref.scope.expression
     if not isinstance(select, exp.Select):
         return False
+    scalar = ref.alias not in {j.alias_or_name for j in select.args.get("joins") or []}
     for node in select.find_all(exp.AggFunc, exp.Window, exp.Column):
         if _innermost_select(node) is not select:
             continue
         if isinstance(node, exp.Window):
-            if any(_reads_ref(c, ref, ref.scope, resolver) for c in node.find_all(exp.Column)):
-                return False
-        elif isinstance(node, exp.AggFunc):
+            return False  # a window counts or orders the joined rows
+        if isinstance(node, exp.AggFunc):
             if node.find_ancestor(exp.Window) is not None:
                 continue
-            reads = any(
-                _reads_ref(c, ref, ref.scope, resolver) for c in node.find_all(exp.Column)
-            ) or (node.find(exp.Star) is not None)
-            if reads and not (
-                isinstance(node.parent, exp.Filter)
-                and node.parent.this is node
-                and id(node.parent) in covered
-            ):
+            if not _covered_filter(node, covered) and not _ignores_row_count(node, ref, resolver):
                 return False
         elif (
             _reads_ref(node, ref, ref.scope, resolver)
-            and not _in_row_predicate(node, select)
-            and node.find_ancestor(exp.AggFunc) is None
+            and not _inside_covered_filter(node, covered)
+            and not _in_own_join(node, select, ref)
+            and not (scalar and _in_where(node, select))
         ):
             return False
     return _preserves_rows(ref, select)
 
 
+def _covered_filter(agg: exp.Expression, covered: set[int]) -> bool:
+    return (
+        isinstance(agg.parent, exp.Filter) and agg.parent.this is agg and id(agg.parent) in covered
+    )
+
+
+def _inside_covered_filter(node: exp.Expression, covered: set[int]) -> bool:
+    return any(isinstance(a, exp.Filter) and id(a) in covered for a in _ancestors(node, None))
+
+
+def _ignores_row_count(agg: exp.Expression, ref: TableRef, resolver: _Resolver) -> bool:
+    """MAX / MIN and COUNT(DISTINCT x) give the same value however often a row is repeated."""
+    insensitive = isinstance(agg, exp.Max | exp.Min) or (
+        isinstance(agg, exp.Count) and isinstance(agg.this, exp.Distinct)
+    )
+    return insensitive and not any(
+        _reads_ref(c, ref, ref.scope, resolver) for c in agg.find_all(exp.Column)
+    )
+
+
+def _in_own_join(node: exp.Expression, select: exp.Expression, ref: TableRef) -> bool:
+    return any(
+        isinstance(a, exp.Join) and a.alias_or_name == ref.alias for a in _ancestors(node, select)
+    )
+
+
+def _in_where(node: exp.Expression, select: exp.Expression) -> bool:
+    return any(isinstance(a, exp.Where) for a in _ancestors(node, select))
+
+
 def _reads_ref(column: exp.Column, ref: TableRef, scope: Scope, resolver: _Resolver) -> bool:
     found = resolver._source(scope, column.table, local=True) if column.table else None
     return found is not None and resolver.refs.get(id(found[0])) is ref
-
-
-def _in_row_predicate(node: exp.Expression, select: exp.Expression) -> bool:
-    """Is `node` inside a WHERE or a join condition of `select` (it filters, it is no output)?"""
-    return any(isinstance(a, exp.Where | exp.Join) for a in _ancestors(node, select))
 
 
 def _preserves_rows(ref: TableRef, select: exp.Select) -> bool:
@@ -1282,8 +1355,10 @@ def _used_as_spine_cutoff(subquery: exp.Expression | None, resolver: _Resolver) 
     node = subquery.parent
     while isinstance(node, exp.Paren | exp.Add | exp.Sub | exp.Cast):
         node = node.parent
-    if not isinstance(node, _TEST_NODES):
-        return False
+    if not isinstance(node, (*_COMPARISONS, exp.Between)):
+        return (
+            False  # `= MAX(...)` keeps only the latest rows: which rows exist depends on later ones
+        )
     context = _row_filter(node)
     if context is None:
         return False
@@ -1460,6 +1535,8 @@ def _window_issues(analysis: QueryAnalysis, resolver: _Resolver):
     for window in analysis.qualified.find_all(exp.Window):
         scope = resolver.scope_of(window)
         func = window.this
+        while isinstance(func, exp.IgnoreNulls | exp.RespectNulls):
+            func = func.this
         order = list(window.args["order"].expressions) if window.args.get("order") else []
         base_ahead = (
             isinstance(func, exp.Lead)
@@ -1603,24 +1680,34 @@ def _clock_uses(analysis: QueryAnalysis, resolver: _Resolver) -> list[ClockUse]:
     uses = []
     for node in analysis.qualified.walk():
         is_clock = isinstance(node, _CLOCK_NODES) or (
-            isinstance(node, exp.Anonymous) and str(node.this).lower() in _CLOCK_FUNCTIONS
+            isinstance(node, exp.Anonymous)
+            and (
+                str(node.this).lower() in _CLOCK_FUNCTIONS
+                # Spark: unix_timestamp() with no argument is the current time
+                or (str(node.this).lower() == "unix_timestamp" and not node.expressions)
+            )
         )
         if not is_clock:
             continue
         scope = resolver.scope_of(node)
-        if scope is None or _only_spine_filter(node, scope, resolver):
+        if scope is None or _only_spine_filter(node, scope, analysis, resolver):
             continue
         uses.append(ClockUse(node.sql(spec.dialect)))
     return uses
 
 
-def _only_spine_filter(node: exp.Expression, scope: Scope, resolver: _Resolver) -> bool:
+def _only_spine_filter(node, scope: Scope, analysis: QueryAnalysis, resolver: _Resolver) -> bool:
+    """Is the clock call in a WHERE / HAVING of the SELECT that produces the spine rows?
+
+    A join condition does not count: there the clock decides which feature values a row gets.
+    """
     comparison = node.parent
     while comparison is not None and not isinstance(comparison, _TEST_NODES):
         if isinstance(comparison, exp.Select | exp.Subquery | exp.Alias):
             return False
         comparison = comparison.parent
-    if comparison is None or _row_filter(comparison) is None:
+    context = _row_filter(comparison) if comparison is not None else None
+    if context is None or context.kind == "on" or not _rows_are_output(scope, analysis, resolver):
         return False
     columns = list(comparison.find_all(exp.Column))
     return bool(columns) and all(

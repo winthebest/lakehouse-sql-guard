@@ -15,6 +15,7 @@ INNER = "FROM labels l JOIN events e ON e.user_id = l.user_id"
 STATS = "ASOF JOIN user_stats s ON s.user_id = l.user_id AND l.label_ts > s.updated_at"
 FEAT = f"{SEL}, s.total_spend FROM labels l {STATS}"
 GROUP = "GROUP BY 1, 2, 3"
+BEFORE = "FILTER (WHERE e.ingested_at < l.label_ts)"
 
 
 def check(sql: str, **spec_overrides) -> tuple[str, set[str]]:
@@ -40,6 +41,10 @@ CLEAN = {
     "filter in a correlated scalar subquery": (
         f"{SEL}, (SELECT SUM(e.amount) FILTER (WHERE e.ingested_at < l.label_ts) "
         "FROM events e WHERE e.user_id = l.user_id) a FROM labels l"
+    ),
+    "filter plus aggregates that ignore row counts": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, COUNT(DISTINCT l.user_id) d, MAX(l.user_id) m "
+        f"{LEFT} {GROUP}"
     ),
     "filter beside a window bound in the join": (
         f"{SEL}, SUM(e.amount) FILTER (WHERE e.event_ts >= l.label_ts - INTERVAL 7 DAY) a "
@@ -128,6 +133,12 @@ CLEAN = {
         "UNION SELECT user_id, label_ts, churned FROM labels WHERE user_id >= 100) sp "
         "LEFT JOIN events e ON e.user_id = sp.user_id AND e.ingested_at < sp.label_ts "
         "GROUP BY 1, 2, 3"
+    ),
+    "union by name with the same columns in every branch": (
+        "WITH ev AS (SELECT user_id, ingested_at, amount FROM events WHERE amount > 0 "
+        "UNION ALL BY NAME SELECT amount, user_id, ingested_at FROM events WHERE amount <= 0) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.ingested_at < l.label_ts {GROUP}"
     ),
     "union of feature rows bounded after the union": (
         "WITH ev AS (SELECT user_id, ingested_at, amount FROM events WHERE amount > 0 "
@@ -379,6 +390,75 @@ LEAKY = {
         f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id {GROUP}",
         "L2",
     ),
+    # a joined row still counts when no column of the table is named
+    "filter beside COUNT(1)": (f"{SEL}, SUM(e.amount) {BEFORE} a, COUNT(1) n {LEFT} {GROUP}", "L3"),
+    "filter beside SUM(1)": (f"{SEL}, SUM(e.amount) {BEFORE} a, SUM(1) n {LEFT} {GROUP}", "L3"),
+    "filter beside COUNT of a spine column": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, COUNT(l.user_id) n {LEFT} {GROUP}",
+        "L3",
+    ),
+    "filter beside a list of a spine column": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, LEN(LIST(l.user_id)) n {LEFT} {GROUP}",
+        "L3",
+    ),
+    "filter beside HAVING COUNT(1)": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a {LEFT} {GROUP} HAVING COUNT(1) > 3",
+        "L3",
+    ),
+    "filter in a subquery beside COUNT(1)": (
+        f"{SEL}, (SELECT SUM(e.amount) {BEFORE} / COUNT(1) FROM events e "
+        "WHERE e.user_id = l.user_id) a FROM labels l",
+        "L3",
+    ),
+    "filter beside a window over the joined rows": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a, COUNT(*) OVER (PARTITION BY l.user_id, l.label_ts) n "
+        f"{LEFT} {GROUP}",
+        "L3",
+    ),
+    # a WHERE on the joined side decides which spine rows exist
+    "filter and a value predicate in WHERE": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a {LEFT} WHERE e.amount > 50 {GROUP}",
+        "L3",
+    ),
+    "filter and a not-null test in WHERE": (
+        f"{SEL}, SUM(e.amount) {BEFORE} a {LEFT} WHERE e.event_id IS NOT NULL {GROUP}",
+        "L3",
+    ),
+    "filter and the join condition moved to WHERE": (
+        f"{SEL}, COUNT(e.event_id) {BEFORE} n {LEFT} WHERE e.user_id = l.user_id {GROUP}",
+        "L3",
+    ),
+    # a UNION BY NAME lines columns up by name, not position
+    "union by name with the bounded column in another position": (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION ALL BY NAME "
+        "SELECT user_id, ingested_at AS x, amount, ingested_at - INTERVAL 30 DAY AS t FROM events) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.t < l.label_ts {GROUP}",
+        "L1",
+    ),
+    "union by name where a branch lacks the column": (
+        "WITH ev AS (SELECT user_id, ingested_at AS t, amount FROM events UNION BY NAME "
+        "SELECT user_id, ingested_at AS x, amount FROM events) "
+        f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
+        f"AND ev.t < l.label_ts {GROUP}",
+        "L2",
+    ),
+    # a window that skips nulls still reads the next row
+    "lead ignoring nulls": (
+        windowed("LEAD(total_spend IGNORE NULLS) OVER (PARTITION BY user_id ORDER BY updated_at)"),
+        "L1",
+    ),
+    "lag backwards ignoring nulls": (
+        windowed(
+            "LAG(total_spend, -1) IGNORE NULLS OVER (PARTITION BY user_id ORDER BY updated_at)"
+        ),
+        "L1",
+    ),
+    # a time split that keeps only the latest prediction
+    "cutoff equal to the latest label time": (
+        f"{FEAT} WHERE l.label_ts = (SELECT MAX(label_ts) FROM labels)",
+        "L3",
+    ),
     # 10
     "lag with a column offset": (
         windowed("LAG(total_spend, n_orders) OVER (PARTITION BY user_id ORDER BY updated_at)"),
@@ -399,6 +479,28 @@ LEAKY = {
     "current_timestamp in a bound on a feature table": (
         f"{SEL}, SUM(e.amount) a {LEFT} AND e.ingested_at < l.label_ts "
         f"AND e.event_ts <= current_timestamp {GROUP}",
+        "L7",
+    ),
+    "get_current_timestamp": (
+        f"{SEL}, date_diff('day', MAX(e.ingested_at), get_current_timestamp()) r {LEFT} "
+        f"AND e.ingested_at < l.label_ts {GROUP}",
+        "L7",
+    ),
+    "transaction_timestamp": (
+        f"{SEL}, date_diff('day', MAX(e.ingested_at), transaction_timestamp()) r {LEFT} "
+        f"AND e.ingested_at < l.label_ts {GROUP}",
+        "L7",
+    ),
+    "current_localtime": (f"{SEL}, current_localtime() AS built FROM labels l", "L7"),
+    "unix_timestamp without an argument": (f"{SEL}, unix_timestamp() AS built FROM labels l", "L7"),
+    "clock in the join condition on the spine side": (
+        f"{SEL}, SUM(e.amount) a {LEFT} AND e.ingested_at < l.label_ts "
+        f"AND l.label_ts > now() - INTERVAL 30 DAY {GROUP}",
+        "L7",
+    ),
+    "clock in the filter of a feature subquery": (
+        f"{SEL}, (SELECT SUM(e.amount) FROM events e WHERE e.user_id = l.user_id "
+        "AND e.ingested_at < l.label_ts AND l.label_ts > now() - INTERVAL 30 DAY) a FROM labels l",
         "L7",
     ),
     "getdate": (f"{SEL}, getdate() AS built_at FROM labels l", "L7"),
@@ -576,3 +678,42 @@ def test_new_fields_parse_and_default_to_v1():
     assert full.max_ingest_delay == {"events": 172_800.0, "user_stats": 129_600.0}
     assert full.label_known_after == 1_209_600.0
     assert full.relations == {"db.main.events": "events", "analytics.events": "events"}
+
+
+SELF_CTE = (
+    "WITH h AS (SELECT user_id, label_ts, churned FROM labels) "
+    "SELECT a.user_id, a.label_ts, a.churned, {extra} AVG(b.churned) te "
+    "FROM h a LEFT JOIN h b ON b.user_id = a.user_id "
+    "AND b.label_ts < a.label_ts - INTERVAL 15 DAY GROUP BY a.user_id, a.label_ts, a.churned{group}"
+)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        SELF_CTE.format(extra="a.churned + 0 AS label_copy,", group=", label_copy"),
+        SELF_CTE.format(extra="", group="").replace(
+            "AVG(b.churned) te", "AVG(b.churned) + a.churned AS te"
+        ),
+    ],
+    ids=["copy of the spine label", "spine label added to the encoding"],
+)
+def test_one_label_cte_as_spine_and_as_matured_history_keeps_the_target_a_leak(sql):
+    """The reference that is the spine is the target whatever else reads it as history."""
+    verdict, rules = check(sql, **KNOWN)
+    assert verdict == "leaky" and "L6" in rules
+    assert check(sql)[0] == "leaky"
+
+
+def test_history_from_a_separate_label_reference_is_still_matured():
+    sql = (
+        "SELECT a.user_id, a.label_ts, a.churned, AVG(b.churned) te "
+        "FROM labels a LEFT JOIN labels b ON b.user_id = a.user_id "
+        "AND b.label_ts < a.label_ts - INTERVAL 15 DAY GROUP BY a.user_id, a.label_ts, a.churned"
+    )
+    assert check(sql, **KNOWN) == ("clean", set())
+
+
+def test_relations_keys_are_qualified_names():
+    with pytest.raises(SpecError, match="bare name"):
+        LeakageSpec.from_dict({**SPEC, "relations": {"events": "events"}})
