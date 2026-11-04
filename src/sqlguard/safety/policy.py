@@ -10,7 +10,7 @@ UNKNOWN and OUT_OF_SCOPE are always DENY, and IRREVERSIBLE is never auto-allowed
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,7 @@ from sqlguard.safety.classifier import (
     StatementClass,
 )
 from sqlguard.safety.invariants import InvariantConfigError, InvariantsConfig
+from sqlguard.safety.store import digest
 
 C = ReversibilityClass
 
@@ -133,6 +134,40 @@ class Policy:
     thresholds: Thresholds = field(default_factory=Thresholds)
     task_scope: TaskScope | None = None
     invariants: InvariantsConfig = field(default_factory=InvariantsConfig)
+    version: str | None = None  # a label for humans; it takes no part in `digest`
+
+    @property
+    def digest(self) -> str:
+        """sha256 of the canonical form of everything that influences a decision.
+
+        Two policies that decide identically have the same digest, whatever order their YAML
+        lists things in, and any change to a rule, threshold, scope or invariant changes it. A
+        pending action records it so that a stricter (or looser) policy invalidates the review.
+        """
+        return digest(self.canonical())
+
+    def canonical(self) -> dict[str, Any]:
+        def scope(s: TaskScope | None) -> dict[str, list[str]] | None:
+            if s is None:
+                return None
+            return {
+                "allowed_tables": sorted(s.allowed_tables),
+                "allowed_namespaces": sorted(s.allowed_namespaces),
+            }
+
+        return {
+            "default_namespace": self.default_namespace,
+            "class_decisions": {k.value: v.value for k, v in sorted(self.class_decisions.items())},
+            "protected_tables": sorted(self.protected_tables),
+            "retention": asdict(self.retention),
+            "table_retention": {t: asdict(r) for t, r in sorted(self.table_retention.items())},
+            "thresholds": asdict(self.thresholds),
+            "task_scope": scope(self.task_scope),
+            "invariants": {
+                "default": asdict(self.invariants.default),
+                "tables": {t: asdict(i) for t, i in sorted(self.invariants.tables.items())},
+            },
+        }
 
     def __post_init__(self) -> None:
         decisions = self.class_decisions
@@ -203,6 +238,7 @@ class Policy:
             thresholds=_thresholds(_mapping(data, "thresholds")),
             task_scope=scope,
             invariants=_invariants(data.get("invariants"), namespace),
+            version=None if data.get("version") is None else str(data["version"]),
         )
 
     # -- decisions -----------------------------------------------------------------------------
