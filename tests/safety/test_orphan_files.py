@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pytest
 
+from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.safety.executor import (
     OrphanFile,
     OrphanSafetyError,
@@ -342,3 +343,16 @@ def test_apply_refuses_overlapping_tables_even_with_a_hand_made_plan(nested):
             RemoveOrphanFiles("parent", older_than=FUTURE), plan
         )
     assert child_file.exists()
+
+
+def test_public_finder_refuses_nested_table_locations(tmp_path):
+    catalog = LakehouseCatalog.local(tmp_path / "wh")
+    data = pa.table({"id": pa.array([1, 2], pa.int64())})
+    root = (tmp_path / "shared").as_uri()
+    for name, location in (("parent", root), ("child", f"{root}/child")):
+        created = catalog.catalog.create_table(f"db.{name}", schema=data.schema, location=location)
+        created.append(data)
+    with pytest.raises(OrphanSafetyError, match="another table"):
+        find_orphans(catalog.table("parent"), FUTURE)
+    child = catalog.table("child")
+    assert child.scan().to_arrow().num_rows == 2

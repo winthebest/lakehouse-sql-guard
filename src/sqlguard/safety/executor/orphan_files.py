@@ -115,6 +115,7 @@ def find_orphans(table: Table, older_than: datetime) -> list[OrphanFile]:
     except FileNotFoundError:
         return []
 
+    _refuse_nested_tables(infos, location, location_path)
     orphans: list[OrphanFile] = []
     for info in infos:
         if info.type != pafs.FileType.File or info.mtime is None:
@@ -130,6 +131,25 @@ def find_orphans(table: Table, older_than: datetime) -> list[OrphanFile]:
         orphans.append(OrphanFile(_uri_for(path, location), int(info.size or 0), modified))
     _refuse_name_clashes([path_of(o.location) for o in orphans], referenced)
     return sorted(orphans, key=lambda f: f.location)
+
+
+def _refuse_nested_tables(infos, location: str, location_path: str) -> None:
+    """Refuse when another Iceberg table (its own metadata/*.metadata.json) lives below this
+    table's location: its files are unreferenced here but very much alive."""
+    own = os.path.normpath(location_path) if _is_local(location) else location_path.rstrip("/")
+    nested = set()
+    for info in infos:
+        path = os.path.normpath(info.path) if _is_local(location) else info.path.rstrip("/")
+        parent, name = os.path.split(path)
+        if name.endswith(".metadata.json") and os.path.basename(parent) == "metadata":
+            root = os.path.dirname(parent)
+            if root != own:
+                nested.add(root)
+    if nested:
+        raise OrphanSafetyError(
+            f"another table's metadata was found under {location}: {sorted(nested)[:3]}; "
+            "refusing orphan cleanup for overlapping table locations"
+        )
 
 
 def _refuse_name_clashes(candidates: Iterable[str], referenced: set[str]) -> None:
