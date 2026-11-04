@@ -89,7 +89,8 @@ without replay); otherwise `clean`. The guard never reports `clean` by default.
 
 **Classify** (`classifier.py`). Each statement or maintenance action gets a reversibility
 class (read, reversible write, risky write, irreversible, out of scope, unknown) from its
-AST and the catalog state.
+AST and the catalog state. `EXPLAIN` of a read-only query is a read of the same tables;
+`EXPLAIN` of anything else is unknown, because `EXPLAIN ANALYZE` runs the statement.
 
 **Decide** (`policy.py`). A YAML policy maps classes and the task scope to `allow`,
 `allow_via_branch`, `ask`, or `deny`. Unknown input is denied.

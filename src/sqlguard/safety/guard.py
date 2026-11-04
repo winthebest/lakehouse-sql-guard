@@ -42,6 +42,7 @@ from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
+from sqlguard.core.parsing import explained
 from sqlguard.safety.actions import Action, SqlAction
 from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.classifier import Classification, ReversibilityClass, classify
@@ -714,6 +715,10 @@ def redact_sql(sql: str, dialect: str) -> str:
         trees = [t for t in sqlglot.parse(sql, dialect=dialect) if t is not None]
         redacted = []
         for tree in trees:
+            explain = explained(tree, dialect)
+            if explain is not None:
+                redacted.append(explain.render(redact_sql(explain.statement.sql, dialect)))
+                continue
             for node in list(tree.find_all(*_LITERAL_NODES)):
                 node.replace(exp.Placeholder())
             redacted.append(tree.sql(dialect=dialect))

@@ -51,7 +51,7 @@ from pyiceberg.table import Table
 from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
-from sqlguard.core.parsing import DEFAULT_DIALECT, SqlParseError, parse
+from sqlguard.core.parsing import DEFAULT_DIALECT, Explain, SqlParseError, parse
 from sqlguard.safety.actions import (
     FastForward,
     MaintenanceAction,
@@ -68,7 +68,12 @@ from sqlguard.safety.executor.base import (
     PublishResult,
     UnsupportedAction,
 )
-from sqlguard.safety.executor.duckdb_iceberg import AUDIT_BRANCH_PREFIX, MAIN, DuckDBIcebergAdapter
+from sqlguard.safety.executor.duckdb_iceberg import (
+    AUDIT_BRANCH_PREFIX,
+    MAIN,
+    DuckDBIcebergAdapter,
+    read_only_explain,
+)
 from sqlguard.safety.executor.orphan_files import (
     OrphanFile,
     OrphanSafetyError,
@@ -356,13 +361,16 @@ class SparkIcebergAdapter:
         for table in readable:
             self._load(table)
         texts = [
-            spark_statement(
-                ast,
-                spark_catalog=self.spark_catalog,
-                default_namespace=self.catalog.namespace,
-                readable=readable,
+            _explain_wrap(
+                explain,
+                spark_statement(
+                    ast,
+                    spark_catalog=self.spark_catalog,
+                    default_namespace=self.catalog.namespace,
+                    readable=readable,
+                ),
             )
-            for ast in statements
+            for explain, ast in statements
         ]
         for text in texts[:-1]:
             self._run(text)
@@ -407,14 +415,17 @@ class SparkIcebergAdapter:
         statements = self._statements(sql, dialect, allowed=(*_RUNNABLE, *_READ_ONLY))
         readable = [self.catalog.identifier(t) for t in read_tables]
         texts = [
-            spark_statement(
-                ast,
-                spark_catalog=self.spark_catalog,
-                default_namespace=self.catalog.namespace,
-                readable=readable,
-                target=branch,
+            _explain_wrap(
+                explain,
+                spark_statement(
+                    ast,
+                    spark_catalog=self.spark_catalog,
+                    default_namespace=self.catalog.namespace,
+                    readable=readable,
+                    target=branch,
+                ),
             )
-            for ast in statements
+            for explain, ast in statements
         ]
         for text in texts:
             self._run(text)
@@ -618,18 +629,30 @@ class SparkIcebergAdapter:
     @staticmethod
     def _statements(
         sql: str, dialect: str, allowed: tuple[type[exp.Expression], ...]
-    ) -> list[exp.Expression]:
+    ) -> list[tuple[Explain | None, exp.Expression]]:
         try:
             parsed = parse(sql, dialect)
         except SqlParseError as err:
             raise ExecutionError(str(err)) from err
+        statements: list[tuple[Explain | None, exp.Expression]] = []
         for statement in parsed:
+            explain = read_only_explain(statement.ast, dialect)
+            if explain is not None:
+                if explain.analyze:
+                    raise UnsupportedAction("Spark has no EXPLAIN ANALYZE")
+                statements.append((explain, explain.statement.ast))
+                continue
             if not isinstance(statement.ast, allowed):
                 raise UnsupportedAction(
                     f"{statement.kind} cannot be executed here; allowed: "
                     f"{', '.join(t.__name__ for t in allowed)}"
                 )
-        return [statement.ast for statement in parsed]
+            statements.append((None, statement.ast))
+        return statements
+
+
+def _explain_wrap(explain: Explain | None, text: str) -> str:
+    return text if explain is None else explain.render(text)
 
 
 __all__ = [

@@ -36,7 +36,7 @@ from pyiceberg.table import Table
 from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
-from sqlguard.core.parsing import DEFAULT_DIALECT, SqlParseError, parse
+from sqlguard.core.parsing import DEFAULT_DIALECT, SqlParseError, explained, parse
 from sqlguard.safety.actions import (
     DropTable,
     ExpireSnapshots,
@@ -486,6 +486,10 @@ class DuckDBIcebergAdapter:
             raise ExecutionError(str(err)) from err
         statements = []
         for statement in parsed:
+            explain = read_only_explain(statement.ast, dialect)
+            if explain is not None:
+                statements.append(explain.render(explain.statement.ast.sql(dialect="duckdb")))
+                continue
             if not isinstance(statement.ast, allowed):
                 raise UnsupportedAction(
                     f"{statement.kind} cannot be executed here; allowed: "
@@ -501,3 +505,16 @@ class DuckDBIcebergAdapter:
             return relation.to_arrow_table() if relation is not None else None
         except duckdb.Error as err:
             raise ExecutionError(f"DuckDB rejected the statement: {err}") from err
+
+
+def read_only_explain(ast: exp.Expression, dialect: str):
+    """The EXPLAIN wrapping a read-only query, or None. EXPLAIN of anything else is refused."""
+    try:
+        explain = explained(ast, dialect)
+    except SqlParseError as err:
+        raise ExecutionError(str(err)) from err
+    if explain is None:
+        return None
+    if not isinstance(explain.statement.ast, _READ_ONLY):
+        raise UnsupportedAction("EXPLAIN is only supported for read-only queries")
+    return explain

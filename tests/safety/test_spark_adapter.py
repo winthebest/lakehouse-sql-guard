@@ -712,3 +712,16 @@ def test_spark_orphan_files_are_planned_with_a_dry_run(
     assert plan.orphan_files == ()
     result = real_adapter.apply_maintenance(action, plan)
     assert result.deleted_files == ()
+
+
+def test_explain_of_a_read_is_qualified_and_explain_analyze_is_refused(
+    adapter: SparkIcebergAdapter, spark: FakeSpark
+) -> None:
+    adapter.query("EXPLAIN EXTENDED SELECT count(*) FROM orders", ["orders"])
+    [text] = [s for s in spark.statements if s.startswith("EXPLAIN")]
+    assert text.startswith("EXPLAIN EXTENDED SELECT")
+    assert "`db`.`orders`" in text or "db.orders" in text
+    with pytest.raises(UnsupportedAction):
+        adapter.query("EXPLAIN ANALYZE SELECT * FROM orders", ["orders"])
+    with pytest.raises(UnsupportedAction):
+        adapter.query("EXPLAIN DELETE FROM orders", ["orders"])

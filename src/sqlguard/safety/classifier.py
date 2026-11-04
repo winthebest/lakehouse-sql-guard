@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from sqlglot import exp
 
 from sqlguard.core.catalog import DEFAULT_NAMESPACE
-from sqlguard.core.parsing import ParsedStatement, parse
+from sqlguard.core.parsing import ParsedStatement, explained, parse
 from sqlguard.safety.actions import (
     Action,
     DropTable,
@@ -154,7 +154,7 @@ def _classify_sql(action: SqlAction, namespace: str) -> list[StatementClass]:
     results: list[StatementClass] = []
     for index, statement in enumerate(parsed):
         try:
-            results.append(_classify_statement(index, statement, namespace))
+            results.append(_classify_statement(index, statement, namespace, action.dialect))
         except Exception as err:  # fail closed on unexpected AST shapes
             results.append(
                 _unknown(
@@ -188,8 +188,14 @@ class _Effect:
     has_where: bool | None = None
 
 
-def _classify_statement(index: int, statement: ParsedStatement, namespace: str) -> StatementClass:
+def _classify_statement(
+    index: int, statement: ParsedStatement, namespace: str, dialect: str
+) -> StatementClass:
     ast = statement.ast
+
+    explain = explained(ast, dialect)
+    if explain is not None:
+        return _classify_explain(index, statement, explain, namespace, dialect)
 
     if isinstance(ast, exp.Command) and str(ast.this).upper() == "CALL":
         return _classify_call(index, ast, statement.sql, namespace)
@@ -225,6 +231,31 @@ def _classify_statement(index: int, statement: ParsedStatement, namespace: str) 
         tables=tables,
         write_tables=write_tables,
         has_where=all(where_flags) if where_flags else None,
+        sql=statement.sql,
+    )
+
+
+def _classify_explain(
+    index: int, statement: ParsedStatement, explain, namespace: str, dialect: str
+) -> StatementClass:
+    """EXPLAIN of a read-only query is a read of the same tables; anything else is refused.
+
+    EXPLAIN ANALYZE runs the statement, so explaining a write could change data; and a plain
+    EXPLAIN of a write tells less than the guard's own branch rehearsal. Both stay UNKNOWN.
+    """
+    inner = _classify_statement(index, explain.statement, namespace, dialect)
+    if inner.klass is not ReversibilityClass.READ or inner.verb == "EXPLAIN":
+        return _unknown(
+            index,
+            f"EXPLAIN is only supported for read-only queries, not {inner.verb}"
+            + (" (EXPLAIN ANALYZE runs the statement)" if explain.analyze else ""),
+            verb="EXPLAIN",
+            sql=statement.sql,
+        )
+    return replace(
+        inner,
+        verb="EXPLAIN",
+        reasons=("query plan of a read-only query",),
         sql=statement.sql,
     )
 
