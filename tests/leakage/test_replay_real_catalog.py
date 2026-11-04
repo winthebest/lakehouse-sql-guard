@@ -261,7 +261,11 @@ def test_labels_not_yet_final_still_replay_as_unknown(world, spec):
     )
 
 
-CUT = f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts WHERE l.label_ts < {{cut}} GROUP BY 1, 2, 3"
+CUT = (
+    f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e "
+    "ON e.user_id = l.user_id AND e.ingested_at < l.label_ts "
+    "WHERE l.label_ts < {cut} GROUP BY 1, 2, 3"
+)
 
 
 def test_cutoff_from_the_label_times_replays_with_the_whole_label_table(world, spec):
