@@ -1,0 +1,5 @@
+churn_labels: {customer_id: BIGINT, cutoff_ts: TIMESTAMP, churned: BOOLEAN}
+orders: {order_id: BIGINT, customer_id: BIGINT, order_ts: TIMESTAMP, loaded_at: TIMESTAMP, amount: DOUBLE}
+support_tickets: {ticket_id: BIGINT, customer_id: BIGINT, opened_at: TIMESTAMP, priority: VARCHAR}
+customers: {customer_id: BIGINT, country: VARCHAR, signup_ts: TIMESTAMP}
+refunds: {customer_id: BIGINT, refund_ts: TIMESTAMP, refund_amount: DOUBLE}

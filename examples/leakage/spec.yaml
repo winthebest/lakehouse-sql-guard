@@ -1,0 +1,15 @@
+# What the guard needs to know about time in your tables. Nothing is inferred.
+label_table: churn_labels          # one row per (customer, prediction time)
+entity_keys: [customer_id]
+prediction_ts: cutoff_ts           # the moment the prediction is made
+label_columns: [churned]
+
+time_columns:                      # when each fact happened
+  orders: order_ts
+  support_tickets: opened_at
+availability_columns:              # when each fact landed in the lakehouse
+  orders: loaded_at
+
+static_tables: [customers]         # attributes that do not change over time
+outcome_columns:                   # facts only known after the outcome
+  - refunds.refund_amount

@@ -1,0 +1,8 @@
+# Use from another repository's .pre-commit-config.yaml; see examples/pre-commit-config.yaml.
+- id: sqlguard-leakage
+  name: sqlguard leakage check
+  description: Fail when a training-set SQL query reads data not available at prediction time.
+  entry: sqlguard leakage check
+  language: python
+  files: \.sql$
+  require_serial: true

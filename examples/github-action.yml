@@ -1,0 +1,21 @@
+# Copy to .github/workflows/sqlguard.yml in a repository with feature SQL
+# (for dbt, point it at the compiled SQL under target/compiled/).
+name: sqlguard
+
+on:
+  pull_request:
+    paths: ["features/**.sql", "leakage/**"]
+
+jobs:
+  leakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Check feature SQL for temporal leakage
+        run: >
+          uvx --from git+https://github.com/winthebest/lakehouse-sql-guard@v0.1.0
+          sqlguard leakage check features/
+          --spec leakage/spec.yaml --schema leakage/schema.yaml

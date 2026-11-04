@@ -1,0 +1,9 @@
+# Copy into your repository as .pre-commit-config.yaml.
+# Checks every staged .sql file under features/ against your LeakageSpec.
+repos:
+  - repo: https://github.com/winthebest/lakehouse-sql-guard
+    rev: v0.1.0
+    hooks:
+      - id: sqlguard-leakage
+        files: ^features/.*\.sql$
+        args: [--spec, leakage/spec.yaml, --schema, leakage/schema.yaml]

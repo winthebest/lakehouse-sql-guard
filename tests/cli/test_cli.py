@@ -78,3 +78,21 @@ def test_safety_decisions_map_to_exit_codes(capsys):
     capsys.readouterr()
     assert run(["safety", "check", "DELETE FROM db.orders", *scope, "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["decision"] == "ask"
+
+
+EXAMPLES = ["--spec", "examples/leakage/spec.yaml", "--schema", "examples/leakage/schema.yaml"]
+
+
+def test_examples_have_expected_verdicts(capsys):
+    sql = "examples/leakage/sql"
+    assert run(["leakage", "check", f"{sql}/orders_90d.sql", *EXAMPLES]) == 0
+    assert run(["leakage", "check", f"{sql}/tickets_total.sql", *EXAMPLES]) == 1
+    # event-time-only bound: unverifiable without replay, fails closed by default
+    assert run(["leakage", "check", f"{sql}/orders_event_time.sql", *EXAMPLES]) == 1
+    event_time = f"{sql}/orders_event_time.sql"
+    assert run(["leakage", "check", event_time, *EXAMPLES, "--allow-unverifiable"]) == 0
+    # several targets at once, as pre-commit passes them
+    assert (
+        run(["leakage", "check", f"{sql}/orders_90d.sql", f"{sql}/tickets_total.sql", *EXAMPLES])
+        == 1
+    )
