@@ -127,11 +127,15 @@ class _Forms(HTMLParser):
         self._current: dict[str, str] | None = None
         self.disabled: dict[str, bool] = {}
         self._action = ""
+        self.prefix = ""
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "form":
-            self._action = a.get("action", "")
+            raw = a.get("action", "")
+            found = re.match(r"^/s/[\w-]+", raw)
+            self.prefix = found.group(0) if found else self.prefix
+            self._action = raw[len(found.group(0)) :] if found else raw
             self._current = self.forms.setdefault(self._action, {})
         elif tag == "input" and self._current is not None and "name" in a:
             self._current[a["name"]] = a.get("value", "")
@@ -161,24 +165,52 @@ def access():
     return AccessControl()
 
 
-@pytest.fixture
-def make_client(service, access):
+def prefixed_client_class():
     from starlette.testclient import TestClient
 
+    class PrefixedClient(TestClient):
+        """A browser that opened the printed link: paths starting with `/` live under the
+        secret prefix, unless `raw` is set (a program that does not know it)."""
+
+        raw = False
+        prefix = ""
+
+        def request(self, method, url, *args, **kwargs):
+            if (
+                isinstance(url, str)
+                and url.startswith("/")
+                and not self.raw
+                and not url.startswith(self.prefix + "/")
+            ):
+                url = self.prefix + url
+            return super().request(method, url, *args, **kwargs)
+
+    return PrefixedClient
+
+
+def sign_in(client, token: str):
+    """What the browser does with the printed link: open it, then confirm."""
+    page = client.get("/login", params={"token": token})
+    assert page.status_code == 200, page.text
+    return client.post("/login", data={"token": token}, headers={"Origin": ORIGIN})
+
+
+@pytest.fixture
+def make_client(service, access):
     from sqlguard.approvals.app import create_app
 
+    cls = prefixed_client_class()
     clients = []
 
-    def build(
-        *, using=None, signed_in: bool = True, housekeeping_seconds=None, **kwargs
-    ) -> TestClient:
+    def build(*, using=None, signed_in: bool = True, housekeeping_seconds=None, **kwargs):
         app = create_app(
             using or service, access, housekeeping_seconds=housekeeping_seconds, **kwargs
         )
-        client = TestClient(app, base_url=ORIGIN, follow_redirects=False)
+        client = cls(app, base_url=ORIGIN, follow_redirects=False)
+        client.prefix = access.base
         clients.append(client)
         if signed_in:
-            reply = client.get("/login", params={"token": access.token})
+            reply = sign_in(client, access.token)
             assert reply.status_code == 303, reply.text
         return client
 

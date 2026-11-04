@@ -11,6 +11,7 @@ import pytest
 
 pytest.importorskip("starlette")
 pytest.importorskip("httpx")
+pytest.importorskip("jinja2")
 
 
 from sqlguard.approvals import HmacProofs  # noqa: E402
@@ -30,6 +31,7 @@ from tests.approvals.conftest import (  # noqa: E402
     post,
     queue,
     rehash,
+    sign_in,
     store_bytes,
 )
 from tests.safety.conftest import ROWS, order_ids  # noqa: E402
@@ -64,8 +66,13 @@ def test_a_foreign_host_header_is_refused(make_client, pguard, scope, host):
 
 def test_a_foreign_host_cannot_even_redeem_the_token(make_client, access):
     client = make_client(signed_in=False)
-    reply = client.get("/login", params={"token": access.token}, headers={"Host": "evil.example"})
+    reply = client.post(
+        "/login",
+        data={"token": access.token},
+        headers={"Host": "evil.example", "Origin": "http://evil.example"},
+    )
     assert reply.status_code == 400 and not client.cookies
+    assert sign_in(client, access.token).status_code == 303  # the token was not spent
 
 
 @pytest.mark.parametrize("path", ["/", "/queue", "/audit", "/a/" + "0" * 32])
@@ -80,25 +87,97 @@ def test_without_a_session_nothing_is_served(make_client, path):
 def test_a_wrong_token_is_refused_and_does_not_burn_the_real_one(make_client, access):
     client = make_client(signed_in=False)
     for guess in ("", "wrong", access.token[:-1], access.token + "x"):
-        assert client.get("/login", params={"token": guess}).status_code == 401
+        assert post(client, "/login", {"token": guess}).status_code == 401
     assert not client.cookies
-    assert client.get("/login", params={"token": access.token}).status_code == 303
+    assert post(client, "/login", {"token": access.token}).status_code == 303
 
 
 def test_the_token_works_exactly_once(make_client, access):
     first = make_client(signed_in=False)
-    assert first.get("/login", params={"token": access.token}).status_code == 303
+    assert sign_in(first, access.token).status_code == 303
     second = make_client(signed_in=False)
-    assert second.get("/login", params={"token": access.token}).status_code == 401
+    assert post(second, "/login", {"token": access.token}).status_code == 401
     assert second.get("/").status_code == 401
     assert first.get("/").status_code == 200  # the first session is unaffected
 
 
+def test_a_program_holding_only_the_cookie_value_gets_nothing(
+    client, make_client, access, pguard, orders, scope
+):
+    """Browsers send a cookie to every port of 127.0.0.1, so another local server (one the agent
+    started, that the person visits) learns its value. It does not learn the secret path."""
+    result = queue(pguard, scope)
+    leaked = client.cookies.get("sqlguard_session")
+    thief = make_client(signed_in=False)
+    thief.raw = True  # does not know the prefix
+    thief.cookies.set("sqlguard_session", leaked)
+    wrong = "/s/" + ("A" * 32)
+    near_miss = access.base[:-1] + ("A" if access.base[-1] != "A" else "B")
+    id_path = f"/a/{result.action_id}"
+    bodies = set()
+    for prefix in ("", "/s", "/s/", wrong, near_miss, access.base[:-3]):
+        for path in (prefix + "/", prefix + id_path, prefix + "/audit", prefix + "/queue"):
+            reply = thief.get(path)
+            assert reply.status_code == 404, (path, reply.status_code)
+            bodies.add(reply.text)
+        reply = thief.post(prefix + id_path + "/approve", data={}, headers={"Origin": ORIGIN})
+        assert reply.status_code == 404
+        bodies.add(reply.text)
+    assert bodies == {"Not Found"}  # nothing that hints a UI is here, or what the prefix is
+    assert pguard.store.get(result.action_id).state is A.PENDING
+    assert order_ids(orders) == list(range(1, ROWS + 1))
+
+
+def test_the_cookie_is_scoped_to_the_secret_path_so_a_browser_sends_it_nowhere_else(
+    make_client, access
+):
+    client = make_client(signed_in=False)
+    cookie = sign_in(client, access.token).headers["set-cookie"]
+    assert f"Path={access.base}/" in cookie
+    secret = access.base.removeprefix("/s/")
+    assert len(secret) >= 22 and all(c.isalnum() or c in "-_" for c in secret)  # >= 128 bits
+    assert secret not in "".join(f"{k}={v}" for k, v in cookie_pairs(cookie))  # not in its value
+    assert AccessControl().base != AccessControl().base  # fresh at every start
+
+
+def cookie_pairs(header: str):
+    return [tuple(part.strip().split("=", 1)) for part in header.split(";") if "=" in part][:1]
+
+
+def test_looking_at_the_sign_in_page_does_not_spend_the_token(make_client, access):
+    client = make_client(signed_in=False)
+    link = {"token": access.token}
+    assert client.get("/login", params=link).status_code == 200
+    assert client.head("/login", params=link).status_code == 200  # a preview or prefetch
+    assert client.get("/login", params=link).status_code == 200
+    page = client.get("/login", params=link).text
+    assert f'name="token" value="{access.token}"' in page and "Sign in" in page
+    assert client.get("/login").status_code == 401  # no token, nothing to confirm
+    assert not client.cookies
+    assert post(client, "/login", {"token": access.token}).status_code == 303  # only a POST
+    assert post(client, "/login", {"token": access.token}).status_code == 401
+
+
+def test_signing_in_again_replaces_the_session_it_was_made_from():
+    access = AccessControl("t" * 40)
+    first = access.redeem("t" * 40)
+    other = AccessControl("u" * 40)
+    old = other.redeem("u" * 40)
+    assert access.session(first.id) is first
+    # a token is single use, so rotation is shown on an instance that allows a second redeem
+    access._used = False
+    second = access.redeem("t" * 40, replacing=first.id)
+    assert second.id != first.id and second.csrf != first.csrf
+    assert access.session(first.id) is None and access.session(second.id) is second
+    assert other.session(old.id) is old  # unrelated sessions are untouched
+
+
 def test_the_session_cookie_is_httponly_samesite_strict_and_unguessable(make_client, access):
     client = make_client(signed_in=False)
-    reply = client.get("/login", params={"token": access.token})
+    reply = sign_in(client, access.token)
     cookie = reply.headers["set-cookie"]
-    assert "HttpOnly" in cookie and "samesite=strict" in cookie.lower() and "Path=/" in cookie
+    assert "HttpOnly" in cookie and "samesite=strict" in cookie.lower()
+    assert f"Path={access.base}/;" in cookie or cookie.endswith(f"Path={access.base}/")
     value = cookie.split(";")[0].split("=", 1)[1]
     assert len(value) >= 32 and value != access.token
     assert "token" not in reply.headers.get("location", "")
@@ -169,12 +248,24 @@ def test_another_sessions_csrf_token_is_not_accepted(make_client, access, pguard
 
 def test_every_post_route_is_covered_by_the_csrf_tests(client):
     """A new POST route must be added to POST_PATHS above (and so to the CSRF/Origin tests)."""
-    posts = {
-        route.path.rsplit("/", 1)[-1]
-        for route in client.app.routes
-        if "POST" in (getattr(route, "methods", None) or ())
-    }
-    assert posts == set(POST_PATHS)
+    posts = set()
+    for mount in client.app.routes:
+        for route in mount.routes:
+            if "POST" in (getattr(route, "methods", None) or ()):
+                posts.add(route.path.rsplit("/", 1)[-1])
+    assert posts == set(POST_PATHS) | {"login", "logout"}  # login has no session to protect
+
+
+def test_signing_out_needs_the_csrf_token_and_ends_the_session(client, access):
+    token = forms_of(client.get("/").text).forms["/logout"]["csrf_token"]
+    assert post(client, "/logout", {"x": "y"}).status_code == 403
+    assert post(client, "/logout", {"csrf_token": "forged"}).status_code == 403
+    assert client.get("/").status_code == 200
+    reply = post(client, "/logout", {"csrf_token": token})
+    assert reply.status_code == 200 and "Signed out" in reply.text
+    assert "max-age=0" in reply.headers["set-cookie"].lower()
+    client.cookies.set("sqlguard_session", "x")  # whatever the browser still holds is useless
+    assert client.get("/").status_code == 401
 
 
 def test_only_a_form_post_is_taken(client, pguard, scope):
@@ -492,7 +583,7 @@ def test_the_pages_load_nothing_from_other_origins(client, pguard, scope):
     for path in ("/", f"/a/{result.action_id}", "/audit"):
         page = client.get(path).text
         assert "http://" not in page and "https://" not in page and "//cdn" not in page
-        assert '<script src="/static/htmx.min.js"' in page
+        assert f'<script src="{client.prefix}/static/htmx.min.js"' in page
 
 
 def test_the_vendored_htmx_is_the_release_that_was_checked(client):

@@ -14,7 +14,7 @@
       <td>{{ e.outcome }}</td>
       <td>{{ e.decision }}</td>
       <td>{{ e.approver }}</td>
-      <td>{% if e.action_id %}<a href="/a/{{ e.action_id }}"><code>{{ e.action_id | short(8) }}</code></a>{% endif %}</td>
+      <td>{% if e.action_id %}<a href="{{ base }}/a/{{ e.action_id }}"><code>{{ e.action_id | short(8) }}</code></a>{% endif %}</td>
       <td><code>{{ e.what }}</code>
           {% if e.note %}<div class="note">Note: {{ e.note }}</div>{% endif %}
           {% for reason in e.reasons %}<div class="muted">{{ reason }}</div>{% endfor %}</td>

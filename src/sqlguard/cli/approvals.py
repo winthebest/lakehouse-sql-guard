@@ -253,11 +253,9 @@ def _serve(args: argparse.Namespace) -> int:
         print(
             f"WARNING: listening on {host}; only the token protects it ({UNSAFE_FLAG}).", flush=True
         )
-    print(
-        f"Approval UI on http://{shown}:{args.port}/ (deciding as {service.approver})", flush=True
-    )
-    print("Open this link in your browser to sign in; it works once:", flush=True)
-    print(f"  http://{shown}:{args.port}/login?token={access.token}", flush=True)
+    print(f"Approval UI on port {args.port} (deciding as {service.approver})", flush=True)
+    print("Open this link in your browser and confirm to sign in; it works once:", flush=True)
+    print(f"  http://{shown}:{args.port}{access.base}/login?token={access.token}", flush=True)
     with contextlib.suppress(KeyboardInterrupt):
         run_server(app, host, args.port)
     return 0

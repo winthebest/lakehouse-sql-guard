@@ -9,12 +9,17 @@ import pytest
 
 pytest.importorskip("starlette")
 pytest.importorskip("httpx")
-
-from starlette.testclient import TestClient  # noqa: E402
+pytest.importorskip("jinja2")
 
 from sqlguard.cli import approvals as cli_approvals  # noqa: E402
 from sqlguard.cli import main  # noqa: E402
-from tests.approvals.conftest import ORIGIN, queue  # noqa: E402
+from tests.approvals.conftest import (  # noqa: E402
+    ORIGIN,
+    post,
+    prefixed_client_class,
+    queue,
+    sign_in,
+)
 
 
 @pytest.fixture
@@ -59,16 +64,25 @@ def test_serve_prints_a_one_time_link_and_hands_the_app_to_the_server(
     assert code == 0 and len(started) == 1
     app, host, port = started[0]
     assert (host, port) == ("127.0.0.1", free_port)
-    links = re.findall(rf"http://127\.0\.0\.1:{free_port}/login\?token=([\w-]+)", out)
-    assert len(links) == 1 and len(links[0]) >= 32
+    found = re.findall(
+        rf"http://127\.0\.0\.1:{free_port}(/s/[\w-]{{22,}})/login\?token=([\w-]+)", out
+    )
+    assert len(found) == 1 and len(found[0][1]) >= 32
+    base, token = found[0]
+    assert base == __import__("re").sub(r"/login.*", "", found[0][0])
     assert "deciding as alice" in out and "works once" in out
 
-    with TestClient(app, base_url=ORIGIN, follow_redirects=False) as browser:
+    cls = prefixed_client_class()
+    with cls(app, base_url=ORIGIN, follow_redirects=False) as browser:
+        browser.prefix = base
         assert browser.get("/").status_code == 401
-        assert browser.get("/login", params={"token": links[0]}).status_code == 303
+        assert sign_in(browser, token).status_code == 303
         assert result.action_id in browser.get("/").text
-        other = TestClient(app, base_url=ORIGIN, follow_redirects=False)
-        assert other.get("/login", params={"token": links[0]}).status_code == 401
+        other = cls(app, base_url=ORIGIN, follow_redirects=False)
+        other.prefix = base
+        assert post(other, "/login", {"token": token}).status_code == 401
+        stranger = cls(app, base_url=ORIGIN, follow_redirects=False)
+        assert stranger.get(base + "/").status_code == 401 and stranger.get("/").status_code == 404
 
 
 def test_each_start_prints_a_different_token(serve):
@@ -86,7 +100,7 @@ def test_serve_refuses_to_listen_beyond_loopback(serve):
 def test_serve_beyond_loopback_needs_the_flag_and_says_so(serve, free_port):
     code, out, _, started = serve("--host", "0.0.0.0", "--i-know-this-is-unauthenticated")
     assert code == 0 and started[0][1] == "0.0.0.0"
-    assert "WARNING" in out and f"http://127.0.0.1:{free_port}/login?token=" in out
+    assert "WARNING" in out and f"http://127.0.0.1:{free_port}/s/" in out
 
 
 def test_serve_refuses_a_port_that_is_taken_instead_of_picking_another(serve):

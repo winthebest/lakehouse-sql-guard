@@ -8,7 +8,7 @@
 {% endmacro %}
 {% block body %}
 {% set r = view.record %}
-<p><a href="/">&larr; Queue</a></p>
+<p><a href="{{ base }}/">&larr; Queue</a></p>
 <h1>Action <code>{{ r.id | short(8) }}</code> <span class="pill {{ r.state.value }}">{{ r.state.value }}</span></h1>
 
 {% if r.state.value == "needs_attention" %}
@@ -92,8 +92,8 @@
   </table>
   {% if view.pages > 1 %}
   <p class="pager">Page {{ view.page }} of {{ view.pages }}
-    {% if view.page > 1 %}<a href="/a/{{ r.id }}?page={{ view.page - 1 }}">previous</a>{% endif %}
-    {% if view.page < view.pages %}<a href="/a/{{ r.id }}?page={{ view.page + 1 }}">next</a>{% endif %}
+    {% if view.page > 1 %}<a href="{{ base }}/a/{{ r.id }}?page={{ view.page - 1 }}">previous</a>{% endif %}
+    {% if view.page < view.pages %}<a href="{{ base }}/a/{{ r.id }}?page={{ view.page + 1 }}">next</a>{% endif %}
   </p>
   {% endif %}
   {% else %}<p class="muted">The statement changes no rows.</p>{% endif %}
@@ -111,13 +111,13 @@
 {% if view.can_decide %}
 <h2>Decision</h2>
 <div class="decide">
-  <form method="post" action="/a/{{ r.id }}/approve" class="approve">
+  <form method="post" action="{{ base }}/a/{{ r.id }}/approve" class="approve">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% if view.approve_proof %}<input type="hidden" name="proof" value="{{ view.approve_proof }}">{% endif %}
     <label>Note (optional)<textarea name="note" maxlength="1000" rows="2"></textarea></label>
     <button type="submit" class="primary" {% if not view.can_approve %}disabled{% endif %}>Approve</button>
   </form>
-  <form method="post" action="/a/{{ r.id }}/reject" class="reject">
+  <form method="post" action="{{ base }}/a/{{ r.id }}/reject" class="reject">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="proof" value="{{ view.reject_proof }}">
     <label>Reason for rejecting (required)<textarea name="note" maxlength="1000" rows="2" required></textarea></label>

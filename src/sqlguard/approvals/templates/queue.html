@@ -2,7 +2,7 @@
 {% block title %}Queue{% endblock %}
 {% block body %}
 <h1>Approval queue</h1>
-<div id="queue" hx-get="/queue" hx-trigger="every {{ refresh }}s" hx-swap="innerHTML">
+<div id="queue" hx-get="{{ base }}/queue" hx-trigger="every {{ refresh }}s" hx-swap="innerHTML">
 {% include "_queue.html" %}
 </div>
 {% endblock %}

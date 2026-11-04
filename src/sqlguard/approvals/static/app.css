@@ -51,3 +51,4 @@ button.danger { background: #fff; color: var(--bad); border-color: var(--bad); }
 button[disabled] { opacity: .45; cursor: not-allowed; }
 .note { font-style: italic; }
 .housekeeping { margin-top: 32px; font-size: 13px; }
+.logout { margin: 0; } .logout button { padding: 2px 10px; background: transparent; color: #cbd5e1; border-color: #475467; }

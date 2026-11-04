@@ -31,6 +31,7 @@ from sqlguard.approvals.security import (
     SecurityMiddleware,
     Session,
     allowed_hosts,
+    parse_form,
     read_form,
 )
 from sqlguard.approvals.service import ReviewError, ReviewService
@@ -114,6 +115,7 @@ def create_app(
         session: Session | None = getattr(request.state, "session", None)
         context.update(
             approver=service.approver,
+            base=access.base,
             csrf_token=session.csrf if session else "",
             flashes=session.take_flashes() if session else [],
             refresh=REFRESH_SECONDS,
@@ -129,26 +131,53 @@ def create_app(
             raise HTTPException(404, "No such action.")
         return found
 
-    async def login(request: Request) -> Response:
-        session = access.redeem(request.query_params.get("token", ""))
-        if session is None:
-            response: Response = Response(
-                "The token is wrong or was already used. Restart `sqlguard serve` for a new one.",
-                status_code=401,
-                media_type="text/plain",
-            )
-        else:
-            response = RedirectResponse("/", status_code=303)
-            response.set_cookie(
-                SESSION_COOKIE,
-                session.id,
-                max_age=SESSION_SECONDS,
-                httponly=True,
-                samesite="strict",
-                path="/",
-            )
+    def sealed(response: Response) -> Response:
         for name, value in SECURITY_HEADERS.items():
             response.headers[name] = value
+        return response
+
+    async def login_page(request: Request) -> Response:
+        """Show a confirmation; only the POST below spends the token (a link preview or a
+        prefetch that merely fetches this page must not)."""
+        token = request.query_params.get("token", "")
+        if not token:
+            return sealed(Response("A sign-in link is required.", 401, media_type="text/plain"))
+        return render(request, "login.html", token=token)
+
+    async def login(request: Request) -> Response:
+        form = await parse_form(request)
+        session = access.redeem(form.get("token", ""), request.cookies.get(SESSION_COOKIE))
+        if session is None:
+            return sealed(
+                Response(
+                    "The token is wrong or was already used. "
+                    "Restart `sqlguard serve` for a new one.",
+                    status_code=401,
+                    media_type="text/plain",
+                )
+            )
+        response = RedirectResponse(f"{access.base}/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            session.id,
+            max_age=SESSION_SECONDS,
+            httponly=True,
+            samesite="strict",
+            path=f"{access.base}/",  # only URLs under the secret prefix ever get the cookie
+        )
+        return sealed(response)
+
+    async def logout(request: Request) -> Response:
+        await read_form(request)  # CSRF
+        session: Session = request.state.session
+        access.end(session.id)
+        response = message(
+            request,
+            200,
+            "Signed out",
+            "The session ended. Restart `sqlguard serve` to sign in again.",
+        )
+        response.delete_cookie(SESSION_COOKIE, path=f"{access.base}/")
         return response
 
     async def queue_page(request: Request) -> Response:
@@ -204,7 +233,7 @@ def create_app(
             session.flash("note", reason)
         if not decided.note_recorded:
             session.flash("warn", "The note could not be written to the audit log.")
-        return RedirectResponse(f"/a/{ident}", status_code=303)
+        return RedirectResponse(f"{access.base}/a/{ident}", status_code=303)
 
     async def approve(request: Request) -> Response:
         return await decide(request, "approve")
@@ -236,14 +265,21 @@ def create_app(
 
     return Starlette(
         routes=[
-            Route("/login", login, methods=["GET"]),
-            Route("/", queue_page, methods=["GET"]),
-            Route("/queue", queue_fragment, methods=["GET"]),
-            Route("/a/{action_id}", detail, methods=["GET"]),
-            Route("/a/{action_id}/approve", approve, methods=["POST"]),
-            Route("/a/{action_id}/reject", reject, methods=["POST"]),
-            Route("/audit", audit_page, methods=["GET"]),
-            Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),
+            Mount(
+                access.base,
+                routes=[
+                    Route("/login", login_page, methods=["GET"]),
+                    Route("/login", login, methods=["POST"]),
+                    Route("/logout", logout, methods=["POST"]),
+                    Route("/", queue_page, methods=["GET"]),
+                    Route("/queue", queue_fragment, methods=["GET"]),
+                    Route("/a/{action_id}", detail, methods=["GET"]),
+                    Route("/a/{action_id}/approve", approve, methods=["POST"]),
+                    Route("/a/{action_id}/reject", reject, methods=["POST"]),
+                    Route("/audit", audit_page, methods=["GET"]),
+                    Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),
+                ],
+            )
         ],
         middleware=[
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts(bind_host)),

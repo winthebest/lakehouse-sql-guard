@@ -5,7 +5,7 @@
   <tbody>
   {% for row in items %}
     <tr class="state-{{ row.record.state.value }}">
-      <td><a href="/a/{{ row.record.id }}"><code>{{ row.record.id | short(8) }}</code></a>
+      <td><a href="{{ base }}/a/{{ row.record.id }}"><code>{{ row.record.id | short(8) }}</code></a>
           <small>{{ row.record.kind }}</small></td>
       <td><span class="pill {{ row.record.state.value }}">{{ row.record.state.value }}</span></td>
       <td>{{ row.record.table }}</td>

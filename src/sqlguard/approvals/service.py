@@ -163,9 +163,12 @@ def _optional_int(value: Any) -> int | None:
 class ReviewService:
     """Reading and deciding pending actions through one `Guard`.
 
-    All calls into the Guard are serialized with one lock: this is a single-person tool, and the
-    Guard's catalog and DuckDB sessions are not meant to be shared by concurrent requests. Reading
-    the queue only touches the store and is not blocked by a slow publish.
+    Calls into the Guard for a page or a decision are serialized with one lock: this is a
+    single-person tool. Reading the queue only touches the store and is not blocked by a slow
+    publish. Housekeeping has its own lock and does not hold that one, so a full-catalog sweep
+    never makes a page or a decision wait; `Guard.reconcile` and `resolve` are safe to run
+    together (every state change is a compare-and-set in the store, and a publish in progress
+    in this process is recognised as alive).
     """
 
     def __init__(
@@ -186,6 +189,7 @@ class ReviewService:
         self.approver = approver_label(approver)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = threading.RLock()
+        self._housekeeping_lock = threading.Lock()  # one pass at a time; pages never wait for it
         self._status = HousekeepingStatus()
         self._diffs: dict[tuple[Any, ...], _Cached] = {}
 
@@ -448,7 +452,7 @@ class ReviewService:
         settled = expired = 0
         error: str | None = None
         try:
-            with self._lock:
+            with self._housekeeping_lock:  # not `_lock`: the store's compare-and-set keeps it safe
                 settled = len(self.guard.reconcile())
                 expired = len(self.guard.expire_pending())
         except Exception as err:  # noqa: BLE001 - the loop must survive any one failed pass

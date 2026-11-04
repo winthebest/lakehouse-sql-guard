@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from datetime import timedelta
 
@@ -10,6 +11,7 @@ import pytest
 
 pytest.importorskip("starlette")
 pytest.importorskip("httpx")
+pytest.importorskip("jinja2")
 
 from markupsafe import escape  # noqa: E402
 
@@ -62,7 +64,7 @@ def test_the_queue_lists_what_is_waiting(client, pguard, scope):
     assert f"/a/{result.action_id}" in page.text
     assert "db.orders" in page.text and "+0 -15" in page.text
     assert "Nothing is waiting" not in page.text
-    assert 'hx-get="/queue"' in page.text  # refreshed by the vendored htmx
+    assert f'hx-get="{client.prefix}/queue"' in page.text  # refreshed by the vendored htmx
     assert "<table" in client.get("/queue").text and "<html" not in client.get("/queue").text
 
 
@@ -119,7 +121,10 @@ def test_a_delete_an_agent_proposed_is_applied_exactly_as_the_diff_showed(
     assert sorted(expected) == list(range(16, ROWS + 1))
 
     reply = post(client, f"/a/{result.action_id}/approve", decide_form(client, result.action_id))
-    assert reply.status_code == 303 and reply.headers["location"] == f"/a/{result.action_id}"
+    assert (
+        reply.status_code == 303
+        and reply.headers["location"] == f"{client.prefix}/a/{result.action_id}"
+    )
     done = client.get(reply.headers["location"])
     assert "Approved: the change was published" in done.text
     assert 'class="pill published"' in done.text
@@ -274,6 +279,41 @@ def test_housekeeping_expires_late_actions_and_survives_its_own_errors(
     status = service.housekeeping()
     assert status.last_error == "OSError"
     assert "secret path" not in repr(status)  # the error text stays in the log
+
+
+def test_a_slow_housekeeping_pass_does_not_block_pages_or_decisions(
+    service, pguard, scope, orders, monkeypatch
+):
+    result = queue(pguard, scope)
+    started, release, done = threading.Event(), threading.Event(), threading.Event()
+    real = pguard.reconcile
+
+    def slow_reconcile(*args, **kwargs):
+        started.set()
+        release.wait(30)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pguard, "reconcile", slow_reconcile)
+    sweep = threading.Thread(target=service.housekeeping)
+    sweep.start()
+    outcome = {}
+
+    def reviewer():
+        view = service.view(result.action_id, mint_proofs=True)
+        outcome["decided"] = service.decide(result.action_id, "approve", view.approve_proof)
+        done.set()
+
+    assert started.wait(10)
+    worker = threading.Thread(target=reviewer)
+    worker.start()
+    try:
+        assert done.wait(10), "the page and the decision waited for housekeeping"
+    finally:
+        release.set()
+        sweep.join(30)
+        worker.join(30)
+    assert outcome["decided"].result.outcome is Outcome.PUBLISHED
+    assert order_ids(orders) == list(range(16, ROWS + 1))
 
 
 def crash_the_publish(pguard, service, result, monkeypatch):

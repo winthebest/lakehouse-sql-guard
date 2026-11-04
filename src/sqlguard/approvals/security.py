@@ -4,9 +4,16 @@ Layers, outermost first (the `Host` check is Starlette's `TrustedHostMiddleware`
 
 1. The server binds to loopback only. Another address is refused unless the person says they
    know it has no real authentication behind it.
-2. A one-time token is printed to the terminal of the person who started the server. Opening the
-   printed link trades it (once) for a session cookie: `HttpOnly`, `SameSite=Strict`, random,
-   held only in this process. Any later use of the token is refused.
+2. The whole app lives under a random path prefix (`/s/<128+ bits>`) that exists only in the link
+   printed to the terminal of the person who started the server. Browsers do not keep cookies
+   apart by port, so any other server on 127.0.0.1 that the person visits receives the session
+   cookie; scoping the cookie to the secret path means it is only ever sent to URLs that
+   already know the prefix. Anything outside the prefix is a bare 404.
+   Opening the printed link and confirming trades the one-time token for a session cookie:
+   `HttpOnly`, `SameSite=Strict`, `Path=<prefix>/`, random, held only in this process. Showing
+   the confirmation page does not spend the token, so a link preview or prefetch cannot use it
+   up; only the confirming POST does. Any later use of the token is refused, a new sign-in
+   replaces the session it was made from, and signing out ends the session.
 3. Every request that is not a GET needs a same-origin `Origin` header, and every POST needs the
    session's CSRF token in its form.
 4. Pages carry headers that stop framing, sniffing, referrers, caching and any script that is
@@ -32,13 +39,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 SESSION_COOKIE = "sqlguard_session"
+PREFIX_BYTES = 24  # 192 bits
 CSRF_FIELD = "csrf_token"
 SESSION_SECONDS = 8 * 3600
 MAX_SESSIONS = 8
 MAX_FORM_BYTES = 16 * 1024
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 UNSAFE_FLAG = "--i-know-this-is-unauthenticated"
-PUBLIC_PATHS = frozenset({"/login"})
+PUBLIC_PATHS = frozenset({"/login"})  # relative to the secret prefix
 PUBLIC_PREFIXES = ("/static/",)
 
 SECURITY_HEADERS = {
@@ -91,10 +99,17 @@ class Session:
 
 
 class AccessControl:
-    """The one-time token and the sessions it buys. State lives in memory only."""
+    """The secret path prefix, the one-time token and the sessions it buys (memory only)."""
 
-    def __init__(self, token: str | None = None, *, clock: Callable[[], float] = time.monotonic):
+    def __init__(
+        self,
+        token: str | None = None,
+        *,
+        prefix: str | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self._token = token or secrets.token_urlsafe(32)
+        self._prefix = prefix or secrets.token_urlsafe(PREFIX_BYTES)
         self._used = False
         self._clock = clock
         self._sessions: dict[str, Session] = {}
@@ -104,11 +119,19 @@ class AccessControl:
     def token(self) -> str:
         return self._token
 
-    def __repr__(self) -> str:
-        return "AccessControl(<token hidden>)"
+    @property
+    def base(self) -> str:
+        """The path every URL of the app starts with, without a trailing slash."""
+        return f"/s/{self._prefix}"
 
-    def redeem(self, candidate: str) -> Session | None:
-        """A new session for the right token, once. Any other attempt gets None."""
+    def __repr__(self) -> str:
+        return "AccessControl(<token and prefix hidden>)"
+
+    def redeem(self, candidate: str, replacing: str | None = None) -> Session | None:
+        """A new session for the right token, once. Any other attempt gets None.
+
+        `replacing` is the session the request came with; it ends when the new one starts.
+        """
         with self._lock:
             if self._used or not hmac.compare_digest(
                 candidate.encode("utf-8", "replace"), self._token.encode()
@@ -116,6 +139,8 @@ class AccessControl:
                 return None
             self._used = True
             self._drop_expired()
+            if replacing:
+                self._sessions.pop(replacing, None)
             while len(self._sessions) >= MAX_SESSIONS:
                 self._sessions.pop(next(iter(self._sessions)))
             session = Session(secrets.token_urlsafe(32), secrets.token_urlsafe(32), self._clock())
@@ -128,6 +153,10 @@ class AccessControl:
         with self._lock:
             self._drop_expired()
             return self._sessions.get(cookie)
+
+    def end(self, session_id: str) -> None:
+        with self._lock:
+            self._sessions.pop(session_id, None)
 
     def _drop_expired(self) -> None:
         now = self._clock()
@@ -154,8 +183,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
+        base = self.access.base
         path = request.url.path
-        public = path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+        if path != base and not path.startswith(base + "/"):
+            return _deny(404, "Not Found")  # no hint that anything is here
+        relative = path[len(base) :] or "/"
+        public = relative in PUBLIC_PATHS or relative.startswith(PUBLIC_PREFIXES)
         if not public:
             session = self.access.session(request.cookies.get(SESSION_COOKIE))
             if session is None:
@@ -179,11 +212,11 @@ def _deny(status: int, message: str) -> Response:
     return response
 
 
-async def read_form(request: Request) -> dict[str, str]:
-    """The urlencoded form of a POST, after its CSRF token was checked against the session.
+async def parse_form(request: Request) -> dict[str, str]:
+    """The urlencoded form of a POST (no CSRF check: for the sign-in, which has no session yet).
 
     Raises HTTPException: 415 for another content type, 413 for a large body, 400 for a body
-    that is not valid, 403 for a missing or wrong CSRF token.
+    that is not valid.
     """
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != (
         "application/x-www-form-urlencoded"
@@ -203,7 +236,12 @@ async def read_form(request: Request) -> dict[str, str]:
         )
     except (UnicodeDecodeError, ValueError) as err:
         raise HTTPException(400, "The form could not be read.") from err
-    form = {key: values[-1] for key, values in parsed.items()}
+    return {key: values[-1] for key, values in parsed.items()}
+
+
+async def read_form(request: Request) -> dict[str, str]:
+    """`parse_form`, after the session's CSRF token was checked (403 when missing or wrong)."""
+    form = await parse_form(request)
     session: Session = request.state.session
     if not hmac.compare_digest(
         form.get(CSRF_FIELD, "").encode("utf-8", "replace"), session.csrf.encode()
