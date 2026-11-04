@@ -1,0 +1,616 @@
+{
+  "created_at": "2026-11-04T08:40:13+00:00",
+  "git_sha": "15ab0be",
+  "dirty": false,
+  "seed": 42,
+  "prereg_sha": "25d1275",
+  "thresholds": {
+    "baseline": null,
+    "static": 0.2,
+    "replay": 0.03017241379310345,
+    "combined": 0.47000000000000003
+  },
+  "splits": {
+    "dev": {
+      "n_cases": 228,
+      "n_leaky": 122,
+      "detectors": {
+        "baseline": {
+          "tp": 0,
+          "fp": 0,
+          "tn": 106,
+          "fn": 122,
+          "recall": 0.0,
+          "fpr": 0.0,
+          "precision": 0.0,
+          "f1": 0.0,
+          "threshold": null,
+          "auc": 0.5,
+          "recall_by_type": {
+            "L1": 0.0,
+            "L2": 0.0,
+            "L3": 0.0,
+            "L4": 0.0,
+            "L5": 0.0,
+            "L6": 0.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": 1.83
+        },
+        "static": {
+          "tp": 122,
+          "fp": 0,
+          "tn": 106,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "threshold": 0.2,
+          "auc": 1.0,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 20,
+          "median_ms": 4.04
+        },
+        "replay": {
+          "tp": 122,
+          "fp": 0,
+          "tn": 106,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "threshold": 0.03017241379310345,
+          "auc": 1.0,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 2,
+          "median_ms": 44.69
+        },
+        "combined": {
+          "tp": 122,
+          "fp": 0,
+          "tn": 106,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "threshold": 0.47000000000000003,
+          "auc": 1.0,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": null
+        }
+      },
+      "attribution_accuracy": 1.0,
+      "combined_errors": [],
+      "unverifiable_cases": [
+        {
+          "case_id": "l4_event_time_window-014",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-008",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "c09_stats_delta-003",
+          "truth": "clean",
+          "detector": "replay",
+          "score": 0.0,
+          "reason": "no label prediction time appears in the query output"
+        },
+        {
+          "case_id": "l4_event_time_window-010",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_correlated-000",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-012",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "c09_stats_delta-002",
+          "truth": "clean",
+          "detector": "replay",
+          "score": 0.0,
+          "reason": "no label prediction time appears in the query output"
+        },
+        {
+          "case_id": "l4_event_time_window-013",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-004",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_correlated-003",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_correlated-001",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-005",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-000",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-002",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-015",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-009",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_correlated-002",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-003",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-006",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-007",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-011",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "l4_event_time_window-001",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        }
+      ]
+    },
+    "holdout": {
+      "n_cases": 138,
+      "n_leaky": 78,
+      "detectors": {
+        "baseline": {
+          "tp": 0,
+          "fp": 0,
+          "tn": 60,
+          "fn": 78,
+          "recall": 0.0,
+          "fpr": 0.0,
+          "precision": 0.0,
+          "f1": 0.0,
+          "threshold": null,
+          "auc": 0.609,
+          "recall_by_type": {
+            "L1": 0.0,
+            "L2": 0.0,
+            "L3": 0.0,
+            "L4": 0.0,
+            "L5": 0.0,
+            "L6": 0.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": 2.16
+        },
+        "static": {
+          "tp": 78,
+          "fp": 6,
+          "tn": 54,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.1,
+          "precision": 0.9286,
+          "f1": 0.963,
+          "threshold": 0.2,
+          "auc": 0.9538,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 12,
+          "median_ms": 4.93
+        },
+        "replay": {
+          "tp": 78,
+          "fp": 1,
+          "tn": 59,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.0167,
+          "precision": 0.9873,
+          "f1": 0.9936,
+          "threshold": 0.03017241379310345,
+          "auc": 0.9991,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": 54.34
+        },
+        "combined": {
+          "tp": 78,
+          "fp": 3,
+          "tn": 57,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.05,
+          "precision": 0.963,
+          "f1": 0.9811,
+          "threshold": 0.47000000000000003,
+          "auc": 0.9642,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": null
+        }
+      },
+      "attribution_accuracy": 0.9487,
+      "combined_errors": [
+        {
+          "case_id": "hc07_target_encoding_matured-001",
+          "truth": "clean",
+          "predicted_types": [
+            "L6"
+          ],
+          "combined_score": 0.9975,
+          "sql": "-- Clean: the group churn rate uses only labels old enough that their outcome window had already closed at the prediction time (the label horizon is 14 days).\nSELECT sp.user_id, sp.label_ts, sp.churned,\n       (SELECT AVG(h.churned)\n        FROM labels AS h\n        JOIN entities AS he ON he.user_id = h.user_id\n        WHERE he.country = u.country\n          AND h.label_ts <= sp.label_ts - INTERVAL '21 days') AS country_churn_rate\nFROM labels AS sp\nJOIN entities AS u ON u.user_id = sp.user_id"
+        },
+        {
+          "case_id": "hc07_target_encoding_matured-002",
+          "truth": "clean",
+          "predicted_types": [
+            "L6"
+          ],
+          "combined_score": 0.9975,
+          "sql": "-- Clean: the group churn rate uses only labels old enough that their outcome window had already closed at the prediction time (the label horizon is 14 days).\nSELECT sp.user_id, sp.label_ts, sp.churned,\n       (SELECT AVG(h.churned)\n        FROM labels AS h\n        JOIN entities AS he ON he.user_id = h.user_id\n        WHERE he.country = u.country\n          AND h.label_ts <= sp.label_ts - INTERVAL '30 days') AS country_churn_rate\nFROM labels AS sp\nJOIN entities AS u ON u.user_id = sp.user_id"
+        },
+        {
+          "case_id": "hc07_target_encoding_matured-000",
+          "truth": "clean",
+          "predicted_types": [
+            "L6"
+          ],
+          "combined_score": 0.9998,
+          "sql": "-- Clean: the group churn rate uses only labels old enough that their outcome window had already closed at the prediction time (the label horizon is 14 days).\nSELECT sp.user_id, sp.label_ts, sp.churned,\n       (SELECT AVG(h.churned)\n        FROM labels AS h\n        JOIN entities AS he ON he.user_id = h.user_id\n        WHERE he.country = u.country\n          AND h.label_ts <= sp.label_ts - INTERVAL '14 days') AS country_churn_rate\nFROM labels AS sp\nJOIN entities AS u ON u.user_id = sp.user_id"
+        }
+      ],
+      "unverifiable_cases": [
+        {
+          "case_id": "h4_date_cast_event-001",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hc13_safe_event_lag-001",
+          "truth": "clean",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_event_lag_short-000",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_date_cast_event-000",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_event_lag_short-001",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_event_lag_short-002",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_lateral_event_bound-002",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hc13_safe_event_lag-002",
+          "truth": "clean",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_lateral_event_bound-001",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hc13_safe_event_lag-000",
+          "truth": "clean",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_lateral_event_bound-000",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "h4_lateral_event_bound-003",
+          "truth": "L4",
+          "detector": "static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        }
+      ]
+    }
+  },
+  "optimism_gap": {
+    "clean": {
+      "offline_auc": 0.7763,
+      "real_auc": 0.7763,
+      "gap": 0.0
+    },
+    "leaky": {
+      "offline_auc": 0.9988,
+      "real_auc": 0.8257,
+      "gap": 0.1731
+    }
+  },
+  "real_data": {
+    "n_cases": 27,
+    "n_leaky": 16,
+    "detectors": {
+      "baseline": {
+        "tp": 0,
+        "fp": 0,
+        "tn": 11,
+        "fn": 16,
+        "recall": 0.0,
+        "fpr": 0.0,
+        "precision": 0.0,
+        "f1": 0.0,
+        "threshold": null,
+        "auc": 0.625,
+        "recall_by_type": {
+          "L1": 0.0,
+          "L2": 0.0,
+          "L3": 0.0,
+          "L4": 0.0,
+          "L5": 0.0,
+          "L6": 0.0
+        },
+        "n_unverifiable": 0,
+        "median_ms": 26.02
+      },
+      "static": {
+        "tp": 16,
+        "fp": 2,
+        "tn": 9,
+        "fn": 0,
+        "recall": 1.0,
+        "fpr": 0.1818,
+        "precision": 0.8889,
+        "f1": 0.9412,
+        "threshold": 0.2,
+        "auc": 0.9886,
+        "recall_by_type": {
+          "L1": 1.0,
+          "L2": 1.0,
+          "L3": 1.0,
+          "L4": 1.0,
+          "L5": 1.0,
+          "L6": 1.0
+        },
+        "n_unverifiable": 4,
+        "median_ms": 4.36
+      },
+      "replay": {
+        "tp": 14,
+        "fp": 0,
+        "tn": 11,
+        "fn": 2,
+        "recall": 0.875,
+        "fpr": 0.0,
+        "precision": 1.0,
+        "f1": 0.9333,
+        "threshold": 0.03017241379310345,
+        "auc": 1.0,
+        "recall_by_type": {
+          "L1": 1.0,
+          "L2": 1.0,
+          "L3": 1.0,
+          "L4": 1.0,
+          "L5": 0.0,
+          "L6": 1.0
+        },
+        "n_unverifiable": 0,
+        "median_ms": 1127.99
+      },
+      "combined": {
+        "tp": 16,
+        "fp": 0,
+        "tn": 11,
+        "fn": 0,
+        "recall": 1.0,
+        "fpr": 0.0,
+        "precision": 1.0,
+        "f1": 1.0,
+        "threshold": 0.47000000000000003,
+        "auc": 1.0,
+        "recall_by_type": {
+          "L1": 1.0,
+          "L2": 1.0,
+          "L3": 1.0,
+          "L4": 1.0,
+          "L5": 1.0,
+          "L6": 1.0
+        },
+        "n_unverifiable": 0,
+        "median_ms": null
+      }
+    },
+    "attribution_accuracy": 1.0,
+    "combined_errors": [],
+    "unverifiable_cases": [
+      {
+        "case_id": "rc04_safe_invoice_lag-000",
+        "truth": "clean",
+        "detector": "static",
+        "score": 0.4,
+        "reason": "a static hint (L4) can only be settled by replay"
+      },
+      {
+        "case_id": "rc04_safe_invoice_lag-001",
+        "truth": "clean",
+        "detector": "static",
+        "score": 0.4,
+        "reason": "a static hint (L4) can only be settled by replay"
+      },
+      {
+        "case_id": "rl4_invoice_time_window-000",
+        "truth": "L4",
+        "detector": "static",
+        "score": 0.4,
+        "reason": "a static hint (L4) can only be settled by replay"
+      },
+      {
+        "case_id": "rl4_invoice_time_window-001",
+        "truth": "L4",
+        "detector": "static",
+        "score": 0.4,
+        "reason": "a static hint (L4) can only be settled by replay"
+      }
+    ]
+  },
+  "runtime_seconds": 114.3
+}
