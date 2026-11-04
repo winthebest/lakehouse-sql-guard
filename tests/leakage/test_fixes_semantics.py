@@ -22,10 +22,11 @@ G = "GROUP BY 1, 2, 3"
 T = datetime(2026, 2, 1)
 
 
-@pytest.fixture(scope="module")
-def db():
+def _world(as_of: bool = False):
     """User 1: two events before the prediction time and one after. User 2: only an event after
-    it. User 3: no events at all. User 4 has events and no `entities` row."""
+    it. User 3: no events at all. User 4 has events and no `entities` row. With `as_of`, only what
+    was known at the (single) prediction time exists: the data the original query should have
+    been run on."""
     conn = duckdb.connect()
     conn.execute(
         "CREATE TABLE labels AS SELECT * FROM (VALUES (1, TIMESTAMP '2026-02-01', 0), "
@@ -52,7 +53,23 @@ def db():
         "(1, TIMESTAMP '2026-01-20', 4.0, 3), (1, TIMESTAMP '2026-01-25', 8.0, 4), "
         "(1, TIMESTAMP '2026-02-05', 16.0, 5)) t(user_id, updated_at, total_spend, n_orders)"
     )
+    if as_of:
+        conn.execute(
+            "DELETE FROM events WHERE event_ts >= TIMESTAMP '2026-02-01' "
+            "OR ingested_at >= TIMESTAMP '2026-02-01'"
+        )
+        conn.execute("DELETE FROM user_stats WHERE updated_at >= TIMESTAMP '2026-02-01'")
     return conn
+
+
+@pytest.fixture(scope="module")
+def db():
+    return _world()
+
+
+@pytest.fixture(scope="module")
+def db_as_of():
+    return _world(as_of=True)
 
 
 def spec_with(**overrides) -> LeakageSpec:
@@ -739,3 +756,71 @@ def test_whenever_a_fix_is_preserved_the_prediction_rows_are_identical_before_an
         preserved += 1
         assert before == after, sql
     assert preserved >= 15
+
+
+def test_whenever_a_fix_is_preserved_it_gives_every_row_what_the_original_gives_on_as_of_data(
+    db, db_as_of
+):
+    """Values, not only keys. The fixed query on the full data must equal the original query run
+    on data cut at the prediction time, row for row: that is what the author meant, and for rows
+    with no history before it, it is the NULL or 0 of an aggregate over nothing (user 3 has no
+    events at all, user 2 only later ones)."""
+    compared = 0
+    for sql in _all_queries():
+        fixes = [f for f in fixes_of(sql) if f.rewrites]
+        if not fixes or not all(f.semantics is Semantics.PRESERVED for f in fixes):
+            continue
+        try:
+            repaired = sorted(map(repr, db.sql(fixes[-1].after_sql).fetchall()))
+            intended = sorted(map(repr, db_as_of.sql(sql).fetchall()))
+        except duckdb.Error:
+            continue
+        compared += 1
+        assert repaired == intended, sql
+    assert compared >= 15
+
+
+FILTERED = {
+    # a FILTER on the bounded table that an unmatched row passes gives it a value of its own
+    "min of a spine column, filtered on IS NULL": "MIN(l.label_ts) FILTER (WHERE e.amount IS NULL)",
+    "max of a spine column, filtered on IS NULL": (
+        "MAX(l.user_id) FILTER (WHERE e.event_id IS NULL)"
+    ),
+    "count distinct of a spine column, filtered on IS NULL": (
+        "COUNT(DISTINCT l.user_id) FILTER (WHERE e.event_id IS NULL)"
+    ),
+    "filter with an OR on a spine column": (
+        "SUM(e.amount) FILTER (WHERE e.amount > 1 OR l.churned = 1)"
+    ),
+    "filter with COALESCE": "SUM(e.amount) FILTER (WHERE COALESCE(e.amount, 0) > 1)",
+    "filter IS NOT NULL": "SUM(e.amount) FILTER (WHERE e.amount IS NOT NULL)",
+    "percentile with WITHIN GROUP": "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY e.amount)",
+}
+NULL_ON_NO_MATCH = {
+    "filter on the spine only": "SUM(e.amount) FILTER (WHERE l.churned = 1)",
+    "filter AND a spine condition": "SUM(e.amount) FILTER (WHERE e.amount > 1 AND l.churned = 0)",
+    "count of a column, filtered on a comparison": (
+        "COUNT(e.event_id) FILTER (WHERE e.amount > 10)"
+    ),
+    "max of a spine column, filtered on a comparison": (
+        "MAX(l.user_id) FILTER (WHERE e.amount > 10)"
+    ),
+    "filter on NOT of a comparison": "SUM(e.amount) FILTER (WHERE NOT (e.amount > 1))",
+}
+
+
+@pytest.mark.parametrize("agg", FILTERED.values(), ids=FILTERED.keys())
+def test_a_filter_the_unmatched_row_can_pass_is_not_preserved(agg):
+    fix = last(f"{SEL}, {agg} x {LJ} {G}")
+    assert fix.semantics is Semantics.CHANGED
+    assert any(c.startswith(ROWS_MAY_DROP) for c in fix.caveats), fix.caveats
+
+
+@pytest.mark.parametrize("agg", NULL_ON_NO_MATCH.values(), ids=NULL_ON_NO_MATCH.keys())
+def test_a_filter_that_is_never_true_for_an_unmatched_row_keeps_the_meaning(db, db_as_of, agg):
+    sql = f"{SEL}, {agg} x {LJ} {G}"
+    fix = last(sql)
+    assert fix.semantics is Semantics.PRESERVED and fix.caveats == []
+    assert sorted(map(repr, db.sql(fix.after_sql).fetchall())) == sorted(
+        map(repr, db_as_of.sql(sql).fetchall())
+    )

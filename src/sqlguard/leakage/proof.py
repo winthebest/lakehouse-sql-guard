@@ -16,7 +16,11 @@ match exactly this, and anything the check does not recognise means "not shown":
    an aggregate in the projection that is NULL (0 for a count of a column) for an unmatched row:
    SUM, AVG, MIN, MAX, COUNT of a column, COUNT(DISTINCT), STDDEV, VARIANCE, MEDIAN, QUANTILE,
    ARG_MIN, ARG_MAX, ANY_VALUE, over arguments that are NULL when the column is NULL (columns,
-   literals, + - * / % ** and casts; no COALESCE, CASE, IS NULL, functions).
+   literals, + - * / % ** and casts; no COALESCE, CASE, IS NULL, functions). A FILTER on such an
+   aggregate counts as part of it: a condition that reads the table must be a comparison of
+   NULL-strict expressions (possibly AND-ed with others, or negated), so it is never true for an
+   unmatched row; one that can be (`IS NULL`, COALESCE, an OR with a spine condition) is not
+   shown. WITHIN GROUP and an ORDER BY inside the aggregate are not accepted.
 4. The outputs that carry those aggregates are followed up to the top. Each enclosing scope is
    either the top-level SELECT or a derived table / CTE read by plain SELECT wrappers: one source
    and nothing else (no WHERE, HAVING, QUALIFY, JOIN, ORDER BY, LIMIT, OFFSET, FETCH, DISTINCT,
@@ -34,7 +38,7 @@ from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
 from sqlguard.core.lineage import Schema, qualify_statement
-from sqlguard.leakage.rewrite import TAG, _clause_of, _reads, _unmatched_neutral
+from sqlguard.leakage.rewrite import TAG, _clause_of, _null_strict, _reads, _unmatched_neutral
 
 _SCALAR_WRAPPERS = (
     exp.Subquery,
@@ -154,30 +158,85 @@ def _join_case(select: exp.Select, join: exp.Join, table: exp.Table, alias: str)
         for a in select.find_all(exp.AggFunc)
         if a.find_ancestor(exp.Select) is select and _clause_of(a, select) == "expressions"
     ]
-    inside_aggregate: set[int] = set()
+    allowed: set[int] = set()  # columns of the table that an aggregate may read
     for agg in aggregates:
         if agg.find_ancestor(exp.AggFunc) is not None:
             continue
         if not _unmatched_neutral(agg, alias):
             _fail(f"{agg.sql()} is not an aggregate known to be NULL for an unmatched row")
-        inside_aggregate |= {id(c) for c in agg.find_all(exp.Column)}
         if agg.find(exp.Select) is not None:
             _fail("a subquery inside an aggregate")
+        allowed |= {id(c) for c in agg.find_all(exp.Column)}
+        allowed |= _filter_columns(agg, alias)
     for node in select.find_all(exp.AggFunc):
         if node.find_ancestor(exp.Select) is select and _clause_of(node, select) != "expressions":
             _fail("an aggregate outside the projection")
     for column in select.find_all(exp.Column):
-        if column.table != alias or id(column) in own_on:
+        if column.table != alias or id(column) in own_on or id(column) in allowed:
             continue
-        in_filter = column.find_ancestor(exp.Filter)
-        if id(column) in inside_aggregate or (
-            in_filter is not None and isinstance(in_filter.this, exp.AggFunc)
-        ):
-            continue
-        _fail(f"{alias}.{column.name} is read outside an allowed aggregate")
+        _fail(f"{alias}.{column.name} is read outside an allowed aggregate argument or FILTER")
     for item in select.expressions:
         if _reads(item, alias) and item.find(exp.Select) is not None:
             _fail("an output built from the bounded table contains a subquery")
+
+
+def _filter_columns(agg: exp.Expression, alias: str) -> set[int]:
+    """The columns of the table in the FILTER of `agg`, once the filter is shown to be harmless.
+
+    An aggregate that carries a FILTER over the bounded table must still give an unmatched row
+    (all the table's columns NULL) the value of an aggregate over nothing, so the condition may
+    not be true for it: a comparison of NULL-strict expressions is NULL there, `IS NULL` or
+    COALESCE is not. A condition that does not read the table at all is the same with or without a
+    match. Anything else wrapped around the aggregate that reads the table (WITHIN GROUP, an
+    ORDER BY) is not accepted: its columns stay unaccounted for, and the caller fails.
+    """
+    found: set[int] = set()
+    wrapper = agg.parent
+    while isinstance(wrapper, exp.Filter | exp.WithinGroup | exp.IgnoreNulls | exp.RespectNulls):
+        if isinstance(wrapper, exp.Filter):
+            condition = wrapper.expression.this if wrapper.expression is not None else None
+            if condition is not None and _reads(condition, alias):
+                if not _not_true_when_unmatched(condition, alias):
+                    _fail(
+                        f"the FILTER ({condition.sql()}) can be true for an unmatched row, "
+                        "which then gets a value of its own"
+                    )
+                found |= {id(c) for c in condition.find_all(exp.Column)}
+        wrapper = wrapper.parent
+    return found
+
+
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between, exp.In)
+
+
+def _not_true_when_unmatched(node: exp.Expression, alias: str) -> bool:
+    """Is `node` never TRUE when every column of the table is NULL?"""
+    if isinstance(node, exp.Paren):
+        return _not_true_when_unmatched(node.this, alias)
+    if isinstance(node, exp.And):
+        return _not_true_when_unmatched(node.this, alias) or _not_true_when_unmatched(
+            node.expression, alias
+        )
+    if isinstance(node, exp.Or):
+        return _not_true_when_unmatched(node.this, alias) and _not_true_when_unmatched(
+            node.expression, alias
+        )
+    if isinstance(node, exp.Not):
+        return _null_when_unmatched(node.this, alias)
+    return _null_when_unmatched(node, alias)
+
+
+def _null_when_unmatched(node: exp.Expression, alias: str) -> bool:
+    """A comparison with an operand that is NULL when the table's columns are, and none that is
+    not: NULL for an unmatched row, so a FILTER on it does not pass."""
+    if isinstance(node, exp.Paren):
+        return _null_when_unmatched(node.this, alias)
+    if not isinstance(node, _COMPARISONS) or node.find(exp.Select) is not None:
+        return False
+    operands = [v for v in node.args.values() if isinstance(v, exp.Expression)]
+    operands += [e for v in node.args.values() if isinstance(v, list) for e in v]
+    reading = [o for o in operands if _reads(o, alias)]
+    return bool(reading) and all(_null_strict(o, alias) for o in reading)
 
 
 def _scalar_case(home: Scope, select: exp.Select, alias: str, scopes: list[Scope]):
