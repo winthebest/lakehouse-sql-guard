@@ -46,7 +46,7 @@ from sqlguard.safety.actions import (
 if TYPE_CHECKING:
     from sqlguard.safety.executor.base import MaintenancePlan
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 1 lacked owner, lease_until, drop_pending (and the display fields in the hash)
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"  # fixed width, so text order is time order
 
 
@@ -204,7 +204,7 @@ class ActionRecord:
     approver: str | None = None
     decided_at: datetime | None = None
     outcome_json: str | None = None
-    owner: str | None = None  # who is publishing it: "host:pid:token" (set when it is claimed)
+    owner: str | None = None  # who is publishing it: "host|boot|pidns|pid|token" (when claimed)
     lease_until: datetime | None = None  # the owner promises to be alive until then
     drop_pending: int = 0  # 1 while the audit branch of a finished action still has to be dropped
 
@@ -284,6 +284,11 @@ class ActionRecord:
 
 
 _COLUMNS = tuple(f.name for f in fields(ActionRecord))
+_V2_COLUMNS = {
+    "owner": "TEXT",
+    "lease_until": "TEXT",
+    "drop_pending": "INTEGER NOT NULL DEFAULT 0",
+}
 _ERASE = ("sql_normalized = NULL", "maintenance_json = NULL")
 _DROP_PENDING = "drop_pending = CASE WHEN branch IS NULL THEN 0 ELSE 1 END"
 _SCHEMA = """
@@ -351,18 +356,42 @@ class ActionStore:
             os.close(fd)
             os.chmod(self.path, 0o600)
             with self._tx() as conn:
-                version = conn.execute("PRAGMA user_version").fetchone()[0]
-                if version > SCHEMA_VERSION:
-                    raise StoreError(
-                        f"action store {self.path} has schema version {version}; "
-                        f"this build understands up to {SCHEMA_VERSION}"
-                    )
-                for statement in _SCHEMA.strip().split(";"):
-                    if statement.strip():
-                        conn.execute(statement)
-                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self._prepare(conn)
         except (OSError, sqlite3.Error) as err:
             raise StoreError(f"cannot open action store {self.path}: {err}") from err
+
+    def _prepare(self, conn: sqlite3.Connection) -> None:
+        """Create the schema, upgrade an older store in place, or refuse one it cannot read.
+
+        Version 0 is a new file (an unversioned file that already has tables is refused).
+        Version 1 is upgraded by adding the lease and branch-drop columns; its pending
+        actions keep their rows but were hashed without the display fields, so they no longer
+        match their `action_hash` and `resolve` ends them as `stale` (nothing is re-blessed
+        by an upgrade). A store written by a newer build is refused.
+        """
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        has_actions = (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actions'"
+            ).fetchone()
+            is not None
+        )
+        if version > SCHEMA_VERSION:
+            raise StoreError(
+                f"action store {self.path} has schema version {version}; "
+                f"this build understands up to {SCHEMA_VERSION}"
+            )
+        if version == 0 and has_actions:
+            raise StoreError(f"action store {self.path} has tables but no schema version")
+        if version == 1:
+            have = {row[1] for row in conn.execute("PRAGMA table_info(actions)").fetchall()}
+            for column, ddl in _V2_COLUMNS.items():
+                if column not in have:
+                    conn.execute(f"ALTER TABLE actions ADD COLUMN {column} {ddl}")
+        for statement in _SCHEMA.strip().split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     # -- connections -----------------------------------------------------------------------------
 

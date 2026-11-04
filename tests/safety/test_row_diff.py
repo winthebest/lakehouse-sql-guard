@@ -318,3 +318,98 @@ def test_check_size_refuses_data_already_in_memory():
         check_size(rows(*BASE), rows(*BASE), DiffLimits(max_rows=3))
     with pytest.raises(DiffTooLarge):
         check_size(rows(*BASE), rows(*BASE), DiffLimits(max_bytes=10))
+
+
+# -- types that cannot be turned into Python objects without extra modules ----------------------
+
+
+def wide(shift: int) -> pa.Table:
+    import datetime as dt
+    import decimal
+
+    base = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+
+    def stamps(tz: str):
+        return pa.array(
+            [base + dt.timedelta(seconds=shift * i) for i in range(3)], pa.timestamp("us", tz=tz)
+        )
+
+    return pa.table(
+        {
+            "id": pa.array([1, 2, 3], pa.int64()),
+            "utc": stamps("UTC"),
+            "new_york": stamps("America/New_York"),
+            "ho_chi_minh": stamps("Asia/Ho_Chi_Minh"),
+            "india": stamps("+05:30"),
+            "nanos": pa.array([base.replace(tzinfo=None)] * 3, pa.timestamp("ns")),
+            "dec": pa.array([decimal.Decimal("1.50") + shift] * 3, pa.decimal128(10, 2)),
+            "nested": pa.array(
+                [{"a": i, "t": base + dt.timedelta(seconds=shift)} for i in range(3)],
+                pa.struct([("a", pa.int64()), ("t", pa.timestamp("us", tz="UTC"))]),
+            ),
+            "items": pa.array([[1, 2], [3], [shift]], pa.list_(pa.int64())),
+            "attrs": pa.array([[("k", shift)], [], [("z", 2)]], pa.map_(pa.string(), pa.int64())),
+        }
+    )
+
+
+@pytest.mark.parametrize("key", [["id"], []])
+def test_timezone_decimal_and_nested_columns_are_diffed_without_python_conversion(key):
+    diff = row_diff(wide(0), wide(1), key)
+    if key:
+        assert diff.mode == "keyed" and diff.rows_modified == 3
+        changed = {c for r in diff.rows for c in r.changed_columns}
+        assert {
+            "utc",
+            "new_york",
+            "ho_chi_minh",
+            "india",
+            "dec",
+            "nested",
+            "items",
+            "attrs",
+        } <= changed
+        assert "nanos" not in changed and "id" not in changed
+    else:
+        assert diff.mode == "unkeyed" and diff.rows_added == diff.rows_deleted == 3
+    shown = str([r.to_dict() for r in diff.rows])
+    assert "2026-01-01 00:00:01+00" in shown  # one instant, printed the same for every zone
+    assert diff.digest == row_diff(wide(0), wide(1), key).digest
+    assert row_diff(wide(0), wide(0), key).rows_changed == 0
+
+
+def test_the_text_of_a_timestamptz_does_not_depend_on_the_host_time_zone(monkeypatch):
+    import time
+
+    first = row_diff(wide(0), wide(1), ["id"]).digest
+    monkeypatch.setenv("TZ", "Pacific/Auckland")
+    time.tzset()
+    try:
+        assert row_diff(wide(0), wide(1), ["id"]).digest == first
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+def test_a_timezone_key_column_works(catalog):
+    import datetime as dt
+
+    base = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    before = pa.table(
+        {
+            "at": pa.array([base, base + dt.timedelta(hours=1)], pa.timestamp("us", tz="UTC")),
+            "v": [1, 2],
+        }
+    )
+    after = before.set_column(1, "v", pa.array([1, 3]))
+    diff = row_diff(before, after, ["at"])
+    assert diff.mode == "keyed" and diff.rows_modified == 1
+    assert diff.rows[0].key == {"at": "2026-01-01 01:00:00+00"}
+
+
+def test_negative_zero_is_not_a_change_and_this_is_documented():
+    """DuckDB, the impact and the diff all treat 0.0 and -0.0 as equal (documented limit)."""
+    zero = pa.table({"id": pa.array([1], pa.int64()), "x": pa.array([0.0])})
+    negative = pa.table({"id": pa.array([1], pa.int64()), "x": pa.array([-0.0])})
+    assert row_diff(zero, negative, ["id"]).rows_changed == 0
+    assert row_diff(zero, negative).rows_changed == 0

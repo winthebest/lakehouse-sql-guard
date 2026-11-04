@@ -1263,8 +1263,9 @@ class Guard:
                 )
             )
         except Exception as err:  # cleanup must not mask the real outcome
+            _log.warning("could not drop branch %s: %s", record.branch, err, exc_info=True)
             run.reasons.append(
-                f"audit branch {record.branch} could not be dropped (it will be retried): {err}"
+                f"audit branch {record.branch} could not be dropped (it will be retried)"
             )
             return False
         if store is not None:
@@ -1343,8 +1344,11 @@ class Guard:
             if record.maintenance_json is not None:
                 return self._verify_maintenance(run, record, now), None
             return self._verify_write(run, record, now)
-        except (ExecutionError, DiffError, StoreError, KeyError, ValueError) as err:
-            return [f"the live state could not be checked: {_clip(str(err))}"], None
+        except DiffError as err:  # its message is written to be shown
+            return [f"the live state could not be checked: {err}"], None
+        except (ExecutionError, StoreError, KeyError, ValueError) as err:
+            _log.warning("live check of action %s failed", record.id, exc_info=True)
+            return [f"the live state could not be checked ({type(err).__name__})"], None
 
     def _verify_write(
         self, run: _Run, record: ActionRecord, now: datetime
@@ -1532,19 +1536,21 @@ class Guard:
         """Settle actions found in `publishing` whose publisher is gone.
 
         Safe to call from several processes and while resolves are running. An action in
-        `publishing` has an owner (host, pid, token) and a lease that the owner renews while it
-        works. Reconcile leaves a row alone while its lease is fresh (plus `grace`), while the
-        owner is a live process of this host or is working in this process, and when it was
-        queued for a different catalog or engine. Otherwise it takes ownership by
-        compare-and-set (two reconcilers cannot both settle a row) and decides from main:
+        `publishing` has an owner (host, boot id, PID namespace, pid, token) and a lease that the
+        owner renews while it works. Reconcile leaves a row alone while its lease is fresh (plus
+        `grace`), while the owner is a live process in this PID namespace or is working in this
+        process, and when it was queued for a different catalog or engine. Otherwise it takes
+        ownership by compare-and-set (two reconcilers cannot both settle a row) and decides
+        from main:
 
         - main on the approved head: post-publish checks run; `published`, or rolled back to
           the base (`failed`) only if main is still exactly on the head;
         - main on a later snapshot with the head in its history: verified without any rollback
           (`published`, or `needs_attention`); for a backward pointer move this holds only if
           the base is no longer in main's history;
-        - main still on the base: `failed` if the owner is known dead on this host; if its host
-          is unknown the commit might still be in flight, so `needs_attention`;
+        - main still on the base: `failed` only if the owner is proven dead (same host, boot id and
+          PID namespace, all known); otherwise its commit might still be in flight, so
+          `needs_attention`;
         - anything else, and expiry or orphan cleanup: `needs_attention`.
 
         A `needs_attention` row keeps its branch. Returns what it settled. A crashed publish
@@ -1579,7 +1585,8 @@ class Guard:
                     state, reason, keep = self._judge_publishing(record, status)
                 except Exception as err:  # noqa: BLE001 - unreadable table: a person has to look
                     state, keep = ActionState.NEEDS_ATTENTION, True
-                    reason = f"could not be checked: {_clip(f'{type(err).__name__}: {err}')}"
+                    _log.warning("could not judge action %s", record.id, exc_info=True)
+                    reason = f"could not be checked ({type(err).__name__}); check the table"
                 summary = {"outcome": "reconciled", "reason": reason}
                 if not store.transition(
                     record.id,
@@ -1684,9 +1691,10 @@ class Guard:
                 table, before, live, compute_table_impact(table, before, live, key)
             )
             problems = [r for r in evaluate(invariants, ctx, "post_publish") if not r.passed]
-        except Exception as err:  # noqa: BLE001 - unable to verify counts as failed verification
+        except Exception:  # noqa: BLE001 - unable to verify counts as failed verification
+            _log.warning("post-publish check of %s failed", table, exc_info=True)
             problems = [
-                InvariantResult("verification", table, "post_publish", False, _clip(str(err)))
+                InvariantResult("verification", table, "post_publish", False, "could not be run")
             ]
         if not problems:
             return ActionState.PUBLISHED, "the publish had landed and its checks pass"
@@ -1698,10 +1706,11 @@ class Guard:
             )
         try:
             self.adapter.rollback(table, base, expected_current=head)
-        except Exception as err:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
+            _log.warning("rollback of %s failed", table, exc_info=True)
             return (
                 ActionState.NEEDS_ATTENTION,
-                f"checks fail ({text}) and the rollback failed: {_clip(str(err))}",
+                f"checks fail ({text}) and the rollback failed",
             )
         return ActionState.FAILED, f"the publish landed, its checks failed ({text}); rolled back"
 
@@ -1877,9 +1886,39 @@ def _describe_action(action: Action, redact: bool) -> dict[str, Any]:
     return {"type": type(action).__name__, **asdict(action)}
 
 
+def _boot_id() -> str | None:
+    """Linux boot id; None where the platform has no such thing (it cannot be told apart)."""
+    try:
+        with open("/proc/sys/kernel/random/boot_id", encoding="ascii") as handle:
+            return handle.read().strip() or None
+    except OSError:
+        return None
+
+
+def _pid_namespace() -> str | None:
+    """Identity of this process's PID namespace (Linux); None where it cannot be known."""
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except OSError:
+        return None
+
+
 def _new_owner() -> str:
-    """An identity for one publish: host, process id and a token that is unique to the attempt."""
-    return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+    """An identity for one publish: `host|boot|pid-namespace|pid|token`.
+
+    Host, boot id and PID namespace together say where a pid can be looked up; `-` marks a part
+    the platform cannot tell (macOS), which makes the owner unprovable on any other process.
+    The token is unique to the attempt.
+    """
+    return "|".join(
+        (
+            socket.gethostname(),
+            _boot_id() or "-",
+            _pid_namespace() or "-",
+            str(os.getpid()),
+            uuid.uuid4().hex[:12],
+        )
+    )
 
 
 @contextmanager
@@ -1894,17 +1933,26 @@ def _holding(owner: str) -> Iterator[None]:
 
 
 def _owner_status(owner: str | None) -> str:
-    """`alive` (leave it alone), `dead` (same host, no such process) or `unknown` (other host)."""
+    """`alive` (leave it alone), `dead` (proven gone) or `unknown` (rely on the lease).
+
+    `dead` needs the owner's host, boot id and PID namespace to equal this process's, all of
+    them known, so that "no process with this pid" really means this owner is gone. A peer in
+    another container (same hostname, own PID namespace), after a reboot, on another machine, or
+    on a platform that cannot tell is `unknown`: only the lease expiring, and then
+    `needs_attention` where evidence is missing, applies.
+    """
     if not owner:
         return "unknown"
     with _ACTIVE_LOCK:
         if owner in _ACTIVE_OWNERS:
             return "alive"
-    host, _, rest = owner.partition(":")
-    pid_text, _, _ = rest.partition(":")
-    if host != socket.gethostname() or not pid_text.isdigit():
+    parts = owner.split("|")
+    if len(parts) != 5 or not parts[3].isdigit():
         return "unknown"
-    pid = int(pid_text)
+    here = (socket.gethostname(), _boot_id() or "-", _pid_namespace() or "-")
+    if tuple(parts[:3]) != here or "-" in here:
+        return "unknown"
+    pid = int(parts[3])
     if pid == os.getpid():
         return "dead"  # this process, and it is not working on it
     try:

@@ -89,6 +89,15 @@ class Crash(BaseException):
     """Stands in for the process being killed: nothing in the Guard may catch it."""
 
 
+@pytest.fixture(autouse=True)
+def linux_identity(monkeypatch):
+    """Give the process a boot id and PID namespace, as on Linux, so a dead pid can be proven."""
+    import sqlguard.safety.guard as guard_module
+
+    monkeypatch.setattr(guard_module, "_boot_id", lambda: "boot-1")
+    monkeypatch.setattr(guard_module, "_pid_namespace", lambda: "pid:[1]")
+
+
 @pytest.fixture
 def clock() -> Clock:
     return Clock()
@@ -1522,6 +1531,10 @@ def host() -> str:
     return socket.gethostname()
 
 
+def owner_of(pid: int, *, boot: str = "boot-1", namespace: str = "pid:[1]", token: str = "tok"):
+    return "|".join((host(), boot, namespace, str(pid), token))
+
+
 def dead_pid() -> int:
     process = subprocess.Popen([sys.executable, "-c", "pass"])
     process.wait()
@@ -1563,8 +1576,9 @@ def test_the_claim_records_an_owner_and_a_lease(pguard, verifier, orders, scope,
     with pytest.raises(Crash):
         decide(pguard, verifier, result)
     row = pguard.store.get(result.action_id)
-    hostname, pid, token = row.owner.rsplit(":", 2)
-    assert (hostname, int(pid)) == (host(), os.getpid()) and token
+    hostname, boot, namespace, pid, token = row.owner.split("|")
+    assert (hostname, boot, namespace) == (host(), "boot-1", "pid:[1]")
+    assert int(pid) == os.getpid() and token
     assert row.lease_until - row.decided_at == timedelta(minutes=5)
 
 
@@ -1575,7 +1589,7 @@ def test_a_live_publisher_on_this_host_is_left_alone_even_after_its_lease(
     crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
     alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        edit_row(store_path, result.action_id, owner=f"{host()}:{alive.pid}:tok")
+        edit_row(store_path, result.action_id, owner=owner_of(alive.pid))
         nxt = fresh_guard(make_guard, store_path, verifier, clock)
         assert settle(nxt, clock) == [] and state_of(nxt, result) is A.PUBLISHING
         assert branches(orders)  # its branch is untouched
@@ -1591,7 +1605,7 @@ def test_a_publisher_on_another_host_with_main_unchanged_needs_attention_and_kee
 ):
     result = queue(pguard, scope)
     crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
-    edit_row(store_path, result.action_id, owner="some-other-host:77:tok")
+    edit_row(store_path, result.action_id, owner="some-other-host|boot-1|pid:[1]|77|tok")
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
     settled = settle(nxt, clock)
     assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
@@ -1605,7 +1619,7 @@ def test_a_dead_publisher_with_main_unchanged_is_failed_and_its_branch_dropped(
 ):
     result = queue(pguard, scope)
     crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
-    edit_row(store_path, result.action_id, owner=f"{host()}:{dead_pid()}:tok")
+    edit_row(store_path, result.action_id, owner=owner_of(dead_pid()))
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
     assert [s.state for s in settle(nxt, clock)] == [A.FAILED]
     assert not branches(orders)
@@ -1641,7 +1655,7 @@ def test_two_reconcilers_cannot_both_settle_one_row(store_path):
             own.take_over(
                 "a1",
                 expected_owner="h:1:t",
-                new_owner=f"h:{n}:t",
+                new_owner=f"h:{n + 10}:t",
                 now=now + timedelta(seconds=1),
                 lease_until=now + timedelta(minutes=5),
             )
@@ -1832,3 +1846,229 @@ def test_the_queue_has_a_size_limit(make_guard, store_path, verifier, orders, sc
     assert len(guard.store.list_actions([A.PENDING])) == 2 and len(branches(orders)) == 2
     guard.expire_pending(datetime.now(UTC) + timedelta(days=2))
     assert guard.submit(SqlAction("DELETE FROM orders WHERE id <= 17"), scope).action_id
+
+
+# -- owner identity across containers, reboots and platforms ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("owner_kwargs", "expected"),
+    [
+        ({}, "dead"),  # same host, boot and namespace, no such pid
+        ({"namespace": "pid:[999]"}, "unknown"),  # a peer container with its own PID namespace
+        ({"boot": "boot-0"}, "unknown"),  # written before a reboot
+        ({"namespace": "-"}, "unknown"),  # a platform that cannot tell
+        ({"boot": "-"}, "unknown"),
+    ],
+)
+def test_a_dead_owner_must_be_provably_in_this_pid_namespace(owner_kwargs, expected):
+    from sqlguard.safety.guard import _owner_status
+
+    assert _owner_status(owner_of(dead_pid(), **owner_kwargs)) == expected
+
+
+def test_malformed_and_foreign_owners_are_unknown():
+    from sqlguard.safety.guard import _owner_status
+
+    assert _owner_status(None) == "unknown" and _owner_status("") == "unknown"
+    assert _owner_status("host:123:tok") == "unknown"  # the old format proves nothing
+    assert _owner_status("other-host|boot-1|pid:[1]|5|t") == "unknown"
+    assert _owner_status(owner_of(os.getpid(), token="not-active")) == "dead"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"namespace": "pid:[999]"}, {"boot": "boot-0"}, {"namespace": "-"}],
+    ids=["other-pid-namespace", "other-boot", "namespace-unknown"],
+)
+def test_an_owner_that_cannot_be_proven_dead_is_never_called_failed(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch, change
+):
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    owner = pguard.store.get(result.action_id).owner.split("|")
+    pid = int(owner[3])
+    edit_row(store_path, result.action_id, owner=owner_of(pid, **change))
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    settled = settle(nxt, clock)
+    assert [s.state for s in settled] == [A.NEEDS_ATTENTION] and "may still land" in settled[
+        0
+    ].reason
+    assert branches(orders) == {pguard.store.get(result.action_id).branch}
+
+
+def test_without_boot_and_namespace_ids_the_lease_alone_decides(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    """macOS: a crash is called needs_attention once the lease ran out, never failed."""
+    import sqlguard.safety.guard as guard_module
+
+    monkeypatch.setattr(guard_module, "_boot_id", lambda: None)
+    monkeypatch.setattr(guard_module, "_pid_namespace", lambda: None)
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    assert "-" in pguard.store.get(result.action_id).owner.split("|")[1:3]
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    assert nxt.reconcile() == []  # the lease has not run out
+    assert [s.state for s in settle(nxt, clock)] == [A.NEEDS_ATTENTION]
+
+
+# -- the store's schema version --------------------------------------------------------------
+
+V1_SCHEMA = """
+CREATE TABLE actions (
+    id TEXT PRIMARY KEY, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, state TEXT NOT NULL,
+    kind TEXT NOT NULL, dialect TEXT NOT NULL, sql_normalized TEXT, sql_redacted TEXT NOT NULL,
+    sql_sha256 TEXT NOT NULL, maintenance_json TEXT, scope_json TEXT NOT NULL,
+    catalog_name TEXT NOT NULL, engine TEXT NOT NULL, "table" TEXT NOT NULL,
+    base_snapshot_id INTEGER, head_snapshot_id INTEGER, branch TEXT,
+    policy_digest TEXT NOT NULL, invariants_digest TEXT NOT NULL, diff_digest TEXT NOT NULL,
+    action_hash TEXT NOT NULL, impact_json TEXT NOT NULL, reasons_json TEXT NOT NULL,
+    requester TEXT NOT NULL, approver TEXT, decided_at TEXT, outcome_json TEXT
+);
+CREATE TABLE used_proofs (
+    proof_hash TEXT PRIMARY KEY, used_at TEXT NOT NULL, action_id TEXT NOT NULL
+);
+"""
+
+
+def v1_store(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(V1_SCHEMA)
+    conn.execute(
+        "INSERT INTO actions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "old1", "2026-01-01T00:00:00.000000Z", "2099-01-01T00:00:00.000000Z", "pending",
+            "sql", "duckdb", "DELETE FROM t", "DELETE FROM t", "0" * 64, None, "null", "c",
+            "duckdb", "db.t", 1, 2, "sqlguard-x", "p", "i", "d", "h", "{}", "[]", "agent",
+            None, None, None,
+        ),
+    )  # fmt: skip
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+
+def test_a_new_store_is_stamped_with_the_current_schema_version(store_path):
+    from sqlguard.safety.store import SCHEMA_VERSION
+
+    ActionStore(store_path)
+    conn = sqlite3.connect(store_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    conn.close()
+
+
+def test_a_version_1_store_is_upgraded_in_place_and_its_pending_rows_keep_their_data(store_path):
+    from sqlguard.safety.store import SCHEMA_VERSION
+
+    v1_store(store_path)
+    store = ActionStore(store_path)
+    row = store.get("old1")
+    assert row.state is A.PENDING and row.owner is None and row.lease_until is None
+    assert row.drop_pending == 0 and row.sql_normalized == "DELETE FROM t"
+    assert row.computed_hash() != row.action_hash  # hashed the old way: resolve will find it stale
+    conn = sqlite3.connect(store_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    conn.close()
+    ActionStore(store_path)  # opening again changes nothing
+    assert store.get("old1") is not None
+    store.insert(make_record())  # and the upgraded store works
+    assert store.claim("a1", A.PUBLISHING, proof="p", approver="x", now=datetime.now(UTC),
+                       owner="o", lease_until=datetime.now(UTC))  # fmt: skip
+
+
+def test_a_store_from_a_newer_build_or_without_a_version_is_refused(store_path):
+    from sqlguard.safety.store import StoreError
+
+    ActionStore(store_path)
+    conn = sqlite3.connect(store_path)
+    conn.execute("PRAGMA user_version = 99")
+    conn.commit()
+    conn.close()
+    with pytest.raises(StoreError, match="schema version 99"):
+        ActionStore(store_path)
+
+    unversioned = store_path.parent / "unversioned.db"
+    conn = sqlite3.connect(unversioned)
+    conn.executescript(V1_SCHEMA)
+    conn.commit()
+    conn.close()
+    with pytest.raises(StoreError, match="no schema version"):
+        ActionStore(unversioned)
+
+
+# -- values that Python cannot represent without extra modules ---------------------------------
+
+
+def event_table(catalog, rows: int = 10):
+    import datetime as dt
+
+    base = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    catalog.create_table(
+        "ev",
+        pa.table(
+            {
+                "id": pa.array(range(rows), pa.int64()),
+                "ts": pa.array(
+                    [base + dt.timedelta(hours=i) for i in range(rows)],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+            }
+        ),
+    )
+    return catalog
+
+
+def test_a_table_with_timestamptz_columns_can_be_queued_diffed_and_approved(
+    catalog, store_path, verifier, clock, scope, audit_path
+):
+    event_table(catalog)
+    guard = Guard(
+        catalog, audit_path=audit_path, store=store_path, proof_verifier=verifier, clock=clock
+    )
+    sql = "UPDATE ev SET ts = ts + INTERVAL 1 MINUTE WHERE id < 6"
+    result = guard.submit(SqlAction(sql), scope)
+    assert result.outcome is Outcome.AWAITING_APPROVAL, result.reasons
+    row = guard.store.get(result.action_id)
+    diff = guard.diff_for(result.action_id)
+    assert diff.digest == row.diff_digest  # the queued and the recomputed digests agree
+    assert diff.rows_deleted == 6 and diff.rows_added == 6
+    assert "2026-01-01 00:00:00+00" in str([r.to_dict() for r in diff.rows])
+    assert decide(guard, verifier, result).outcome is Outcome.PUBLISHED
+
+
+def test_a_diff_failure_gives_a_generic_reason_and_logs_the_detail(
+    pguard, orders, scope, monkeypatch, caplog
+):
+    import sqlguard.safety.impact as impact_module
+
+    def broken(*args, **kwargs):
+        raise ModuleNotFoundError("Required module 'pytz' failed to import")
+
+    monkeypatch.setattr(impact_module, "_collect_changes", broken)
+    with caplog.at_level("WARNING", logger="sqlguard.diff"):
+        result = pguard.submit(SqlAction(RISKY), scope)
+    assert result.outcome is Outcome.DENIED
+    reasons = " ".join(result.reasons)
+    assert "could not be computed" in reasons and "pytz" not in reasons
+    assert "pytz" in caplog.text  # the detail is in the log
+    assert "pytz" not in str(result.to_dict())
+    assert pguard.store.list_actions() == [] and not branches(orders)
+
+
+def test_a_failed_live_check_gives_a_generic_stale_reason(
+    pguard, verifier, orders, scope, monkeypatch
+):
+    from sqlguard.safety.executor import ExecutionError
+
+    result = queue(pguard, scope)
+
+    def broken(*args, **kwargs):
+        raise ExecutionError("secret value 'zz-secret-7731' in an engine message")
+
+    monkeypatch.setattr(pguard.adapter, "diff", broken)
+    done = decide(pguard, verifier, result)
+    assert done.outcome is Outcome.STALE
+    assert "zz-secret" not in " ".join(done.reasons)
+    assert b"zz-secret" not in store_bytes(pguard.store.path)

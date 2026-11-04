@@ -21,6 +21,7 @@ impact: a reviewer must never approve a diff that was cut short.
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -33,6 +34,8 @@ from pyiceberg.table import Table
 
 from sqlguard.safety.classifier import Impact
 from sqlguard.safety.store import canonical_json, digest
+
+_log = logging.getLogger("sqlguard.diff")
 
 
 def quote_ident(name: str) -> str:
@@ -239,7 +242,11 @@ _BATCH = 4096
 
 
 class DiffError(RuntimeError):
-    """The row diff could not be computed. Callers treat that as 'cannot be reviewed'."""
+    """The row diff could not be computed. Callers treat that as 'cannot be reviewed'.
+
+    The message is written to be shown to users: engine and library errors are logged
+    (`sqlguard.diff`) and replaced by a generic text before this is raised.
+    """
 
 
 class DiffTooLarge(DiffError):
@@ -401,6 +408,9 @@ def row_diff(
     schema = schema_diff(before.schema, after.schema)
     conn = duckdb.connect()
     try:
+        conn.execute(
+            "SET TimeZone = 'UTC'"
+        )  # text forms of timestamptz must not depend on the host
         conn.register("before_t", before)
         conn.register("after_t", after)
         usable: tuple[str, ...] | None = None
@@ -418,8 +428,10 @@ def row_diff(
         else:
             changes, counts, fingerprint = _collect_changes(conn, common, usable, display_rows)
             modified = counts.get("modified", 0) if usable else None
-    except duckdb.Error as err:
-        raise DiffError(f"cannot diff {table or 'table'}: {err}") from err
+    except Exception as err:  # noqa: BLE001 - whatever DuckDB or Arrow raise: fail closed
+        # The engine's text can quote values or module paths; keep it in the log, not the reason.
+        _log.warning("row diff of %s failed", table or "table", exc_info=True)
+        raise DiffError("the row diff could not be computed") from err
     finally:
         conn.close()
     added, deleted = counts.get("added", 0), counts.get("deleted", 0)
@@ -454,18 +466,68 @@ def row_diff(
     )
 
 
+_PLAIN_TYPES = frozenset(
+    {
+        "BOOLEAN",
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "BIGINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "FLOAT",
+        "DOUBLE",
+        "VARCHAR",
+        "BLOB",
+        "DATE",
+        "TIME",
+        "TIMESTAMP",
+    }
+)
+
+
+def _column_types(conn: duckdb.DuckDBPyConnection, view: str) -> dict[str, str]:
+    return {str(row[0]): str(row[1]).upper() for row in conn.execute(f"DESCRIBE {view}").fetchall()}
+
+
+def _shown(expression: str, duck_type: str | None) -> str:
+    """`expression` as it is read back: values whose Python form is plain stay as they are.
+
+    Everything else (time zones, nested types, intervals, nanosecond timestamps, ...) is read as
+    text, because turning it into a Python object can need modules that are not dependencies
+    (`pytz` for `timestamptz`) and the comparison itself never leaves DuckDB.
+    """
+    if duck_type is None or duck_type in _PLAIN_TYPES or duck_type.startswith("DECIMAL("):
+        return expression
+    return f"CAST({expression} AS VARCHAR)"
+
+
 def _collect_changes(
     conn: duckdb.DuckDBPyConnection,
     common: list[str],
     key: tuple[str, ...] | None,
     display_rows: int,
 ) -> tuple[list[RowChange], dict[str, int], str]:
-    """Run the diff query once, in a total order: list the first rows, count and hash them all."""
-    before_cols = ", ".join(f'b.{quote_ident(c)} AS "b{i}"' for i, c in enumerate(common))
-    after_cols = ", ".join(f'a.{quote_ident(c)} AS "a{i}"' for i, c in enumerate(common))
+    """Run the diff query once, in a total order: list the first rows, count and hash them all.
+
+    Matching and comparing use the original columns; only the columns that are read back are
+    converted (see `_shown`), so the diff stays in DuckDB and Arrow.
+    """
+    btypes = _column_types(conn, "before_t")
+    atypes = _column_types(conn, "after_t")
+    before_cols = ", ".join(
+        f'{_shown("b." + quote_ident(c), btypes.get(c))} AS "b{i}"' for i, c in enumerate(common)
+    )
+    after_cols = ", ".join(
+        f'{_shown("a." + quote_ident(c), atypes.get(c))} AS "a{i}"' for i, c in enumerate(common)
+    )
     if key:
         key_cols = ", ".join(
-            f'COALESCE(b.{quote_ident(k)}, a.{quote_ident(k)}) AS "k{j}"' for j, k in enumerate(key)
+            f"{_shown(f'COALESCE(b.{quote_ident(k)}, a.{quote_ident(k)})', btypes.get(k))}"
+            f' AS "k{j}"'
+            for j, k in enumerate(key)
         )
         on = " AND ".join(f"b.{quote_ident(k)} = a.{quote_ident(k)}" for k in key)
         values = [c for c in common if c not in key]
@@ -485,8 +547,12 @@ def _collect_changes(
         cols = ", ".join(quote_ident(c) for c in common)
         nulls_b = ", ".join(f'NULL AS "b{i}"' for i in range(len(common)))
         nulls_a = ", ".join(f'NULL AS "a{i}"' for i in range(len(common)))
-        deleted_cols = ", ".join(f'{quote_ident(c)} AS "b{i}"' for i, c in enumerate(common))
-        added_cols = ", ".join(f'{quote_ident(c)} AS "a{i}"' for i, c in enumerate(common))
+        deleted_cols = ", ".join(
+            f'{_shown(quote_ident(c), btypes.get(c))} AS "b{i}"' for i, c in enumerate(common)
+        )
+        added_cols = ", ".join(
+            f'{_shown(quote_ident(c), atypes.get(c))} AS "a{i}"' for i, c in enumerate(common)
+        )
         order = ", ".join(f'"b{i}", "a{i}"' for i in range(len(common)))
         query = (
             f"SELECT * FROM ("
@@ -581,7 +647,8 @@ def compute_row_diff(
     except DiffError:
         raise
     except Exception as err:  # noqa: BLE001 - PyIceberg raises I/O and catalog errors of many kinds
-        raise DiffError(f"cannot read {'.'.join(table.name())} for the diff: {err}") from err
+        _log.warning("could not read %s for the diff", ".".join(table.name()), exc_info=True)
+        raise DiffError("the table could not be read for the diff") from err
     return row_diff(
         before,
         after,

@@ -220,6 +220,12 @@ a guessed literal be confirmed), digests and counts stay. No row value is ever s
 truncate cannot run while another connection holds a read transaction (a UI, the `sqlite3`
 CLI), so the erased bytes can linger in `-wal` until the reader is gone; `expire_pending` and
 `reconcile` repeat it, so the guarantee is "eventually", not "at the instant of the transition".
+The store carries a schema version (`PRAGMA user_version`, now 2). A new file is stamped; a
+version 1 file is upgraded in place by adding `owner`, `lease_until` and `drop_pending` (its
+pending actions were hashed before the display fields were bound, so they no longer match their
+`action_hash` and `resolve` ends them as `stale`: an upgrade never re-blesses a row); a file
+from a newer build, or with tables but no version, is refused with `StoreError`. Any later
+column change must bump the version and add its step to `ActionStore._prepare`.
 Tables: `actions(id, created_at, expires_at, state, kind, dialect, sql_normalized, sql_redacted,
 sql_sha256, maintenance_json, scope_json, catalog_name, engine, "table", base_snapshot_id,
 head_snapshot_id, branch, policy_digest, invariants_digest, diff_digest, action_hash,
@@ -258,7 +264,7 @@ synchronous path. A proof that was used before raises `ProofRejected` and change
 `reject` verifies the proof, spends it, and drops the branch. Unexpected errors after the claim
 leave the action in `publishing` for `reconcile`.
 
-**Ownership of `publishing`.** Claiming an action records an `owner` (`host:pid:token`) and a
+**Ownership of `publishing`.** Claiming an action records an `owner` (`host|boot id|PID namespace|pid|token`) and a
 `lease_until` (default 5 minutes). While the resolver works, a heartbeat renews the lease, and
 it renews and re-checks it right before the commit; if another process took the row over, the
 resolver publishes nothing (outcome `ERROR`, "taken over") and touches neither the row nor the
@@ -267,7 +273,7 @@ branch. The terminal update is conditional on still being the owner.
 **`Guard.reconcile(grace=0)`** (call it when the UI or MCP server starts; it is safe next to
 running resolves and other reconcilers) settles `publishing` rows whose publisher is gone. It
 leaves a row alone while the lease (plus `grace`) is fresh, while the owner is working in this
-process or is a live process on this host, and when the row was queued for another catalog or
+process or is a live process in this PID namespace, and when the row was queued for another catalog or
 engine. Otherwise it takes ownership by compare-and-set and decides from main:
 
 - main on `head`: post-publish checks (`published`, or rolled back to `base` and `failed`, but
@@ -276,8 +282,11 @@ engine. Otherwise it takes ownership by compare-and-set and decides from main:
   (`published`, or `needs_attention`). For a pointer move to an *older* snapshot (rollback) this
   counts only if `base` is no longer in main's history: a writer who committed on top of the
   untouched base also has the target in its history, and that is not a rollback;
-- main still on `base`: `failed` when the owner is known dead on this host; an owner on another
-  host might still have a commit in flight, so `needs_attention`;
+- main still on `base`: `failed` only when the owner is *proven* dead: same host, same boot id
+  and same PID namespace, all known, and no such pid. A peer in another container (same
+  hostname, own PID namespace), a row written before a reboot, another machine, or a platform
+  that cannot tell (macOS has no boot or namespace id to compare) is not provable, so the
+  commit might still land and the row is `needs_attention`, after the lease runs out;
 - anything else, and expiry or orphan cleanup (cannot be told from a half-done run):
   `needs_attention`.
 
@@ -302,6 +311,17 @@ matched with a keyed DuckDB FULL OUTER JOIN using `IS DISTINCT FROM` per column;
 modified row is then one deleted plus one added row). A key that is NULL or repeated on either
 side is not used, and `key_note` says so. At most 200 rows are listed; the totals and the digest
 cover all of them.
+
+Only the comparison happens in DuckDB; what is read back is plain data. Columns whose Python
+form is plain (integers, floats, strings, bytes, dates, microsecond timestamps without a zone,
+decimals) are read as such; every other type (`timestamptz`, nested struct/list/map,
+nanosecond timestamps, intervals, ...) is read as text, with the session time zone fixed to UTC
+so the text does not depend on the host. That keeps the diff free of Python objects that would
+need modules which are not dependencies (`pytz`), and the listed values for such columns are
+strings. A diff failure is logged (`sqlguard.diff`) and reported with a generic reason; engine
+and library text never reaches a denial or stale reason. Limit: DuckDB compares `0.0` and `-0.0`
+as equal, so a change between them is invisible to the impact and the diff (the publish then
+reports no change).
 
 The comparison always covers both snapshots whole: no part of the statement is used to narrow
 the scans, because the engine and Arrow disagree on NaN ordering and float coercion, and a row
