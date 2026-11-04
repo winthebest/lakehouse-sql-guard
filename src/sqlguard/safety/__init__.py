@@ -12,12 +12,22 @@ from sqlguard.safety.actions import (
     UnsupportedCall,
     parse_spark_call,
 )
+from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.classifier import (
     Classification,
     Impact,
     ReversibilityClass,
     StatementClass,
     classify,
+)
+from sqlguard.safety.guard import ApprovalRequest, Approver, Guard, GuardResult, Outcome
+from sqlguard.safety.impact import ImpactReport, SchemaDiff, TableImpact
+from sqlguard.safety.invariants import (
+    Invariant,
+    InvariantContext,
+    InvariantResult,
+    InvariantsConfig,
+    TableInvariants,
 )
 from sqlguard.safety.policy import (
     Policy,
@@ -31,12 +41,24 @@ from sqlguard.safety.policy import (
 
 __all__ = [
     "Action",
+    "ApprovalRequest",
+    "Approver",
+    "AuditError",
+    "AuditLog",
     "Classification",
     "DropTable",
     "ExpireSnapshots",
     "FastForward",
+    "Guard",
+    "GuardResult",
     "Impact",
+    "ImpactReport",
+    "Invariant",
+    "InvariantContext",
+    "InvariantResult",
+    "InvariantsConfig",
     "MaintenanceAction",
+    "Outcome",
     "Policy",
     "PolicyDecision",
     "PolicyError",
@@ -44,9 +66,12 @@ __all__ = [
     "RetentionRule",
     "ReversibilityClass",
     "RollbackToSnapshot",
+    "SchemaDiff",
     "SqlAction",
     "StatementClass",
     "StatementDecision",
+    "TableImpact",
+    "TableInvariants",
     "TaskScope",
     "Thresholds",
     "UnsupportedCall",
