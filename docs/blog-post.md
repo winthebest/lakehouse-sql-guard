@@ -97,6 +97,10 @@ On 138 held-out cases (78 leaky), with the pre-registered thresholds:
 | replay | 1.00 | 0.02 |
 | static + replay | 1.00 | 0.05 |
 
+With no held-out leak missed across 29 leaky templates, the honest claim is a recall of at
+least about 0.90 at 95% confidence, not "1.00". The FPR of static + replay has a 95%
+interval of 0 to 0.17 when whole templates are resampled.
+
 On 27 cases over real data (UCI Online Retail II, with simulated weekly loads and a delay
 for non-UK invoices), static + replay caught all 16 leaks with no false positives.
 

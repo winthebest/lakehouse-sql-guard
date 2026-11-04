@@ -102,18 +102,23 @@ an author who did not read the detector code.
 
 ### Leakage: held-out SQL (138 cases, 78 leaky) and real data
 
-| detector | held-out recall | held-out FPR | held-out F1 | real-data recall | real-data FPR |
+| detector | held-out recall | held-out FPR [95% CI] | held-out F1 | real-data recall | real-data FPR |
 |---|---|---|---|---|---|
 | baseline: output timestamp > prediction time | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| static analysis | 1.00 | 0.10 | 0.96 | 1.00 | 0.18 |
-| replay over snapshots | 1.00 | 0.02 | 0.99 | 0.88 | 0.00 |
-| **combined** | **1.00** | **0.05** | **0.98** | **1.00** | **0.00** |
+| static analysis | 1.00 | 0.10 [0.00, 0.25] | 0.96 | 1.00 | 0.18 |
+| replay over snapshots | 1.00 | 0.02 [0.00, 0.06] | 0.99 | 0.88 | 0.00 |
+| **combined** | **1.00** | **0.05 [0.00, 0.17]** | **0.98** | **1.00** | **0.00** |
+
+Intervals are a bootstrap over templates (cases rendered from one template are resampled
+together). A bootstrap cannot put an interval on a perfect recall: with 0 misses over 29
+leaky held-out templates, the 95% lower bound on template-level recall is about 0.90 (rule
+of three). The real-data set is small (12 templates); read it as a sanity check.
 
 Real data: UCI Online Retail II (CC BY 4.0), 27 cases over monthly churn cutoffs with
 simulated load delays. Static analysis takes about 5 ms per query; replay about 50 ms on the
 synthetic world and about 1.1 s on the real one.
 
-![ROC on held-out cases](results/leakage/20261104-15ab0be-roc.png)
+![ROC on held-out cases](results/leakage/20261104-948534a-roc.png)
 
 How to read this honestly:
 
@@ -125,7 +130,7 @@ How to read this honestly:
   not know when a label becomes known) and an event-time bound with a lag longer than the
   feed's maximum delay (an L4 hint that replay correctly clears).
 - Replay misses the real-data L5 case because that leak shows on only 2 of 17 cutoffs.
-- Full report: [results/leakage/20261104-15ab0be.md](results/leakage/20261104-15ab0be.md).
+- Full report: [results/leakage/20261104-948534a.md](results/leakage/20261104-948534a.md).
 
 ### Safety: an LLM agent with and without the guard
 
