@@ -792,6 +792,196 @@ def test_aware_logical_snapshot_time_does_not_crash(tmp_path, logical):
     assert catalog.snapshot_as_of("stats", datetime(2026, 1, 3, tzinfo=UTC)) is not None
 
 
+# --- spine per path of use, window partitions, wrappers, USING, SCD2, label filters ---------
+
+SPINE = "WITH spine AS (SELECT user_id, label_ts, churned FROM labels)"
+SPINE_EV = (
+    f"{SPINE}, ev AS (SELECT s.user_id, s.label_ts, COUNT(*) n FROM spine s "
+    "JOIN events e ON e.user_id = s.user_id AND e.ingested_at < s.label_ts GROUP BY 1, 2)"
+)
+VALID = (
+    "WITH v AS (SELECT user_id, updated_at, total_spend, LEAD(updated_at) OVER "
+    "(PARTITION BY user_id ORDER BY updated_at) AS valid_to FROM user_stats) "
+    f"{SEL}, v.total_spend FROM labels l JOIN v ON v.user_id = l.user_id "
+    "AND v.updated_at < l.label_ts AND "
+)
+BOUNDED = "FROM labels l JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts"
+
+PATH_LEAKS = {
+    "spine cte joined back on the entity only": (
+        f"{SPINE_EV} SELECT sp.user_id, sp.label_ts, sp.churned, ev.n FROM spine sp "
+        "LEFT JOIN ev ON ev.user_id = sp.user_id",
+        "L2",
+    ),
+    "spine cte joined back with USING on the entity only": (
+        f"{SPINE_EV} SELECT sp.user_id, sp.label_ts, sp.churned, ev.n FROM spine sp "
+        "LEFT JOIN ev USING (user_id)",
+        "L2",
+    ),
+    "spine cte joined back on later predictions": (
+        f"{SPINE_EV} SELECT sp.user_id, sp.label_ts, sp.churned, ev.n FROM spine sp "
+        "LEFT JOIN ev ON ev.user_id = sp.user_id AND ev.label_ts >= sp.label_ts",
+        "L1",
+    ),
+    "spine cte feature grouped by the entity only": (
+        f"{SPINE}, f AS (SELECT s.user_id, SUM(e.amount) amt FROM spine s JOIN events e "
+        "ON e.user_id = s.user_id AND e.ingested_at < s.label_ts GROUP BY s.user_id) "
+        "SELECT sp.user_id, sp.label_ts, sp.churned, f.amt FROM spine sp "
+        "JOIN f ON f.user_id = sp.user_id",
+        "L3",
+    ),
+    "future label count through the spine cte": (
+        f"{SPINE} SELECT a.user_id, a.label_ts, a.churned, (SELECT COUNT(*) FROM spine b "
+        "WHERE b.user_id = a.user_id AND b.label_ts > a.label_ts) AS n_future FROM spine a",
+        "L1",
+    ),
+    "feature cte used twice, one use not aligned": (
+        "WITH f AS (SELECT l.user_id, l.label_ts, COUNT(*) n "
+        f"{BOUNDED} GROUP BY 1, 2) {SEL}, a.n, MAX(b.n) AS mb FROM labels l "
+        "LEFT JOIN f a ON a.user_id = l.user_id AND a.label_ts = l.label_ts "
+        "LEFT JOIN f b ON b.user_id = l.user_id GROUP BY 1, 2, 3, 4",
+        "L3",
+    ),
+    "window partitioned by the entity after a bounded join": (
+        f"SELECT DISTINCT l.user_id, l.label_ts, l.churned, SUM(e.amount) OVER "
+        f"(PARTITION BY l.user_id) AS tot {BOUNDED}",
+        "L3",
+    ),
+    "window partitioned by the entity inside a feature cte": (
+        "WITH x AS (SELECT l.user_id, l.label_ts, AVG(s.total_spend) OVER "
+        "(PARTITION BY l.user_id) a FROM labels l JOIN user_stats s ON s.user_id = l.user_id "
+        f"AND s.updated_at < l.label_ts) {SEL}, MAX(x.a) AS a FROM labels l JOIN x "
+        "ON x.user_id = l.user_id AND x.label_ts = l.label_ts GROUP BY 1, 2, 3",
+        "L3",
+    ),
+    "latest event by id": (
+        "WITH last AS (SELECT * FROM events QUALIFY ROW_NUMBER() OVER "
+        f"(PARTITION BY user_id ORDER BY event_id DESC) = 1) {SEL}, last.amount "
+        "FROM labels l LEFT JOIN last ON last.user_id = l.user_id "
+        "AND last.ingested_at < l.label_ts",
+        "L1",
+    ),
+    "rank by value before the bound": (
+        "WITH best AS (SELECT * FROM user_stats QUALIFY RANK() OVER "
+        f"(PARTITION BY user_id ORDER BY total_spend DESC) = 1) {SEL}, b.total_spend "
+        "FROM labels l LEFT JOIN best b ON b.user_id = l.user_id AND b.updated_at < l.label_ts",
+        "L1",
+    ),
+    "running max ordered by a value": (
+        windowed("MAX(n_orders) OVER (PARTITION BY user_id ORDER BY total_spend)"),
+        "L1",
+    ),
+    "ordered by a value over bounded rows that mix predictions": (
+        f"{SEL}, MAX(s.n_orders) OVER (PARTITION BY l.user_id ORDER BY s.total_spend) AS m "
+        "FROM labels l JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l.label_ts",
+        "L1",
+    ),
+    "predicate mixing the label with a feature choosing rows": (
+        f"{SEL}, e.amount {BOUNDED} WHERE (l.churned = 1 AND e.amount > 100) "
+        "OR (l.churned = 0 AND e.amount <= 100)",
+        "L6",
+    ),
+    "predicate comparing a feature with the label": (
+        f"{FEAT} WHERE s.n_orders > l.churned",
+        "L6",
+    ),
+    "label filter in a feature cte": (
+        f"WITH k AS (SELECT user_id, COUNT(*) n FROM labels WHERE churned = 1 GROUP BY 1) "
+        f"{SEL}, k.n FROM labels l LEFT JOIN k ON k.user_id = l.user_id",
+        "L6",
+    ),
+    "validity end compared inside a value expression": (
+        VALID + "(v.valid_to IS NULL OR CAST(v.valid_to AS DATE) >= l.label_ts)",
+        "L1",
+    ),
+}
+
+
+@pytest.mark.parametrize("sql, rule", PATH_LEAKS.values(), ids=PATH_LEAKS.keys())
+def test_path_and_window_leaks_are_flagged(sql, rule):
+    result, rules = verdict(sql)
+    assert result == "leaky" and rule in rules, (result, rules)
+
+
+PATH_CLEAN = {
+    "spine cte joined back on key and prediction time": f"{SPINE_EV} SELECT sp.user_id, "
+    "sp.label_ts, sp.churned, ev.n FROM spine sp LEFT JOIN ev "
+    "ON ev.user_id = sp.user_id AND ev.label_ts = sp.label_ts",
+    "spine cte joined back with USING on key and time": f"{SPINE_EV} SELECT user_id, label_ts, "
+    "churned, ev.n FROM spine sp LEFT JOIN ev USING (user_id, label_ts)",
+    "spine cte reused with both uses aligned": f"{SPINE_EV} SELECT sp.user_id, sp.label_ts, "
+    "sp.churned, a.n, b.n AS again FROM spine sp "
+    "LEFT JOIN ev a ON a.user_id = sp.user_id AND a.label_ts = sp.label_ts "
+    "LEFT JOIN ev b ON b.user_id = sp.user_id AND b.label_ts = sp.label_ts",
+    "earlier-label count through the spine cte": f"{SPINE} SELECT a.user_id, a.label_ts, "
+    "a.churned, (SELECT COUNT(*) FROM spine b WHERE b.user_id = a.user_id "
+    "AND b.label_ts < a.label_ts) AS n_prior FROM spine a",
+    "window partitioned by the prediction": f"SELECT DISTINCT l.user_id, l.label_ts, l.churned, "
+    f"SUM(e.amount) OVER (PARTITION BY l.user_id, l.label_ts) AS tot {BOUNDED}",
+    "window per outer row in a lateral": f"{SEL}, t.latest FROM labels l LEFT JOIN LATERAL "
+    "(SELECT RANK() OVER (ORDER BY s.total_spend DESC) AS rk, s.total_spend AS latest "
+    "FROM user_stats s WHERE s.user_id = l.user_id AND s.updated_at < l.label_ts "
+    "QUALIFY rk = 1) t ON TRUE",
+    "value-ordered rank over rows bounded for the prediction": f"{SEL}, s.total_spend "
+    "FROM labels l JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l.label_ts "
+    "QUALIFY RANK() OVER (PARTITION BY l.user_id, l.label_ts ORDER BY s.total_spend DESC) = 1",
+    "ascending running window over the table's own time": windowed(
+        "SUM(total_spend) OVER (PARTITION BY user_id ORDER BY updated_at)"
+    ),
+    "ascending window over a truncated time": "WITH daily AS (SELECT user_id, "
+    "CAST(updated_at AS DATE) AS d, MAX(total_spend) AS sp FROM user_stats GROUP BY 1, 2), "
+    "roll AS (SELECT user_id, d, AVG(sp) OVER (PARTITION BY user_id ORDER BY d "
+    "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS sp7 FROM daily) "
+    f"{SEL}, r.sp7 FROM labels l ASOF JOIN roll r ON r.user_id = l.user_id "
+    "AND r.d < CAST(l.label_ts AS DATE)",
+    "final cte wrapper with grouping": f"WITH final AS ({SEL}, SUM(e.amount) amt {BOUNDED} "
+    "GROUP BY 1, 2, 3) SELECT * FROM final",
+    "final cte wrapper with an explicit label group": f"WITH final AS ({SEL}, SUM(e.amount) "
+    f"amt {BOUNDED} GROUP BY l.user_id, l.label_ts, l.churned) SELECT * FROM final",
+    "final cte wrapper filtering the label": f"WITH base AS ({SEL}, s.total_spend FROM labels l "
+    f"{STATS} WHERE l.churned IN (0, 1)) SELECT b.* FROM base b",
+    "final cte wrapper ordering by the label": f"WITH final AS ({FEAT}) SELECT * FROM final "
+    "ORDER BY churned",
+    "final derived table with a label filter": f"SELECT f.* FROM ({SEL}, s.total_spend FROM "
+    f"labels l {STATS} WHERE l.churned IS NOT NULL) f",
+    "label filter beside a feature filter": f"{FEAT} WHERE l.churned IS NOT NULL "
+    "AND l.label_ts >= TIMESTAMP '2026-01-01' AND s.n_orders > 0",
+    "unqualified columns after USING": "WITH f AS (SELECT l.user_id, l.label_ts, COUNT(*) n "
+    f"{BOUNDED} GROUP BY 1, 2) SELECT user_id, label_ts, churned, f.n FROM labels "
+    "LEFT JOIN f USING (user_id, label_ts)",
+    "unqualified columns after an inner USING": "WITH f AS (SELECT l.user_id, l.label_ts, "
+    f"COUNT(*) n {BOUNDED} GROUP BY 1, 2) SELECT user_id, label_ts, churned, f.n FROM labels "
+    "JOIN f USING (user_id, label_ts)",
+    "unqualified columns after USING on a spine cte": f"{SPINE_EV} SELECT user_id, label_ts, "
+    "churned, ev.n FROM spine LEFT JOIN ev USING (user_id, label_ts)",
+    "unqualified columns after a natural join": f"{SPINE_EV} SELECT user_id, label_ts, churned, "
+    "ev.n FROM spine NATURAL LEFT JOIN ev",
+    "validity end defaulted with a sentinel": VALID
+    + "l.label_ts <= COALESCE(v.valid_to, TIMESTAMP '9999-12-31')",
+    "validity end defaulted, strict": VALID
+    + "l.label_ts < COALESCE(v.valid_to, TIMESTAMP '9999-12-31')",
+    "validity end defaulted, reversed": VALID
+    + "COALESCE(v.valid_to, TIMESTAMP '9999-12-31') > l.label_ts",
+    "prior-prediction gap": f"{SEL}, date_diff('hour', LAG(l.label_ts) OVER (PARTITION BY "
+    "l.user_id ORDER BY l.label_ts), l.label_ts) AS gap FROM labels l",
+    "first prediction of the entity": f"{FEAT} QUALIFY ROW_NUMBER() OVER (PARTITION BY "
+    "l.user_id ORDER BY l.label_ts) = 1",
+}
+
+
+@pytest.mark.parametrize("sql", PATH_CLEAN.values(), ids=PATH_CLEAN.keys())
+def test_path_wrapper_and_using_shapes_stay_clean(sql):
+    assert verdict(sql) == ("clean", set())
+
+
+def test_cutoff_subqueries_over_the_label_table_are_a_documented_limitation():
+    """Time splits must use a literal cutoff: both detectors flag one computed from the labels."""
+    computed = f"{FEAT} WHERE l.label_ts < (SELECT MAX(label_ts) FROM labels)"
+    literal = f"{FEAT} WHERE l.label_ts < TIMESTAMP '2026-01-20'"
+    assert verdict(computed)[0] == "leaky"
+    assert verdict(literal) == ("clean", set())
+
+
 @pytest.fixture(scope="module")
 def prior_labels_replayer(bench_world):
     return bench_world[1]
