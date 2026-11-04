@@ -363,8 +363,8 @@ def _review_url(value: str | None) -> str | None:
     try:
         parts = urlsplit(text)
         port = parts.port
-    except ValueError as err:
-        raise ConfigError(f"--review-url is not a valid URL: {err}") from err
+    except ValueError:  # the exception text can quote the value, which may hold the secret path
+        raise ConfigError("--review-url is not a valid address; use scheme://host:port") from None
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ConfigError("--review-url must be an http(s) URL such as http://127.0.0.1:8765")
     if parts.hostname.lower() not in _LOOPBACK_HOSTS:

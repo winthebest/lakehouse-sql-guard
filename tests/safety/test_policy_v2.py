@@ -164,6 +164,21 @@ def test_an_explicit_default_environment_wins_and_is_part_of_the_digest(v2: Poli
         Policy.from_dict({"default_environment": 3})
 
 
+def test_default_environment_is_in_the_digest_even_before_any_environment_is_listed() -> None:
+    plain = Policy()
+    assert Policy.from_dict({"default_environment": "dev"}).digest != plain.digest
+    assert Policy.from_dict({"default_environment": "prod"}).digest != plain.digest
+    dev = Policy.from_dict({"default_environment": "dev"})
+    prod = Policy.from_dict({"default_environment": "prod"})
+    assert dev.digest != prod.digest  # switching it makes waiting actions stale
+    # and a policy that sets neither keeps the digest it always had
+    assert Policy.from_dict({}).digest == plain.digest
+
+
+def test_the_v1_policy_digest_is_the_one_it_had_before_policy_v2() -> None:
+    assert Policy.load(V1).digest.startswith("281d22bd")
+
+
 def test_environment_names_are_matched_case_insensitively() -> None:
     policy = Policy.from_dict({"environments": {"Prod": "PROD", " db ": "Dev"}})
     assert policy.environments == {"prod": "prod", "db": "dev"}

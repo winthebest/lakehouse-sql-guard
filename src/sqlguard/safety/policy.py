@@ -186,6 +186,9 @@ class Policy:
         # only when set, so a policy without them keeps the digest it always had
         if self.environments:
             canonical["environments"] = dict(sorted(self.environments.items()))
+        if self.environments or self.default_environment is not None:
+            # also alone: it decides every namespace once environments are added, and a waiting
+            # action must go stale when it is switched
             canonical["default_environment"] = self.effective_default_environment
         if self.require_table_key:
             canonical["require_table_key"] = True

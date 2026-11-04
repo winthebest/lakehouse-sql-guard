@@ -700,6 +700,24 @@ def test_a_review_url_with_a_path_is_refused_and_the_secret_is_not_echoed(
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        f"http://127.0.0.1:{SECRET_PREFIX}/s/{SECRET_PREFIX}",
+        f"http://[{SECRET_PREFIX}/s/{SECRET_PREFIX}",
+        f"http://127.0.0.1:99999/s/{SECRET_PREFIX}",
+        f"http://127.0.0.1:-1/{SECRET_PREFIX}",
+    ],
+)
+def test_a_malformed_review_url_error_does_not_quote_the_value(
+    url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        build_config(["--warehouse", "/w", "--review-url", url], {})
+    err = capsys.readouterr().err
+    assert "--review-url" in err and SECRET_PREFIX not in err
+
+
+@pytest.mark.parametrize(
     ("given", "kept"),
     [
         ("http://127.0.0.1:8765", "http://127.0.0.1:8765"),
