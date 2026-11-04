@@ -1,0 +1,127 @@
+"""Render SQL templates into labeled leakage cases.
+
+Template format (`templates/<split>/<template_id>.sql`):
+
+    -- leak: clean | L1 | ... | L6
+    -- param <name>: value | value | ...      (zero or more lines)
+    <SQL with {name} placeholders>
+
+Every combination of parameter values becomes one case. Splits are by template, so the
+held-out split only contains templates the rules were never tuned on.
+
+Usage: python -m bench.leakage.cases --seed 42 --split dev --out bench/leakage/cases.jsonl
+"""
+
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import random
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6")
+_HEADER = re.compile(r"^--\s*(leak|param\s+(\w+))\s*:\s*(.*)$")
+
+
+@dataclass(frozen=True)
+class Template:
+    template_id: str
+    split: str
+    leak_type: str
+    params: dict[str, list[str]]
+    body: str
+
+
+@dataclass(frozen=True)
+class LeakCase:
+    case_id: str
+    template_id: str
+    split: str
+    label: str  # "clean" | "leaky"
+    leak_type: str  # "clean" | "L1".."L6"
+    params: dict[str, str]
+    sql: str
+
+    @property
+    def is_leaky(self) -> bool:
+        return self.label == "leaky"
+
+
+def load_template(path: Path, split: str) -> Template:
+    leak_type, params, body = None, {}, []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = _HEADER.match(line.strip())
+        if match and not body:
+            if match.group(1) == "leak":
+                leak_type = match.group(3).strip()
+            else:
+                params[match.group(2)] = [v.strip() for v in match.group(3).split("|")]
+        else:
+            body.append(line)
+    if leak_type not in LEAK_TYPES:
+        raise ValueError(f"{path}: missing or invalid '-- leak:' header ({leak_type!r})")
+    return Template(path.stem, split, leak_type, params, "\n".join(body).strip())
+
+
+def load_templates(split: str, root: Path = TEMPLATES_DIR) -> list[Template]:
+    return [load_template(p, split) for p in sorted((root / split).glob("*.sql"))]
+
+
+def render(template: Template) -> list[LeakCase]:
+    names = sorted(template.params)
+    combos = itertools.product(*(template.params[n] for n in names)) if names else [()]
+    cases = []
+    for index, values in enumerate(combos):
+        binding = dict(zip(names, values, strict=True))
+        cases.append(
+            LeakCase(
+                case_id=f"{template.template_id}-{index:03d}",
+                template_id=template.template_id,
+                split=template.split,
+                label="clean" if template.leak_type == "clean" else "leaky",
+                leak_type=template.leak_type,
+                params=binding,
+                sql=template.body.format(**binding),
+            )
+        )
+    return cases
+
+
+def generate_cases(seed: int = 42, splits: tuple[str, ...] = ("dev",)) -> list[LeakCase]:
+    """All cases for `splits`, shuffled deterministically by `seed`."""
+    cases = [case for split in splits for t in load_templates(split) for case in render(t)]
+    random.Random(seed).shuffle(cases)
+    return cases
+
+
+def write_jsonl(cases: list[LeakCase], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        for case in cases:
+            handle.write(json.dumps(asdict(case), sort_keys=True) + "\n")
+
+
+def read_jsonl(path: Path) -> list[LeakCase]:
+    with open(path, encoding="utf-8") as handle:
+        return [LeakCase(**json.loads(line)) for line in handle if line.strip()]
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
+    parser.add_argument("--out", type=Path, default=Path("bench/leakage/cases.jsonl"))
+    args = parser.parse_args(argv)
+    splits = ("dev", "holdout") if args.split == "all" else (args.split,)
+    cases = generate_cases(args.seed, splits)
+    write_jsonl(cases, args.out)
+    counts = {t: sum(c.leak_type == t for c in cases) for t in LEAK_TYPES}
+    print(f"wrote {len(cases)} cases to {args.out}: {counts}")
+
+
+if __name__ == "__main__":
+    main()

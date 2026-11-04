@@ -41,4 +41,4 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = ["spark: requires the Docker Spark/Iceberg stack", "network: downloads public data"]
-addopts = "-m 'not spark and not network'"
+addopts = "--import-mode=importlib -m 'not spark and not network'"

@@ -6,6 +6,7 @@ Only this module and the safety executor talk to PyIceberg directly.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow as pa
@@ -30,6 +31,10 @@ from pyiceberg.types import (
 from sqlguard.core.lineage import Schema
 
 DEFAULT_NAMESPACE = "db"
+
+# Optional snapshot-summary property holding the *logical* time a snapshot became visible
+# (ISO-8601). Simulated histories set it; real tables fall back to the commit timestamp.
+LOGICAL_TS_PROPERTY = "sqlguard.logical-ts"
 
 _SQL_TYPES: dict[type[IcebergType], str] = {
     BooleanType: "BOOLEAN",
@@ -57,6 +62,7 @@ class SnapshotInfo:
     parent_id: int | None
     timestamp_ms: int
     operation: str
+    visible_at: datetime  # logical time if recorded, else commit time (naive UTC)
 
 
 class LakehouseCatalog:
@@ -99,20 +105,51 @@ class LakehouseCatalog:
 
     def create_table(self, table: str, data: pa.Table) -> Table:
         """Create a table from an Arrow schema and write `data` as its first snapshot."""
-        iceberg_table = self.catalog.create_table(self.identifier(table), schema=data.schema)
+        iceberg_table = self.create_empty(table, data.schema)
         iceberg_table.append(data)
         return self.table(table)
 
+    def create_empty(self, table: str, schema: pa.Schema) -> Table:
+        return self.catalog.create_table(self.identifier(table), schema=schema)
+
     def snapshots(self, table: str) -> list[SnapshotInfo]:
-        return [
-            SnapshotInfo(
-                snapshot_id=s.snapshot_id,
-                parent_id=s.parent_snapshot_id,
-                timestamp_ms=s.timestamp_ms,
-                operation=str(s.summary.operation.value) if s.summary else "unknown",
+        """Snapshots in commit order."""
+        infos = []
+        for s in self.table(table).snapshots():
+            committed = datetime.fromtimestamp(s.timestamp_ms / 1000, tz=UTC).replace(tzinfo=None)
+            logical = (
+                s.summary.additional_properties.get(LOGICAL_TS_PROPERTY) if s.summary else None
             )
-            for s in self.table(table).snapshots()
-        ]
+            infos.append(
+                SnapshotInfo(
+                    snapshot_id=s.snapshot_id,
+                    parent_id=s.parent_snapshot_id,
+                    timestamp_ms=s.timestamp_ms,
+                    operation=str(s.summary.operation.value) if s.summary else "unknown",
+                    visible_at=datetime.fromisoformat(logical) if logical else committed,
+                )
+            )
+        return infos
+
+    def snapshot_as_of(self, table: str, ts: datetime) -> int | None:
+        """Latest snapshot visible at `ts` (None if the table did not exist yet).
+
+        Follows the main-branch lineage so rolled-back or branch-only snapshots are ignored.
+        """
+        main_lineage = self._main_lineage(table)
+        candidates = [s for s in self.snapshots(table) if s.snapshot_id in main_lineage]
+        visible = [s for s in candidates if s.visible_at <= ts]
+        return visible[-1].snapshot_id if visible else None
+
+    def _main_lineage(self, table: str) -> set[int]:
+        iceberg_table = self.table(table)
+        current = iceberg_table.current_snapshot()
+        lineage: set[int] = set()
+        while current is not None:
+            lineage.add(current.snapshot_id)
+            parent = current.parent_snapshot_id
+            current = iceberg_table.snapshot_by_id(parent) if parent is not None else None
+        return lineage
 
     def refs(self, table: str) -> dict[str, int]:
         return {name: ref.snapshot_id for name, ref in self.table(table).refs().items()}
