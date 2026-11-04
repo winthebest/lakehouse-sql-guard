@@ -690,22 +690,49 @@ class ActionStore:
             conn.close()
         return [_record(r) for r in rows]
 
-    def count_pending(self) -> int:
+    def count_pending(self, requester: str | None = None) -> int:
+        """Pending actions, optionally only those that `requester` submitted."""
+        where, params = "", []
+        if requester is not None:
+            where, params = " AND requester = ?", [requester]
         conn = self._open()
         try:
             return int(
-                conn.execute("SELECT count(*) FROM actions WHERE state = 'pending'").fetchone()[0]
+                conn.execute(
+                    f"SELECT count(*) FROM actions WHERE state = 'pending'{where}", params
+                ).fetchone()[0]
             )
         finally:
             conn.close()
 
     def live_branches(self) -> set[str]:
-        """Branch names of actions that are not finished (their branches must not be swept)."""
+        """Branch names that must not be swept: unfinished actions', and those of
+        `needs_attention` actions, whose branch is what a person was asked to inspect."""
         conn = self._open()
         try:
             rows = conn.execute(
                 "SELECT branch FROM actions WHERE branch IS NOT NULL "
-                "AND state IN ('pending', 'publishing')"
+                "AND state IN ('pending', 'publishing', 'needs_attention')"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r[0] for r in rows}
+
+    def action_tables(
+        self, *, catalog_name: str | None = None, engine: str | None = None
+    ) -> set[str]:
+        """Tables that any action (finished or not) was ever queued for."""
+        scope, params = "", []
+        if catalog_name is not None:
+            scope += " AND catalog_name = ?"
+            params.append(catalog_name)
+        if engine is not None:
+            scope += " AND engine = ?"
+            params.append(engine)
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                f'SELECT DISTINCT "table" FROM actions WHERE 1 = 1{scope}', params
             ).fetchall()
         finally:
             conn.close()

@@ -1,0 +1,60 @@
+{% macro rows(items, empty) %}
+{% if items %}
+<table class="grid">
+  <thead><tr><th>Action</th><th>State</th><th>Table</th><th>Change</th><th>Requester</th><th>Deadline</th><th></th></tr></thead>
+  <tbody>
+  {% for row in items %}
+    <tr class="state-{{ row.record.state.value }}">
+      <td><a href="{{ base }}/a/{{ row.record.id }}"><code>{{ row.record.id | short(8) }}</code></a>
+          <small>{{ row.record.kind }}</small></td>
+      <td><span class="pill {{ row.record.state.value }}">{{ row.record.state.value }}</span></td>
+      <td>{{ row.record.table }}</td>
+      <td>{% if row.counts %}<code>{{ row.counts.text }}</code>{% else %}<small>see action</small>{% endif %}</td>
+      <td>{{ row.record.requester }}</td>
+      <td>{{ row.record.expires_at | ts }}</td>
+      <td>{% for warning in row.warnings %}<small class="warn-text">{{ warning }}</small>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">{{ empty }}</p>
+{% endif %}
+{% endmacro %}
+
+{% if view.attention %}
+<section class="attention" role="alert">
+  <h2>{{ view.attention | length }} action{{ "s" if view.attention | length != 1 else "" }} need attention</h2>
+  <p>{{ view.attention_help }}</p>
+  {{ rows(view.attention, "") }}
+</section>
+{% endif %}
+
+<section>
+  <h2>Waiting for a decision <span class="count">{{ view.pending | length }}</span></h2>
+  {{ rows(view.pending, "Nothing is waiting.") }}
+</section>
+
+{% if view.publishing %}
+<section>
+  <h2>Publishing <span class="count">{{ view.publishing | length }}</span></h2>
+  {{ rows(view.publishing, "") }}
+</section>
+{% endif %}
+
+<section>
+  <h2>Recently finished</h2>
+  {{ rows(view.finished, "Nothing finished yet.") }}
+</section>
+
+<p class="muted housekeeping">
+  {% if view.housekeeping.last_run %}
+    Housekeeping last ran {{ view.housekeeping.last_run | ts }}:
+    {{ view.housekeeping.settled }} settled, {{ view.housekeeping.expired }} expired.
+    {% if view.housekeeping.last_error %}
+      <span class="warn-text">It failed ({{ view.housekeeping.last_error }}); see the server log.</span>
+    {% endif %}
+  {% else %}
+    Housekeeping has not run yet.
+  {% endif %}
+</p>

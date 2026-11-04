@@ -3,6 +3,8 @@
     sqlguard leakage check queries/ --spec spec.yaml [--warehouse DIR | --catalog NAME]
         [--replay] [--json]
     sqlguard safety check "DELETE FROM orders" --policy policy.yaml --scope db.orders [--json]
+    sqlguard approvals list|show|approve|reject ... --store actions.db   (see `approvals --help`)
+    sqlguard serve --store actions.db --warehouse DIR [--port 8765]      (local approval web UI)
 
 Exit codes: 0 = clean / allowed, 1 = leaky or not allowed, 2 = usage or input error.
 
