@@ -41,8 +41,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import socket
+import threading
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -76,9 +80,11 @@ from sqlguard.safety.impact import (
     DiffLimits,
     ImpactReport,
     RowDiff,
+    check_against_impact,
+    check_size,
     compute_row_diff,
     compute_table_impact,
-    statement_filter,
+    row_diff,
     table_key,
 )
 from sqlguard.safety.invariants import (
@@ -269,7 +275,16 @@ class ProofVerifier(Protocol):
 
 _DECISIONS = ("approve", "reject")
 DEFAULT_PENDING_TTL = timedelta(hours=24)
-DEFAULT_RECONCILE_GRACE = timedelta(minutes=2)
+DEFAULT_LEASE = timedelta(minutes=5)
+DEFAULT_RECONCILE_GRACE = timedelta(0)
+DEFAULT_MAX_PENDING = 50
+ORPHAN_BRANCH_MARGIN = timedelta(hours=1)
+_ACTIVE_OWNERS: set[str] = set()  # owners of publishes running in this process right now
+_ACTIVE_LOCK = threading.Lock()
+
+
+class _LeaseLost(RuntimeError):
+    """Another process took over the action while this one was about to publish it."""
 
 
 @dataclass(frozen=True)
@@ -312,6 +327,8 @@ class _Run:
     keep_branch: bool = False  # the branch belongs to a pending action; do not drop it
     requester: str = ""
     claimed: bool = False  # the pending action has been moved to publishing
+    owner: str | None = None  # who holds the publishing action (see `Guard.resolve`)
+    before_commit: Callable[[], None] | None = None  # called right before the commit
     maintenance_plan: MaintenancePlan | None = None  # verified at approval, applied right after
 
     def set_decision(self, decided: PolicyDecision) -> None:
@@ -375,7 +392,12 @@ class Guard:
         pending_ttl: how long a pending action may wait before it expires.
         requester: label recorded for submissions that do not name one.
         diff_limits: row and byte caps for the row diff shown to an approver. A table above them
-            cannot be queued for approval (a diff nobody can read is not a review).
+            cannot be queued for approval (a diff nobody can read is not a review). They bound
+            the diff and what is listed, not the adapter, which loads both snapshots to rehearse.
+        lease: how long a `resolve` that is publishing may go without renewing its hold on the
+            action before `reconcile` may act on it. A heartbeat renews it while publishing.
+        max_pending: queue size; with this many actions pending, further ones are refused. The
+            requester label is supplied by the caller, so the cap is global, not per requester.
 
     Audit trail: a "started" record is written before the first side effect (branch creation or
     maintenance) and a "completed" record afterwards; both share one `id`. If the completion
@@ -398,6 +420,8 @@ class Guard:
         pending_ttl: timedelta = DEFAULT_PENDING_TTL,
         requester: str = "agent",
         diff_limits: DiffLimits | None = None,
+        lease: timedelta = DEFAULT_LEASE,
+        max_pending: int = DEFAULT_MAX_PENDING,
     ) -> None:
         self.catalog = catalog
         self.policy = policy or Policy()
@@ -413,6 +437,8 @@ class Guard:
         self.pending_ttl = pending_ttl
         self.requester = requester
         self.diff_limits = diff_limits or DiffLimits()
+        self.lease = lease
+        self.max_pending = max_pending
 
     @property
     def _capabilities(self) -> Capabilities:
@@ -494,6 +520,13 @@ class Guard:
         queue = self.store is not None and (
             maintenance is not None or classification.klass is not C.READ
         )
+        if (
+            queue
+            and decided.decision is Decision.ASK
+            and approver is None
+            and self._pending_full(run)
+        ):
+            return
         if decided.decision is Decision.ASK and approver is None and not queue:
             if maintenance is not None:
                 self._preview(run, maintenance)
@@ -623,6 +656,8 @@ class Guard:
     ) -> None:
         run.before[table] = self.adapter.current_snapshot_id(table)
         self._intent(run)
+        if run.before_commit is not None:
+            run.before_commit()
         result = self.adapter.apply_maintenance(maintenance, plan)
         run.executed = True
         run.after[table] = result.snapshot_after
@@ -734,7 +769,7 @@ class Guard:
             return
         if measured.decision is Decision.ASK:
             if approver is None and self.store is not None:
-                self._queue_write(run, diff.branch, table, report, key)
+                self._queue_write(run, diff, table, report)
                 return
             if not self._approved(run, approver, self._request(run, measured, impact=report)):
                 return
@@ -751,6 +786,8 @@ class Guard:
         key: Sequence[str],
     ) -> None:
         try:
+            if run.before_commit is not None:
+                run.before_commit()
             published = self.adapter.publish(recorded, recorded.head)
         except BranchDiverged as err:
             run.decision = Decision.ASK
@@ -834,17 +871,42 @@ class Guard:
             }
         )
 
-    def _row_diff(self, table: str, base: int, head: int, sql: str, dialect: str) -> RowDiff:
+    def _table_key(self, table: str):
         iceberg = self.catalog.table(table)
-        key = table_key(iceberg, self.policy.invariants.for_table(table).unique_key)
-        return compute_row_diff(
-            iceberg,
-            base,
-            head,
-            key=key,
-            row_filter=statement_filter(sql, dialect, iceberg.schema()),
-            limits=self.diff_limits,
+        return iceberg, table_key(iceberg, self.policy.invariants.for_table(table).unique_key)
+
+    def _diff_report(self, table: str, diff: Any) -> RowDiff:
+        """The row diff of a rehearsal, from the full base and head the adapter loaded.
+
+        Nothing narrows the comparison, and it must account for exactly what the impact measured;
+        otherwise (or above the size caps) it raises DiffError and the action is not offered.
+        """
+        iceberg, key = self._table_key(table)
+        check_size(diff.before, diff.after, self.diff_limits)
+        rows = row_diff(
+            diff.before,
+            diff.after,
+            key.columns,
+            table=".".join(iceberg.name()),
+            base_snapshot_id=diff.branch.base_snapshot_id,
+            head_snapshot_id=diff.branch.head,
+            key_source=key.source,
+            display_rows=self.diff_limits.display_rows,
         )
+        check_against_impact(rows, diff.impact)
+        return rows
+
+    def _pending_full(self, run: _Run) -> bool:
+        """True (after finishing `run`) when the queue is at its limit."""
+        store = self.store
+        if store is None or store.count_pending() < self.max_pending:
+            return False
+        run.decision = Decision.DENY
+        run.finish(
+            Outcome.DENIED,
+            f"too many actions are waiting for approval ({self.max_pending}); decide some first",
+        )
+        return True
 
     def _seal(self, run: _Run, **fields: Any) -> ActionRecord:
         """A pending record for `run`, with the hash that an approval will be bound to."""
@@ -879,23 +941,18 @@ class Guard:
             f"it expires {record.expires_at.isoformat()}",
         )
 
-    def _queue_write(
-        self,
-        run: _Run,
-        recorded: BranchHandle,
-        table: str,
-        report: ImpactReport,
-        key: Sequence[str],
-    ) -> None:
+    def _queue_write(self, run: _Run, diff: Any, table: str, report: ImpactReport) -> None:
         """Save a rehearsed write as a pending action and keep its branch for `resolve`."""
         store, action = self.store, run.action
         if store is None or not isinstance(action, SqlAction):
             raise RuntimeError("only SQL writes with a store can be queued here")
+        if self._pending_full(run):
+            return
+        recorded: BranchHandle = diff.branch
         normalized = normalize_sql(action)
+        redacted = redact_sql(action.sql, action.dialect)
         try:
-            rows = self._row_diff(
-                table, recorded.base_snapshot_id, recorded.head, normalized, action.dialect
-            )
+            rows = self._diff_report(table, diff)
         except DiffError as err:  # includes DiffTooLarge: a diff nobody can read is not a review
             run.decision = Decision.DENY
             run.finish(Outcome.DENIED, f"cannot be queued for approval: {err}")
@@ -905,8 +962,10 @@ class Guard:
             kind="sql",
             dialect=action.dialect,
             sql_normalized=normalized,
-            sql_redacted=redact_sql(action.sql, action.dialect),
-            sql_sha256=sha256_hex(action.sql),
+            sql_redacted=redacted,
+            sql_sha256=sha256_hex(
+                redacted
+            ),  # of the redacted text: a raw hash would confirm guesses
             maintenance_json=None,
             table=table,
             base_snapshot_id=recorded.base_snapshot_id,
@@ -934,6 +993,8 @@ class Guard:
         store = self.store
         if store is None:
             raise RuntimeError("no action store")
+        if self._pending_full(run):
+            return
         encoded = encode_action(maintenance)
         summary = {k: v for k, v in plan.to_dict().items() if k != "orphan_files"}
         record = self._seal(
@@ -1021,6 +1082,9 @@ class Guard:
             self._resolve(run, record, decision, proof, label)
         except (AuditError, PendingActionError):
             raise
+        except _LeaseLost as err:  # someone else owns the action now: touch nothing
+            run.error = _clip(str(err))
+            run.finish(Outcome.ERROR, run.error, "nothing was published by this call")
         except ExecutionError as err:
             run.error = _clip(str(err))
             run.finish(Outcome.EXECUTION_FAILED, run.error)
@@ -1071,24 +1135,28 @@ class Guard:
                 run, record, ActionState.STALE, Outcome.STALE, now, label, reasons=problems
             )
             return
-        self._claim(run, record, ActionState.PUBLISHING, proof, label, now)
-        run.approval = "approved"
-        run.claimed = True
-        if prepared is None:  # maintenance
-            maintenance, plan = self._prepared_maintenance(run)
-            self._apply_maintenance(run, maintenance, record.table, plan)
-        else:
-            run.before[record.table] = record.base_snapshot_id
-            self._intent(run)
-            run.executed = True
-            self._publish_and_verify(
-                run,
-                prepared.diff.branch,
-                record.table,
-                prepared.diff.before,
-                prepared.invariants,
-                prepared.key,
-            )
+        run.owner = _new_owner()
+        with _holding(run.owner):
+            self._claim(run, record, ActionState.PUBLISHING, proof, label, now)
+            run.approval = "approved"
+            run.claimed = True
+            run.before_commit = self._renew_or_abort(record.id, run.owner)
+            with self._heartbeat(record.id, run.owner):
+                if prepared is None:  # maintenance
+                    maintenance, plan = self._prepared_maintenance(run)
+                    self._apply_maintenance(run, maintenance, record.table, plan)
+                else:
+                    run.before[record.table] = record.base_snapshot_id
+                    self._intent(run)
+                    run.executed = True
+                    self._publish_and_verify(
+                        run,
+                        prepared.diff.branch,
+                        record.table,
+                        prepared.diff.before,
+                        prepared.invariants,
+                        prepared.key,
+                    )
         if run.outcome is Outcome.REFUSED_DIVERGED:  # main moved during the publish: just stale
             run.outcome = Outcome.STALE
         state = _STATE_OF_OUTCOME.get(run.outcome)
@@ -1120,6 +1188,8 @@ class Guard:
                 outcome={"outcome": Outcome.REJECTED.value}
                 if new is ActionState.REJECTED
                 else None,
+                owner=run.owner,
+                lease_until=now + self.lease,
             )
         except ProofReplayed as err:
             raise ProofRejected("this proof was already used") from err
@@ -1163,17 +1233,29 @@ class Guard:
             "audit_id": run.audit_id,
         }
         if not store.transition(
-            record.id, ActionState.PUBLISHING, state, now=self._clock(), outcome=summary
+            record.id,
+            ActionState.PUBLISHING,
+            state,
+            now=self._clock(),
+            outcome=summary,
+            owner=run.owner,
         ):
             run.reasons.append("another process already settled this action")
 
-    def _drop_kept_branch(self, run: _Run, record: ActionRecord) -> None:
-        """Drop a pending action's audit branch. Only branches this Guard names are ever dropped."""
+    def _drop_kept_branch(self, run: _Run, record: ActionRecord) -> bool:
+        """Drop a finished action's audit branch; True once it is gone (or must stay untouched).
+
+        Only branches this Guard names are ever dropped. A failed drop leaves the row marked
+        `drop_pending`, and `expire_pending` / `reconcile` try again.
+        """
+        store = self.store
         if record.branch is None or record.base_snapshot_id is None:
-            return
+            return True
         if not record.branch.startswith(AUDIT_BRANCH_PREFIX):
             run.reasons.append(f"branch {record.branch} is not an audit branch; left alone")
-            return
+            if store is not None:
+                store.mark_dropped(record.id)
+            return True
         try:
             self.adapter.drop_branch(
                 BranchHandle(
@@ -1181,7 +1263,47 @@ class Guard:
                 )
             )
         except Exception as err:  # cleanup must not mask the real outcome
-            run.reasons.append(f"audit branch {record.branch} could not be dropped: {err}")
+            run.reasons.append(
+                f"audit branch {record.branch} could not be dropped (it will be retried): {err}"
+            )
+            return False
+        if store is not None:
+            store.mark_dropped(record.id)
+        return True
+
+    @contextmanager
+    def _heartbeat(self, action_id: str, owner: str) -> Iterator[None]:
+        """Keep renewing the lease on a publishing action while the caller works."""
+        store = self.store
+        stop = threading.Event()
+
+        def beat() -> None:
+            while not stop.wait(max(self.lease.total_seconds() / 3, 0.05)):
+                try:
+                    if store is None or not store.renew_lease(
+                        action_id, owner, self._clock() + self.lease
+                    ):
+                        return
+                except Exception:  # noqa: BLE001 - the next beat or the pre-commit check decides
+                    _log.warning("could not renew the lease on action %s", action_id)
+
+        thread = threading.Thread(target=beat, name=f"sqlguard-lease-{action_id[:8]}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=5)
+
+    def _renew_or_abort(self, action_id: str, owner: str) -> Callable[[], None]:
+        """A check for just before the commit: still the owner, with a fresh lease, or abort."""
+
+        def check() -> None:
+            store = self.store
+            if store is None or not store.renew_lease(action_id, owner, self._clock() + self.lease):
+                raise _LeaseLost(f"action {action_id} was taken over by another process")
+
+        return check
 
     def _audit_refused(self, record: ActionRecord, decision: str, label: str) -> None:
         try:
@@ -1279,13 +1401,7 @@ class Guard:
         failed = [f"invariant {r.name}: {r.message}" for r in pre if not r.passed]
         if failed:
             return failed, None
-        rows = self._row_diff(
-            record.table,
-            record.base_snapshot_id,
-            record.head_snapshot_id,
-            action.sql,
-            action.dialect,
-        )
+        rows = self._diff_report(record.table, diff)
         if rows.digest != record.diff_digest:
             return ["the row diff differs from the one that was reviewed"], None
         return [], _Prepared(diff, invariants, tuple(key))
@@ -1317,106 +1433,237 @@ class Guard:
 
     # -- pending actions: housekeeping -----------------------------------------------------------
 
+    def _mine(self, record: ActionRecord) -> bool:
+        """Whether this Guard's catalog and engine are the ones the action was queued for."""
+        return record.catalog_name == self._catalog_name and record.engine == self._engine
+
     def expire_pending(self, now: datetime | None = None) -> list[str]:
-        """Expire pending actions whose time is up and drop their branches; returns their ids."""
+        """Expire this Guard's pending actions past their time and drop their branches.
+
+        Returns the expired ids. Also retries branch drops that failed earlier, sweeps orphaned
+        audit branches (`sweep_orphan_branches`) and empties the store's WAL if a reader had
+        blocked that before. Actions queued for another catalog or engine are left alone.
+        """
         store = self.store
         if store is None:
             raise PendingActionError("this Guard has no action store")
         moment = now or self._clock()
-        expired = store.expire_due(moment)
+        expired = store.expire_due(moment, catalog_name=self._catalog_name, engine=self._engine)
         for record in expired:
             scratch = _Run(action=SqlAction(""), scope=None)
             self._drop_kept_branch(scratch, record)
-            try:
-                self.audit.append(
-                    {
-                        "phase": "completed",
-                        "outcome": Outcome.EXPIRED.value,
-                        "action_id": record.id,
-                        "branch": record.branch,
-                        "reasons": scratch.reasons,
-                    }
-                )
-            except AuditError:
-                _log.error("expiry of action %s could not be logged", record.id)
+            self._log_settled(
+                {
+                    "outcome": Outcome.EXPIRED.value,
+                    "action_id": record.id,
+                    "branch": record.branch,
+                    "reasons": scratch.reasons,
+                }
+            )
+        self._housekeeping(moment)
         return [r.id for r in expired]
 
-    def reconcile(self, grace: timedelta = DEFAULT_RECONCILE_GRACE) -> list[Reconciled]:
-        """Settle actions found in `publishing`, which only a crashed `resolve` leaves behind.
+    def _housekeeping(self, now: datetime) -> None:
+        store = self.store
+        if store is None:
+            return
+        try:
+            for record in store.list_drop_pending(
+                catalog_name=self._catalog_name, engine=self._engine
+            ):
+                self._drop_kept_branch(_Run(action=SqlAction(""), scope=None), record)
+            self.sweep_orphan_branches(now)
+        except Exception:  # noqa: BLE001 - housekeeping must not fail the caller's real work
+            _log.warning("branch housekeeping failed", exc_info=True)
+        store.scrub()
 
-        Call it when the UI or MCP server starts. For a write, main's actual state decides:
-        main on the approved head runs the post-publish checks (published, or rolled back to the
-        base and failed); main still on the base means the publish did not land (failed); main
-        on a later snapshot that has the head in its history is verified without a rollback
-        (a rollback would discard other writers' commits), anything else needs attention. A
-        pointer move is judged the same way against its target; other maintenance cannot be told
-        apart from a half-applied one and needs attention. Rows younger than `grace` are left to
-        the process that is still working on them.
+    def sweep_orphan_branches(self, now: datetime | None = None) -> list[str]:
+        """Drop `sqlguard-` branches that no unfinished action owns and that hold stale data.
+
+        An audit branch holds the rows a rehearsal produced, and pins their data files against
+        expiry and orphan cleanup. One is swept only when its head snapshot is not on main's
+        history (a branch still at its base holds nothing and may belong to a submission that
+        is running right now) and is older than the pending lifetime plus an hour, so no live
+        submission or pending action can own it. Returns `table:branch` for each one dropped.
+        """
+        store = self.store
+        if store is None:
+            raise PendingActionError("this Guard has no action store")
+        moment = now or self._clock()
+        cutoff_ms = int((moment - self.pending_ttl - ORPHAN_BRANCH_MARGIN).timestamp() * 1000)
+        owned = store.live_branches()
+        swept: list[str] = []
+        catalog = self.catalog.catalog
+        for namespace in catalog.list_namespaces():
+            for identifier in catalog.list_tables(namespace):
+                name = ".".join(identifier)
+                try:
+                    iceberg = catalog.load_table(identifier)
+                    on_main = set(self._ancestry(iceberg, None))
+                    for ref_name, ref in iceberg.refs().items():
+                        if (
+                            ref_name == "main"
+                            or not ref_name.startswith(AUDIT_BRANCH_PREFIX)
+                            or ref_name in owned
+                            or ref.snapshot_ref_type.value != "branch"
+                            or ref.snapshot_id in on_main
+                        ):
+                            continue
+                        snapshot = iceberg.snapshot_by_id(ref.snapshot_id)
+                        if snapshot is None or snapshot.timestamp_ms >= cutoff_ms:
+                            continue
+                        self.adapter.drop_branch(
+                            BranchHandle(name, ref_name, ref.snapshot_id, ref.snapshot_id)
+                        )
+                        swept.append(f"{name}:{ref_name}")
+                except Exception:  # noqa: BLE001 - one unreadable table must not stop the sweep
+                    _log.warning("could not sweep branches of %s", name, exc_info=True)
+        for entry in swept:
+            self._log_settled({"outcome": "branch_swept", "branch": entry})
+        return swept
+
+    def _log_settled(self, record: dict[str, Any]) -> None:
+        try:
+            self.audit.append({"phase": "completed", **record})
+        except AuditError:
+            _log.error("could not log %s", record.get("outcome"))
+
+    def reconcile(self, grace: timedelta = DEFAULT_RECONCILE_GRACE) -> list[Reconciled]:
+        """Settle actions found in `publishing` whose publisher is gone.
+
+        Safe to call from several processes and while resolves are running. An action in
+        `publishing` has an owner (host, pid, token) and a lease that the owner renews while it
+        works. Reconcile leaves a row alone while its lease is fresh (plus `grace`), while the
+        owner is a live process of this host or is working in this process, and when it was
+        queued for a different catalog or engine. Otherwise it takes ownership by
+        compare-and-set (two reconcilers cannot both settle a row) and decides from main:
+
+        - main on the approved head: post-publish checks run; `published`, or rolled back to
+          the base (`failed`) only if main is still exactly on the head;
+        - main on a later snapshot with the head in its history: verified without any rollback
+          (`published`, or `needs_attention`); for a backward pointer move this holds only if
+          the base is no longer in main's history;
+        - main still on the base: `failed` if the owner is known dead on this host; if its host
+          is unknown the commit might still be in flight, so `needs_attention`;
+        - anything else, and expiry or orphan cleanup: `needs_attention`.
+
+        A `needs_attention` row keeps its branch. Returns what it settled. A crashed publish
+        keeps its lease until it runs out, so a reconcile right after the crash skips it; run it
+        again once the lease (default 5 minutes) has passed.
         """
         store = self.store
         if store is None:
             raise PendingActionError("this Guard has no action store")
         self.audit.ensure_writable()
-        cutoff = self._clock() - grace
         settled: list[Reconciled] = []
         for record in store.list_actions([ActionState.PUBLISHING], limit=10_000):
-            if record.decided_at is not None and record.decided_at > cutoff:
+            if not self._mine(record):
                 continue
-            try:
-                state, reason = self._judge_publishing(record)
-            except Exception as err:  # noqa: BLE001 - unreadable table: a person has to look
-                state = ActionState.NEEDS_ATTENTION
-                reason = f"could not be checked: {_clip(f'{type(err).__name__}: {err}')}"
-            summary = {"outcome": "reconciled", "reason": reason}
-            if not store.transition(
-                record.id, ActionState.PUBLISHING, state, now=self._clock(), outcome=summary
-            ):
-                continue  # another process settled it first
-            scratch = _Run(action=SqlAction(""), scope=None)
-            self._drop_kept_branch(scratch, record)
-            try:
-                self.audit.append(
-                    {
-                        "phase": "completed",
-                        "outcome": "reconciled",
-                        "action_id": record.id,
-                        "state": state.value,
-                        "reason": reason,
-                        "needs_attention": state is ActionState.NEEDS_ATTENTION,
-                    }
-                )
-            except AuditError:
-                _log.error("reconciliation of action %s could not be logged", record.id)
+            now = self._clock()
+            if record.lease_until is not None and record.lease_until + grace > now:
+                continue
+            status = _owner_status(record.owner)
+            if status == "alive":
+                continue
+            me = _new_owner()
+            with _holding(me):
+                if not store.take_over(
+                    record.id,
+                    expected_owner=record.owner,
+                    new_owner=me,
+                    now=now - grace,
+                    lease_until=now + self.lease,
+                ):
+                    continue
+                try:
+                    state, reason, keep = self._judge_publishing(record, status)
+                except Exception as err:  # noqa: BLE001 - unreadable table: a person has to look
+                    state, keep = ActionState.NEEDS_ATTENTION, True
+                    reason = f"could not be checked: {_clip(f'{type(err).__name__}: {err}')}"
+                summary = {"outcome": "reconciled", "reason": reason}
+                if not store.transition(
+                    record.id,
+                    ActionState.PUBLISHING,
+                    state,
+                    now=self._clock(),
+                    outcome=summary,
+                    owner=me,
+                    keep_branch=keep,
+                ):
+                    continue  # lost the row meanwhile
+            if not keep:
+                self._drop_kept_branch(_Run(action=SqlAction(""), scope=None), record)
+            self._log_settled(
+                {
+                    "outcome": "reconciled",
+                    "action_id": record.id,
+                    "state": state.value,
+                    "reason": reason,
+                    "needs_attention": state is ActionState.NEEDS_ATTENTION,
+                }
+            )
             settled.append(Reconciled(record.id, state, reason))
+        self._housekeeping(self._clock())
         return settled
 
-    def _judge_publishing(self, record: ActionRecord) -> tuple[ActionState, str]:
+    def _judge_publishing(
+        self, record: ActionRecord, owner_status: str
+    ) -> tuple[ActionState, str, bool]:
+        """(state, reason, keep the branch) for a publishing row nobody owns any more."""
         base, head, table = record.base_snapshot_id, record.head_snapshot_id, record.table
+        attention = ActionState.NEEDS_ATTENTION
         if record.maintenance_json is not None and record.kind not in _POINTER_MOVES:
             return (
-                ActionState.NEEDS_ATTENTION,
+                attention,
                 f"{record.kind} was interrupted; check the table and the audit log",
+                True,
             )
         main = self.adapter.current_snapshot_id(table)
         if main == base:
-            return ActionState.FAILED, "main is still on the snapshot it had; nothing was applied"
+            if owner_status == "dead":
+                return (
+                    ActionState.FAILED,
+                    "main is still on the snapshot it had; nothing applied",
+                    False,
+                )
+            return (
+                attention,
+                "main is still on the snapshot it had, but the publisher is on another host "
+                "and its commit may still land",
+                True,
+            )
+        pointer = record.maintenance_json is not None
         if main == head:
-            if record.maintenance_json is not None:
-                return ActionState.PUBLISHED, "main is on the target snapshot"
-            return self._verify_landed(record, rollback=True)
-        if head is not None and head in self._main_ancestry(table):
-            if record.maintenance_json is not None:
-                return ActionState.PUBLISHED, "main has moved on past the target snapshot"
-            return self._verify_landed(record, rollback=False)
-        return (
-            ActionState.NEEDS_ATTENTION,
-            f"main is on snapshot {main}, which is neither {base} nor {head}",
-        )
+            if pointer:
+                return ActionState.PUBLISHED, "main is on the target snapshot", False
+            state, reason = self._verify_landed(record, rollback=True)
+            return state, reason, state is attention
+        if head is not None and head in (
+            history := self._ancestry(self.catalog.table(table), None)
+        ):
+            if pointer:
+                forward = base in self._ancestry(self.catalog.table(table), head)
+                if forward or base not in history:
+                    return ActionState.PUBLISHED, "main has moved on past the target", False
+                return (
+                    attention,
+                    f"main is on {main}, which has the target in its history but also the "
+                    f"snapshot the move started from, so the move did not happen",
+                    True,
+                )
+            state, reason = self._verify_landed(record, rollback=False)
+            return state, reason, state is attention
+        return attention, f"main is on snapshot {main}, which is neither {base} nor {head}", True
 
-    def _main_ancestry(self, table: str) -> list[int]:
-        iceberg = self.catalog.table(table)
+    @staticmethod
+    def _ancestry(iceberg: Any, snapshot_id: int | None) -> list[int]:
+        """Snapshot ids from `snapshot_id` (default: main's head) back through the parents."""
         chain: list[int] = []
-        current = iceberg.current_snapshot()
+        current = (
+            iceberg.current_snapshot()
+            if snapshot_id is None
+            else iceberg.snapshot_by_id(snapshot_id)
+        )
         while current is not None and current.snapshot_id not in chain:
             chain.append(current.snapshot_id)
             parent = current.parent_snapshot_id
@@ -1476,12 +1723,13 @@ class Guard:
             or record.maintenance_json
         ):
             raise PendingActionError("only a SQL write has a row diff")
-        return self._row_diff(
-            record.table,
+        iceberg, key = self._table_key(record.table)
+        return compute_row_diff(
+            iceberg,
             record.base_snapshot_id,
             record.head_snapshot_id,
-            record.sql_normalized or "",
-            record.dialect,
+            key=key,
+            limits=self.diff_limits,
         )
 
     # -- audit -----------------------------------------------------------------------------------
@@ -1627,6 +1875,45 @@ def _describe_action(action: Action, redact: bool) -> dict[str, Any]:
             "dialect": action.dialect,
         }
     return {"type": type(action).__name__, **asdict(action)}
+
+
+def _new_owner() -> str:
+    """An identity for one publish: host, process id and a token that is unique to the attempt."""
+    return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+
+
+@contextmanager
+def _holding(owner: str) -> Iterator[None]:
+    with _ACTIVE_LOCK:
+        _ACTIVE_OWNERS.add(owner)
+    try:
+        yield
+    finally:  # also when the work is cut short by a BaseException
+        with _ACTIVE_LOCK:
+            _ACTIVE_OWNERS.discard(owner)
+
+
+def _owner_status(owner: str | None) -> str:
+    """`alive` (leave it alone), `dead` (same host, no such process) or `unknown` (other host)."""
+    if not owner:
+        return "unknown"
+    with _ACTIVE_LOCK:
+        if owner in _ACTIVE_OWNERS:
+            return "alive"
+    host, _, rest = owner.partition(":")
+    pid_text, _, _ = rest.partition(":")
+    if host != socket.gethostname() or not pid_text.isdigit():
+        return "unknown"
+    pid = int(pid_text)
+    if pid == os.getpid():
+        return "dead"  # this process, and it is not working on it
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return "dead"
+    except PermissionError:
+        return "alive"
+    return "alive"
 
 
 def normalize_sql(action: SqlAction) -> str:

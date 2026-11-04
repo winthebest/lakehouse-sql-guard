@@ -121,6 +121,12 @@ def queue(guard: Guard, scope, sql: str = RISKY):
     return result
 
 
+def settle(guard: Guard, clock: Clock, **kwargs):
+    """Let the dead publisher's lease run out, then reconcile."""
+    clock.advance(minutes=6)
+    return guard.reconcile(**kwargs)
+
+
 def decide(guard, verifier, result, decision="approve", label=APPROVER, nonce="n1"):
     request = ProofRequest(result.action_id, result.action_hash, decision, label)
     return guard.resolve(result.action_id, decision, label, verifier.proof(request, nonce))
@@ -379,8 +385,10 @@ def test_the_policy_digest_ignores_labels_and_ordering_but_not_rules():
 
 
 def test_the_action_hash_is_stable_and_covers_every_input():
-    record = make_record()
-    assert record.action_hash == make_record().computed_hash() == record.computed_hash()
+    fixed = datetime(2030, 1, 1, tzinfo=UTC)
+    record = make_record(created_at=fixed, expires_at=fixed + timedelta(hours=1))
+    again = make_record(created_at=fixed, expires_at=fixed + timedelta(hours=1))
+    assert record.action_hash == again.computed_hash() == record.computed_hash()
     assert digest({"b": 1, "a": 2}) == digest({"a": 2, "b": 1})
     mutations = {
         "sql_normalized": "DELETE FROM orders",
@@ -396,11 +404,20 @@ def test_the_action_hash_is_stable_and_covers_every_input():
         "scope_json": '{"allowed_namespaces":["db"],"allowed_tables":[]}',
         "kind": "rollback",
         "dialect": "spark",
+        # what a reviewer is shown is bound too
+        "sql_redacted": "DELETE FROM orders",
+        "impact_json": '{"impact":{}}',
+        "reasons_json": '["fine"]',
+        "branch": "sqlguard-other",
+        "expires_at": record.expires_at + timedelta(days=30),
     }
     for name, value in mutations.items():
         assert replace(record, **{name: value}).computed_hash() != record.action_hash, name
-    # the redacted text, expiry and bookkeeping are not part of what an approval is bound to
-    assert replace(record, sql_redacted="x", state=A.STALE).computed_hash() == record.action_hash
+    # bookkeeping that changes as the action is processed is not
+    moved = replace(
+        record, state=A.PUBLISHING, owner="h:1:t", lease_until=record.expires_at, approver="a"
+    )
+    assert moved.computed_hash() == record.action_hash
 
 
 def test_equivalent_spellings_of_a_statement_normalize_to_one_text():
@@ -779,15 +796,15 @@ def test_any_tampering_with_a_stored_action_makes_it_stale(
 def test_a_row_diff_that_differs_from_the_reviewed_one_makes_the_action_stale(
     pguard, verifier, orders, scope, monkeypatch
 ):
-    from sqlguard.safety.guard import Guard as G
+    import sqlguard.safety.guard as guard_module
 
     result = queue(pguard, scope)
-    real = G._row_diff
+    real = guard_module.row_diff
 
-    def other(self, *args, **kwargs):
-        return replace(real(self, *args, **kwargs), digest="0" * 64)
+    def other(*args, **kwargs):
+        return replace(real(*args, **kwargs), digest="0" * 64)
 
-    monkeypatch.setattr(G, "_row_diff", other)
+    monkeypatch.setattr(guard_module, "row_diff", other)
     done = decide(pguard, verifier, result)
     assert_stale(pguard, orders, result, done, "row diff differs", main_before=main_ids(orders))
 
@@ -1013,9 +1030,8 @@ def test_an_unexpected_error_leaves_the_action_in_publishing_for_reconcile(
     assert done.outcome is Outcome.ERROR and not done.published
     assert "reconcile" in " ".join(done.reasons)
     assert state_of(pguard, result) is A.PUBLISHING
-    clock.advance(minutes=5)
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    assert [s.state for s in nxt.reconcile()] == [A.FAILED]
+    assert [s.state for s in settle(nxt, clock)] == [A.FAILED]
 
 
 def test_a_crash_before_the_commit_is_settled_as_failed(
@@ -1029,9 +1045,10 @@ def test_a_crash_before_the_commit_is_settled_as_failed(
     assert order_ids(orders) == list(range(1, ROWS + 1))
 
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    assert nxt.reconcile() == []  # too young: another process may still be working on it
+    assert nxt.reconcile() == []  # its lease is still running: the publisher may be alive
     clock.advance(minutes=3)
-    settled = nxt.reconcile()
+    assert nxt.reconcile() == []
+    settled = settle(nxt, clock)
     assert [(s.action_id, s.state) for s in settled] == [(result.action_id, A.FAILED)]
     assert state_of(nxt, result) is A.FAILED and not branches(orders)
     assert order_ids(orders) == list(range(1, ROWS + 1))
@@ -1048,7 +1065,7 @@ def test_a_crash_after_the_commit_is_settled_as_published(
     assert order_ids(orders) == list(range(16, ROWS + 1))
 
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    settled = nxt.reconcile(grace=timedelta(0))
+    settled = settle(nxt, clock)
     assert [(s.action_id, s.state) for s in settled] == [(result.action_id, A.PUBLISHED)]
     assert order_ids(orders) == list(range(16, ROWS + 1)) and not branches(orders)
     assert nxt.store.get(result.action_id).sql_normalized is None
@@ -1067,7 +1084,7 @@ def test_a_crash_after_the_commit_with_a_failing_check_is_rolled_back(
     assert order_ids(orders) == list(range(16, ROWS + 1))
 
     nxt = fresh_guard(make_guard, store_path, verifier, clock, extra_invariants=[late])
-    settled = nxt.reconcile(grace=timedelta(0))
+    settled = settle(nxt, clock)
     assert [s.state for s in settled] == [A.FAILED] and "rolled back" in settled[0].reason
     assert order_ids(orders) == list(range(1, ROWS + 1))
 
@@ -1088,7 +1105,7 @@ def test_a_crash_between_the_commit_and_the_final_transition_is_settled(
     monkeypatch.undo()
 
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    assert [s.state for s in nxt.reconcile(grace=timedelta(0))] == [A.PUBLISHED]
+    assert [s.state for s in settle(nxt, clock)] == [A.PUBLISHED]
 
 
 def test_another_writer_on_top_of_a_crashed_publish_is_verified_not_rolled_back(
@@ -1100,7 +1117,7 @@ def test_another_writer_on_top_of_a_crashed_publish_is_verified_not_rolled_back(
         decide(pguard, verifier, result)
     orders.table("orders").append(one_row(600))
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    assert [s.state for s in nxt.reconcile(grace=timedelta(0))] == [A.PUBLISHED]
+    assert [s.state for s in settle(nxt, clock)] == [A.PUBLISHED]
     assert 600 in order_ids(orders)
 
 
@@ -1115,7 +1132,7 @@ def test_a_failing_check_with_another_writer_on_top_needs_attention_and_is_not_u
         decide(guard, verifier, result)
     orders.table("orders").append(one_row(600))
     nxt = fresh_guard(make_guard, store_path, verifier, clock, extra_invariants=[late])
-    settled = nxt.reconcile(grace=timedelta(0))
+    settled = settle(nxt, clock)
     assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
     assert order_ids(orders) == [*range(16, ROWS + 1), 600]  # nothing was undone
 
@@ -1129,7 +1146,7 @@ def test_main_somewhere_else_after_a_crash_needs_attention(
         decide(pguard, verifier, result)
     orders.table("orders").append(one_row(700))
     nxt = fresh_guard(make_guard, store_path, verifier, clock)
-    settled = nxt.reconcile(grace=timedelta(0))
+    settled = settle(nxt, clock)
     assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
     assert 700 in order_ids(orders)
 
@@ -1174,7 +1191,7 @@ def test_a_real_process_killed_right_after_the_commit_is_settled(
     assert state_of(guard, result) is A.PUBLISHING
     assert order_ids(orders) == list(range(16, ROWS + 1))
 
-    clock.advance(minutes=5)
+    clock.advance(minutes=10)
     settled = guard.reconcile()
     assert [(s.action_id, s.state) for s in settled] == [(result.action_id, A.PUBLISHED)]
     assert not branches(orders)
@@ -1193,8 +1210,15 @@ def history(orders):
 
 
 @pytest.fixture
-def mguard(make_guard, store_path, verifier):
-    return make_guard(store=store_path, proof_verifier=verifier, clock=lambda: FAR)
+def mclock() -> Clock:
+    clock = Clock()
+    clock.now = FAR
+    return clock
+
+
+@pytest.fixture
+def mguard(make_guard, store_path, verifier, mclock):
+    return make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
 
 
 def expire_action(**kwargs) -> ExpireSnapshots:
@@ -1252,16 +1276,16 @@ def test_a_rollback_is_stale_when_main_moved(mguard, verifier, orders, history, 
 
 
 def test_a_maintenance_policy_change_makes_it_stale(
-    make_guard, store_path, verifier, orders, history, scope
+    mclock, make_guard, store_path, verifier, orders, history, scope
 ):
-    result = make_guard(store=store_path, proof_verifier=verifier, clock=lambda: FAR).submit(
+    result = make_guard(store=store_path, proof_verifier=verifier, clock=mclock).submit(
         expire_action(), scope
     )
     stricter = make_guard(
         Policy.from_dict({"retention": {"default": {"min_snapshot_age_days": 365}}}),
         store=store_path,
         proof_verifier=verifier,
-        clock=lambda: FAR,
+        clock=mclock,
     )
     done = decide(stricter, verifier, result)
     assert done.outcome is Outcome.STALE
@@ -1285,7 +1309,7 @@ def test_a_retention_rule_that_starts_to_deny_it_makes_it_stale_even_for_one_pol
 
 
 def test_maintenance_interrupted_mid_apply_needs_attention(
-    make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
+    mclock, make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
 ):
     result = mguard.submit(expire_action(), scope)
 
@@ -1295,13 +1319,13 @@ def test_maintenance_interrupted_mid_apply_needs_attention(
     monkeypatch.setattr(mguard.adapter, "apply_maintenance", die)
     with pytest.raises(Crash):
         decide(mguard, verifier, result)
-    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=lambda: FAR)
-    settled = nxt.reconcile(grace=timedelta(0))
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    settled = settle(nxt, mclock)
     assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
 
 
 def test_a_pointer_move_is_judged_by_where_main_is_after_a_crash(
-    make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
+    mclock, make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
 ):
     result = mguard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope)
     real = mguard.adapter.apply_maintenance
@@ -1313,12 +1337,12 @@ def test_a_pointer_move_is_judged_by_where_main_is_after_a_crash(
     monkeypatch.setattr(mguard.adapter, "apply_maintenance", apply_then_die)
     with pytest.raises(Crash):
         decide(mguard, verifier, result)
-    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=lambda: FAR)
-    assert [s.state for s in nxt.reconcile(grace=timedelta(0))] == [A.PUBLISHED]
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    assert [s.state for s in settle(nxt, mclock)] == [A.PUBLISHED]
 
 
 def test_pointer_move_crash_before_the_move_is_failed(
-    make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
+    mclock, make_guard, mguard, verifier, orders, history, scope, store_path, monkeypatch
 ):
     result = mguard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope)
 
@@ -1328,8 +1352,8 @@ def test_pointer_move_crash_before_the_move_is_failed(
     monkeypatch.setattr(mguard.adapter, "apply_maintenance", die)
     with pytest.raises(Crash):
         decide(mguard, verifier, result)
-    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=lambda: FAR)
-    assert [s.state for s in nxt.reconcile(grace=timedelta(0))] == [A.FAILED]
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    assert [s.state for s in settle(nxt, mclock)] == [A.FAILED]
     assert order_ids(orders) == sorted([*range(1, ROWS + 1), 1001, 1002, 1003])
 
 
@@ -1344,7 +1368,7 @@ def test_the_diff_is_recomputed_from_the_snapshots_and_matches_the_reviewed_dige
     diff = pguard.diff_for(result.action_id)
     assert diff.digest == row.diff_digest
     assert (diff.rows_deleted, diff.mode) == (15, "unkeyed")
-    assert len(diff.rows) == 15 and diff.pushdown is not None  # id <= 15 is pushed into the scans
+    assert len(diff.rows) == 15
     assert diff.rows[0].before["id"] in range(1, 16)
 
 
@@ -1359,3 +1383,452 @@ def test_the_diff_uses_the_tables_identifier_fields_as_key(pguard, orders, scope
         diff.rows_modified == 15 and diff.digest == pguard.store.get(result.action_id).diff_digest
     )
     assert decide(pguard, HmacVerifier(), result).outcome is Outcome.PUBLISHED
+
+
+# -- review regressions: what the reviewer sees, who may settle what -----------------------------
+
+
+def nan_rows(n: int = 5) -> pa.Table:
+    return pa.table(
+        {
+            "id": pa.array(range(100, 100 + n), pa.int64()),
+            "customer": ["nan"] * n,
+            "amount": pa.array([float("nan")] * n),
+        }
+    )
+
+
+def test_rows_the_engine_deletes_because_nan_sorts_high_are_in_the_reviewed_diff(
+    pguard, verifier, orders, scope
+):
+    orders.table("orders").append(nan_rows())
+    result = queue(pguard, scope, "DELETE FROM orders WHERE amount > 15.0")
+    row = pguard.store.get(result.action_id)
+    measured = row.impact_data["impact"]["tables"][0]["rows_deleted"]
+    diff = pguard.diff_for(result.action_id)
+    assert measured == 9 and diff.rows_deleted == 9 and diff.digest == row.diff_digest
+    assert {r.before["id"] for r in diff.rows} >= set(range(100, 105))  # the NaN rows are listed
+    assert decide(pguard, verifier, result).outcome is Outcome.PUBLISHED
+    assert order_ids(orders) == list(range(1, 17))
+
+
+def test_a_float32_match_the_engine_makes_is_in_the_reviewed_diff(
+    catalog, store_path, verifier, clock, scope, audit_path
+):
+    catalog.create_table(
+        "f32",
+        pa.table(
+            {
+                "id": pa.array(range(10), pa.int64()),
+                "f": pa.array([0.1] * 5 + [1.0] * 5, pa.float32()),
+            }
+        ),
+    )
+    guard = Guard(
+        catalog, audit_path=audit_path, store=store_path, proof_verifier=verifier, clock=clock
+    )
+    result = guard.submit(SqlAction("DELETE FROM f32 WHERE f = 0.1"), scope)
+    assert result.outcome is Outcome.AWAITING_APPROVAL, result.reasons
+    row = guard.store.get(result.action_id)
+    assert row.impact_data["impact"]["tables"][0]["rows_deleted"] == 5
+    assert guard.diff_for(result.action_id).rows_deleted == 5
+    assert row.impact_data["row_diff"]["rows_deleted"] == 5
+
+
+def test_a_row_diff_that_does_not_match_the_measured_impact_is_not_offered(
+    pguard, orders, scope, monkeypatch
+):
+    import sqlguard.safety.guard as guard_module
+
+    real = guard_module.row_diff
+
+    def short(*args, **kwargs):
+        shown = real(*args, **kwargs)
+        return replace(shown, rows_deleted=shown.rows_deleted - 1)
+
+    monkeypatch.setattr(guard_module, "row_diff", short)
+    result = pguard.submit(SqlAction(RISKY), scope)
+    assert result.outcome is Outcome.DENIED and "cannot be queued" in " ".join(result.reasons)
+    assert pguard.store.list_actions() == [] and not branches(orders)
+
+
+def test_rollback_that_never_ran_is_not_reported_as_published_when_a_writer_came_after(
+    make_guard, mguard, verifier, orders, history, scope, store_path, mclock, monkeypatch
+):
+    result = mguard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope)
+
+    def die(*args, **kwargs):
+        raise Crash
+
+    monkeypatch.setattr(mguard.adapter, "apply_maintenance", die)
+    with pytest.raises(Crash):
+        decide(mguard, verifier, result)
+    orders.table("orders").append(one_row(4242))  # a foreign writer; the rollback never happened
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    settled = settle(nxt, mclock)
+    assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
+    assert 1001 in order_ids(orders) and 4242 in order_ids(orders)
+
+
+def test_rollback_that_ran_is_published_even_when_a_writer_came_after(
+    make_guard, mguard, verifier, orders, history, scope, store_path, mclock, monkeypatch
+):
+    result = mguard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope)
+    real = mguard.adapter.apply_maintenance
+
+    def apply_then_die(*args, **kwargs):
+        real(*args, **kwargs)
+        raise Crash
+
+    monkeypatch.setattr(mguard.adapter, "apply_maintenance", apply_then_die)
+    with pytest.raises(Crash):
+        decide(mguard, verifier, result)
+    orders.table("orders").append(one_row(4242))
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    assert [s.state for s in settle(nxt, mclock)] == [A.PUBLISHED]
+    assert 1001 not in order_ids(orders)
+
+
+def test_fast_forward_that_ran_is_published_when_a_writer_came_after(
+    make_guard, mguard, verifier, orders, scope, store_path, mclock, monkeypatch
+):
+    from sqlguard.safety import FastForward
+
+    adapter = mguard.adapter
+    feature = adapter.create_branch("orders", "feature")
+    adapter.apply_sql(feature, "DELETE FROM orders WHERE id = 1")
+    result = mguard.submit(FastForward("orders", branch="main", to="feature"), scope)
+    assert result.outcome is Outcome.AWAITING_APPROVAL, result.reasons
+    real = adapter.apply_maintenance
+
+    def apply_then_die(*args, **kwargs):
+        real(*args, **kwargs)
+        raise Crash
+
+    monkeypatch.setattr(adapter, "apply_maintenance", apply_then_die)
+    with pytest.raises(Crash):
+        decide(mguard, verifier, result)
+    orders.table("orders").append(one_row(4242))
+    nxt = make_guard(store=store_path, proof_verifier=verifier, clock=mclock)
+    assert [s.state for s in settle(nxt, mclock)] == [A.PUBLISHED]
+
+
+# -- ownership: reconcile never overrules a publisher that may still be working --------------
+
+
+def host() -> str:
+    import socket
+
+    return socket.gethostname()
+
+
+def dead_pid() -> int:
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+def test_a_slow_resolve_is_not_second_guessed_by_a_reconcile_running_meanwhile(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    result = queue(pguard, scope)
+    real = pguard.adapter.publish
+    other = make_guard(store=store_path, proof_verifier=verifier, clock=clock)
+    seen: list = []
+
+    def slow_publish(branch, expected_head):
+        clock.advance(minutes=3)
+        seen.append(other.reconcile())
+        clock.advance(minutes=10)  # even past the lease: the owner is working in this process
+        seen.append(other.reconcile())
+        return real(branch, expected_head)
+
+    monkeypatch.setattr(pguard.adapter, "publish", slow_publish)
+    done = decide(pguard, verifier, result)
+    assert seen == [[], []]
+    assert done.outcome is Outcome.PUBLISHED and done.published
+    assert state_of(pguard, result) is A.PUBLISHED
+    assert order_ids(orders) == list(range(16, ROWS + 1))
+
+
+def crash_before_commit(make_guard, pguard, verifier, result, monkeypatch):
+    crash_during_publish(pguard, after_commit=False, monkeypatch=monkeypatch)
+    with pytest.raises(Crash):
+        decide(pguard, verifier, result)
+
+
+def test_the_claim_records_an_owner_and_a_lease(pguard, verifier, orders, scope, monkeypatch):
+    result = queue(pguard, scope)
+    crash_during_publish(pguard, after_commit=False, monkeypatch=monkeypatch)
+    with pytest.raises(Crash):
+        decide(pguard, verifier, result)
+    row = pguard.store.get(result.action_id)
+    hostname, pid, token = row.owner.rsplit(":", 2)
+    assert (hostname, int(pid)) == (host(), os.getpid()) and token
+    assert row.lease_until - row.decided_at == timedelta(minutes=5)
+
+
+def test_a_live_publisher_on_this_host_is_left_alone_even_after_its_lease(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        edit_row(store_path, result.action_id, owner=f"{host()}:{alive.pid}:tok")
+        nxt = fresh_guard(make_guard, store_path, verifier, clock)
+        assert settle(nxt, clock) == [] and state_of(nxt, result) is A.PUBLISHING
+        assert branches(orders)  # its branch is untouched
+    finally:
+        alive.kill()
+        alive.wait()
+    assert [s.state for s in nxt.reconcile()] == [A.FAILED]
+    assert not branches(orders)
+
+
+def test_a_publisher_on_another_host_with_main_unchanged_needs_attention_and_keeps_its_branch(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    edit_row(store_path, result.action_id, owner="some-other-host:77:tok")
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    settled = settle(nxt, clock)
+    assert [s.state for s in settled] == [A.NEEDS_ATTENTION]
+    assert "may still land" in settled[0].reason
+    assert branches(orders) == {pguard.store.get(result.action_id).branch}
+    assert order_ids(orders) == list(range(1, ROWS + 1))
+
+
+def test_a_dead_publisher_with_main_unchanged_is_failed_and_its_branch_dropped(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    edit_row(store_path, result.action_id, owner=f"{host()}:{dead_pid()}:tok")
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    assert [s.state for s in settle(nxt, clock)] == [A.FAILED]
+    assert not branches(orders)
+
+
+def test_a_fresh_lease_protects_the_row_until_it_runs_out(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    result = queue(pguard, scope)
+    crash_before_commit(make_guard, pguard, verifier, result, monkeypatch)
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    clock.advance(minutes=4)
+    assert nxt.reconcile() == []
+    clock.advance(minutes=2)
+    assert nxt.reconcile(grace=timedelta(minutes=5)) == []  # grace extends the lease
+    assert [s.state for s in nxt.reconcile()] == [A.FAILED]
+
+
+def test_two_reconcilers_cannot_both_settle_one_row(store_path):
+    store = ActionStore(store_path)
+    now = datetime.now(UTC)
+    store.insert(make_record())
+    assert store.claim(
+        "a1", A.PUBLISHING, proof="p", approver="x", now=now, owner="h:1:t", lease_until=now
+    )
+    wins = []
+    barrier = threading.Barrier(6)
+
+    def worker(n: int) -> None:
+        own = ActionStore(store_path)
+        barrier.wait()
+        wins.append(
+            own.take_over(
+                "a1",
+                expected_owner="h:1:t",
+                new_owner=f"h:{n}:t",
+                now=now + timedelta(seconds=1),
+                lease_until=now + timedelta(minutes=5),
+            )
+        )
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert wins.count(True) == 1
+    row = store.get("a1")
+    assert not store.renew_lease("a1", "h:1:t", now + timedelta(hours=1))  # the old owner lost it
+    assert store.renew_lease("a1", row.owner, now + timedelta(hours=1))
+    assert not store.transition("a1", A.PUBLISHING, A.PUBLISHED, now=now, owner="h:1:t")
+    assert store.transition("a1", A.PUBLISHING, A.PUBLISHED, now=now, owner=row.owner)
+
+
+def test_a_lease_still_running_cannot_be_taken_over(store_path):
+    store = ActionStore(store_path)
+    now = datetime.now(UTC)
+    store.insert(make_record())
+    store.claim(
+        "a1",
+        A.PUBLISHING,
+        proof="p",
+        approver="x",
+        now=now,
+        owner="h:1:t",
+        lease_until=now + timedelta(minutes=5),
+    )
+    assert not store.take_over(
+        "a1", expected_owner="h:1:t", new_owner="h:2:t", now=now, lease_until=now
+    )
+    assert store.get("a1").owner == "h:1:t"
+
+
+def test_a_resolve_that_lost_its_lease_publishes_nothing_and_leaves_the_row_alone(
+    pguard, verifier, orders, scope, store_path, monkeypatch
+):
+    result = queue(pguard, scope)
+    real_intent = type(pguard)._intent
+
+    def taken_over(self, run):
+        edit_row(store_path, result.action_id, owner="reconciler:1:tok")
+        return real_intent(self, run)
+
+    monkeypatch.setattr(type(pguard), "_intent", taken_over)
+    done = decide(pguard, verifier, result)
+    assert done.outcome is Outcome.ERROR and not done.published
+    assert "taken over" in done.error
+    row = pguard.store.get(result.action_id)
+    assert row.state is A.PUBLISHING and row.owner == "reconciler:1:tok"
+    assert order_ids(orders) == list(range(1, ROWS + 1)) and branches(orders)
+
+
+def test_the_lease_is_renewed_while_publishing(
+    make_guard, orders, scope, store_path, verifier, monkeypatch
+):
+    guard = make_guard(store=store_path, proof_verifier=verifier, lease=timedelta(seconds=0.3))
+    result = queue(guard, scope)
+    real = guard.adapter.publish
+    leases = []
+
+    def slow_publish(branch, expected_head):
+        leases.append(guard.store.get(result.action_id).lease_until)
+        time.sleep(0.8)
+        leases.append(guard.store.get(result.action_id).lease_until)
+        return real(branch, expected_head)
+
+    monkeypatch.setattr(guard.adapter, "publish", slow_publish)
+    assert decide(guard, verifier, result).outcome is Outcome.PUBLISHED
+    assert leases[1] > leases[0]
+
+
+def test_other_catalogs_and_engines_rows_are_not_touched(
+    make_guard, pguard, verifier, orders, scope, store_path, clock, monkeypatch
+):
+    stranger = queue(pguard, scope)
+    edit_row(store_path, stranger.action_id, engine="trino")
+    mine = queue(pguard, scope, "DELETE FROM orders WHERE id <= 16")
+    crash_before_commit(make_guard, pguard, verifier, mine, monkeypatch)
+    edit_row(store_path, mine.action_id, catalog_name="another-catalog")
+    nxt = fresh_guard(make_guard, store_path, verifier, clock)
+    assert settle(nxt, clock) == []
+    clock.advance(days=3)
+    assert nxt.expire_pending() == []
+    assert state_of(nxt, mine) is A.PUBLISHING and state_of(nxt, stranger) is A.PENDING
+
+
+# -- audit branches: orphans and failed drops ------------------------------------------------
+
+
+def test_orphaned_audit_branches_are_swept_but_owned_and_empty_ones_are_not(
+    pguard, orders, scope, clock
+):
+    queued = queue(pguard, scope)
+    adapter = pguard.adapter
+    orphan = adapter.create_branch("orders")
+    adapter.apply_sql(orphan, "DELETE FROM orders WHERE id <= 12")
+    untouched = adapter.create_branch("orders")  # still at its base: holds nothing
+    adapter.create_branch("orders", "feature")  # not an audit branch
+    owned = pguard.store.get(queued.action_id).branch
+
+    assert pguard.sweep_orphan_branches() == []  # too recent to be anything but in flight
+    swept = pguard.sweep_orphan_branches(clock.now + timedelta(days=2))
+    assert swept == [f"db.orders:{orphan.name}"]
+    assert branches(orders) == {owned, untouched.name, "feature"}
+    assert state_of(pguard, queued) is A.PENDING
+
+
+def test_expire_pending_runs_the_sweep(pguard, orders, scope, clock):
+    adapter = pguard.adapter
+    orphan = adapter.create_branch("orders")
+    adapter.apply_sql(orphan, "DELETE FROM orders WHERE id <= 12")
+    clock.advance(days=2)
+    pguard.expire_pending()
+    assert orphan.name not in branches(orders)
+
+
+def test_a_branch_drop_that_failed_is_retried_later(pguard, verifier, orders, scope, monkeypatch):
+    result = queue(pguard, scope)
+    branch = pguard.store.get(result.action_id).branch
+    real = pguard.adapter.drop_branch
+    monkeypatch.setattr(
+        pguard.adapter, "drop_branch", lambda handle: (_ for _ in ()).throw(OSError("catalog down"))
+    )
+    done = decide(pguard, verifier, result, "reject")
+    assert done.outcome is Outcome.REJECTED and "retried" in " ".join(done.reasons)
+    assert branch in branches(orders)
+    assert [r.id for r in pguard.store.list_drop_pending()] == [result.action_id]
+    monkeypatch.setattr(pguard.adapter, "drop_branch", real)
+    pguard.expire_pending()
+    assert branch not in branches(orders) and pguard.store.list_drop_pending() == []
+
+
+def test_a_finished_action_that_dropped_its_branch_is_not_marked(pguard, verifier, orders, scope):
+    result = queue(pguard, scope)
+    decide(pguard, verifier, result, "reject")
+    assert pguard.store.list_drop_pending() == []
+
+
+# -- smaller findings ------------------------------------------------------------------------
+
+
+def test_erased_sql_that_a_reader_kept_in_the_wal_is_scrubbed_once_the_reader_is_gone(store_path):
+    store = ActionStore(store_path)
+    store.insert(make_record())
+    reader = sqlite3.connect(store_path, isolation_level=None)
+    reader.execute("BEGIN")
+    reader.execute("SELECT count(*) FROM actions").fetchone()  # a UI holding a read transaction
+    store.transition("a1", A.PENDING, A.REJECTED, now=datetime.now(UTC))
+    assert SECRET_LITERAL.encode() in store_bytes(store_path)  # the limitation, stated
+    assert store.scrub() is False
+    reader.execute("COMMIT")
+    reader.close()
+    assert store.scrub() is True
+    assert SECRET_LITERAL.encode() not in store_bytes(store_path)
+
+
+def test_expire_pending_scrubs_the_wal_again(pguard, orders, scope, store_path, clock):
+    result = queue(pguard, scope, literal_sql())
+    reader = sqlite3.connect(store_path, isolation_level=None)
+    reader.execute("BEGIN")
+    reader.execute("SELECT count(*) FROM actions").fetchone()
+    decide(pguard, HmacVerifier(), result, "reject")
+    reader.execute("COMMIT")
+    reader.close()
+    pguard.expire_pending()
+    assert SECRET_LITERAL.encode() not in store_bytes(store_path)
+
+
+def test_the_stored_statement_hash_does_not_let_a_guess_be_confirmed(pguard, orders, scope):
+    import hashlib
+
+    result = queue(pguard, scope, literal_sql())
+    row = pguard.store.get(result.action_id)
+    assert row.sql_sha256 == hashlib.sha256(row.sql_redacted.encode()).hexdigest()
+    assert row.sql_sha256 != hashlib.sha256(literal_sql().encode()).hexdigest()
+
+
+def test_the_queue_has_a_size_limit(make_guard, store_path, verifier, orders, scope):
+    guard = make_guard(store=store_path, proof_verifier=verifier, max_pending=2)
+    queue(guard, scope)
+    queue(guard, scope, "DELETE FROM orders WHERE id <= 16")
+    refused = guard.submit(SqlAction("DELETE FROM orders WHERE id <= 17"), scope)
+    assert refused.outcome is Outcome.DENIED and "too many actions" in " ".join(refused.reasons)
+    assert len(guard.store.list_actions([A.PENDING])) == 2 and len(branches(orders)) == 2
+    guard.expire_pending(datetime.now(UTC) + timedelta(days=2))
+    assert guard.submit(SqlAction("DELETE FROM orders WHERE id <= 17"), scope).action_id

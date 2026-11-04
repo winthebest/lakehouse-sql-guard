@@ -10,44 +10,27 @@ the policy's blast-radius thresholds measure. Pure inserts therefore affect zero
 `compute_row_diff` goes further: it lists the changed rows (for a reviewer) and fingerprints them.
 It reads the base and head snapshots of an Iceberg table, always in that direction, and matches
 rows on `table_key`: the table's Iceberg identifier fields, else the policy's `unique_key`, else
-no key (rows compared as multisets, labelled "unkeyed"). A statement's WHERE clause is pushed
-into both scans when that cannot hide a changed row. A table above the row or byte cap is
-refused (`DiffTooLarge`) rather than half-read: a reviewer must never approve a diff that was cut
-short.
+no key (rows compared as multisets, labelled "unkeyed"). The whole of both snapshots is
+compared: no part of a statement is used to narrow the scans, because the engine and Arrow
+disagree on NaN ordering and float coercion, and a row the filter dropped would be a row the
+reviewer never saw. A table above the row or byte cap is refused (`DiffTooLarge`) rather than
+half-read, and `check_against_impact` refuses a diff whose counts differ from the measured
+impact: a reviewer must never approve a diff that was cut short.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
 import duckdb
 import pyarrow as pa
-from pyiceberg.expressions import (
-    AlwaysTrue,
-    And,
-    BooleanExpression,
-    EqualTo,
-    GreaterThan,
-    GreaterThanOrEqual,
-    In,
-    IsNull,
-    LessThan,
-    LessThanOrEqual,
-    NotEqualTo,
-    NotNull,
-    Or,
-)
-from pyiceberg.schema import Schema
 from pyiceberg.table import Table
-from pyiceberg.types import DoubleType, FloatType, IntegerType, LongType, StringType
-from sqlglot import exp
 
-from sqlguard.core.parsing import SqlParseError, parse
 from sqlguard.safety.classifier import Impact
 from sqlguard.safety.store import canonical_json, digest
 
@@ -336,8 +319,6 @@ class RowDiff:
     rows_deleted: int
     rows_modified: int | None
     display_limit: int
-    pushdown: str | None
-    scanned_rows: tuple[int, int] | None  # rows read from (base, head) after pushdown
     schema_diff: SchemaDiff
     digest: str
 
@@ -365,8 +346,6 @@ class RowDiff:
             "rows_changed": self.rows_changed,
             "truncated": self.truncated,
             "display_limit": self.display_limit,
-            "pushdown": self.pushdown,
-            "scanned_rows": list(self.scanned_rows) if self.scanned_rows else None,
             "schema_diff": self.schema_diff.to_dict(),
             "digest": self.digest,
         }
@@ -457,8 +436,6 @@ def row_diff(
         rows_deleted=deleted,
         rows_modified=modified,
         display_limit=display_rows,
-        pushdown=None,
-        scanned_rows=None,
         schema_diff=schema,
         digest=digest(
             {
@@ -559,14 +536,10 @@ def _row_change(
 # -- reading snapshots, with caps -----------------------------------------------------------------
 
 
-def _read_snapshot(
-    table: Table, snapshot_id: int, row_filter: BooleanExpression | None, limits: DiffLimits
-) -> pa.Table:
+def _read_snapshot(table: Table, snapshot_id: int, limits: DiffLimits) -> pa.Table:
     if table.snapshot_by_id(snapshot_id) is None:
         raise DiffError(f"snapshot {snapshot_id} of {'.'.join(table.name())} no longer exists")
-    scan = table.scan(
-        row_filter=row_filter if row_filter is not None else AlwaysTrue(), snapshot_id=snapshot_id
-    )
+    scan = table.scan(snapshot_id=snapshot_id)
     rows = size = 0
     for task in scan.plan_files():
         rows += task.file.record_count
@@ -593,25 +566,23 @@ def compute_row_diff(
     head_snapshot_id: int,
     *,
     key: TableKey | Sequence[str] = (),
-    row_filter: BooleanExpression | None = None,
     limits: DiffLimits | None = None,
 ) -> RowDiff:
     """Row diff of `table` from snapshot `base_snapshot_id` to `head_snapshot_id`.
 
-    `row_filter`, when given, is applied to both scans; pass only a filter that cannot hide a
-    changed row (see `statement_filter`). Raises DiffTooLarge above the caps, and DiffError for
+    Both snapshots are read whole. Raises DiffTooLarge above the caps, and DiffError for
     anything else that stops the diff (missing snapshot, incomparable column types).
     """
     limits = limits or DiffLimits()
     chosen = key if isinstance(key, TableKey) else TableKey(tuple(key), "policy" if key else "none")
     try:
-        before = _read_snapshot(table, base_snapshot_id, row_filter, limits)
-        after = _read_snapshot(table, head_snapshot_id, row_filter, limits)
+        before = _read_snapshot(table, base_snapshot_id, limits)
+        after = _read_snapshot(table, head_snapshot_id, limits)
     except DiffError:
         raise
     except Exception as err:  # noqa: BLE001 - PyIceberg raises I/O and catalog errors of many kinds
         raise DiffError(f"cannot read {'.'.join(table.name())} for the diff: {err}") from err
-    result = row_diff(
+    return row_diff(
         before,
         after,
         chosen.columns,
@@ -621,132 +592,30 @@ def compute_row_diff(
         key_source=chosen.source,
         display_rows=limits.display_rows,
     )
-    return replace(
-        result,
-        pushdown=None if row_filter is None else str(row_filter),
-        scanned_rows=(before.num_rows, after.num_rows),
-    )
 
 
-# -- pushing a statement's WHERE clause into the scans ---------------------------------------
+def check_size(before: pa.Table, after: pa.Table, limits: DiffLimits) -> None:
+    """Raise DiffTooLarge unless both sides are within the caps (for data already in memory)."""
+    for side in (before, after):
+        if side.num_rows > limits.max_rows or side.nbytes > limits.max_bytes:
+            raise DiffTooLarge(
+                f"table too large to diff: {side.num_rows} rows / {side.nbytes} bytes "
+                f"(limits {limits.max_rows} rows / {limits.max_bytes} bytes)"
+            )
 
 
-class _NoPushdown(Exception):
-    """The predicate cannot be expressed (or trusted) as an Iceberg row filter."""
+def check_against_impact(diff: RowDiff, impact: TableImpact) -> None:
+    """Raise DiffError unless the listed diff accounts for exactly what the impact measured.
 
-
-def statement_filter(sql: str, dialect: str, schema: Schema) -> BooleanExpression | None:
-    """An Iceberg row filter that keeps every row `sql` can change, or None.
-
-    Only a lone DELETE or UPDATE with a WHERE clause of plain comparisons (=, !=, <, <=, >, >=,
-    IN, BETWEEN, IS [NOT] NULL) between a column and a literal, combined with AND / OR, qualifies.
-    The filter may select more rows than the statement touches but never fewer, and it is applied
-    to both snapshots, so it is only valid because the rows an UPDATE rewrites keep matching it:
-    an UPDATE that assigns a column the WHERE clause reads is not pushed down (its rewritten rows
-    could leave the filter and be reported as deleted). Anything else (NOT, functions, subqueries,
-    joins, column/type combinations that PyIceberg may coerce differently from SQL) returns None
-    and the diff reads the whole table.
+    The net row change must always agree; when both were matched on the same key (or both
+    unkeyed) the added, deleted and modified counts must too. A disagreement means the diff is
+    not the whole change, so it cannot be offered for review.
     """
-    try:
-        statements = parse(sql, dialect)
-    except SqlParseError:
-        return None
-    if len(statements) != 1:
-        return None
-    ast = statements[0].ast
-    if isinstance(ast, exp.Delete):
-        assigned: set[str] = set()
-    elif isinstance(ast, exp.Update):
-        assigned = set()
-        for assignment in ast.expressions:
-            if not isinstance(assignment, exp.EQ) or not isinstance(assignment.this, exp.Column):
-                return None
-            assigned.add(assignment.this.name.lower())
-    else:
-        return None
-    if any(ast.args.get(name) for name in ("using", "from", "from_", "limit", "order")):
-        return None
-    where = ast.args.get("where")
-    target = ast.this
-    if where is None or not isinstance(target, exp.Table):
-        return None
-    names = {target.name.lower(), target.alias.lower()} - {""}
-    columns = {c.name.lower() for c in where.this.find_all(exp.Column)}
-    if columns & assigned:
-        return None
-    try:
-        return _convert(where.this, schema, names)
-    except (_NoPushdown, ValueError, TypeError):
-        return None
-
-
-def _convert(node: exp.Expression, schema: Schema, names: set[str]) -> BooleanExpression:
-    if isinstance(node, exp.Paren):
-        return _convert(node.this, schema, names)
-    if isinstance(node, exp.And):
-        return And(_convert(node.this, schema, names), _convert(node.expression, schema, names))
-    if isinstance(node, exp.Or):
-        return Or(_convert(node.this, schema, names), _convert(node.expression, schema, names))
-    if isinstance(node, exp.Between):
-        column, ftype = _column(node.this, schema, names)
-        low, high = _value(node.args["low"], ftype), _value(node.args["high"], ftype)
-        return And(GreaterThanOrEqual(column, low), LessThanOrEqual(column, high))
-    if isinstance(node, exp.In):
-        column, ftype = _column(node.this, schema, names)
-        if node.args.get("query") or node.args.get("unnest") or not node.expressions:
-            raise _NoPushdown
-        return In(column, {_value(v, ftype) for v in node.expressions})
-    if isinstance(node, exp.Is) and isinstance(node.expression, exp.Null):
-        return IsNull(_column(node.this, schema, names)[0])
-    if (
-        isinstance(node, exp.Not)
-        and isinstance(node.this, exp.Is)
-        and isinstance(node.this.expression, exp.Null)
-    ):
-        return NotNull(_column(node.this.this, schema, names)[0])
-    comparisons = {
-        exp.EQ: (EqualTo, EqualTo),
-        exp.NEQ: (NotEqualTo, NotEqualTo),
-        exp.GT: (GreaterThan, LessThan),
-        exp.GTE: (GreaterThanOrEqual, LessThanOrEqual),
-        exp.LT: (LessThan, GreaterThan),
-        exp.LTE: (LessThanOrEqual, GreaterThanOrEqual),
-    }
-    for kind, (direct, flipped) in comparisons.items():
-        if type(node) is kind:
-            if isinstance(node.this, exp.Column):
-                column, ftype = _column(node.this, schema, names)
-                return direct(column, _value(node.expression, ftype))
-            column, ftype = _column(node.expression, schema, names)
-            return flipped(column, _value(node.this, ftype))
-    raise _NoPushdown
-
-
-def _column(node: exp.Expression, schema: Schema, names: set[str]) -> tuple[str, Any]:
-    if not isinstance(node, exp.Column):
-        raise _NoPushdown
-    if node.table and node.table.lower() not in names:
-        raise _NoPushdown
-    found = schema.find_field(node.name, case_sensitive=False)
-    return found.name, found.field_type
-
-
-def _value(node: exp.Expression, field_type: Any) -> int | float | str:
-    """A literal that means the same thing to SQL and to PyIceberg for a column of this type."""
-    sign = 1
-    if isinstance(node, exp.Neg):
-        node, sign = node.this, -1
-    if not isinstance(node, exp.Literal):
-        raise _NoPushdown
-    if node.is_string:
-        if sign == -1 or not isinstance(field_type, StringType):
-            raise _NoPushdown
-        return str(node.this)
-    text = str(node.this)
-    if isinstance(field_type, (IntegerType, LongType)):
-        if not text.lstrip("+-").isdigit():
-            raise _NoPushdown
-        return sign * int(text)
-    if isinstance(field_type, (FloatType, DoubleType)):
-        return sign * float(text)
-    raise _NoPushdown
+    if diff.rows_added - diff.rows_deleted != impact.rows_after - impact.rows_before:
+        raise DiffError("the row diff does not add up to the measured row count change")
+    if tuple(impact.key or ()) == diff.key and (
+        diff.rows_added,
+        diff.rows_deleted,
+        diff.rows_modified,
+    ) != (impact.rows_added, impact.rows_deleted, impact.rows_modified):
+        raise DiffError("the row diff disagrees with the measured impact")

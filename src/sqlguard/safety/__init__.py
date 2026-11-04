@@ -46,7 +46,6 @@ from sqlguard.safety.impact import (
     TableKey,
     compute_row_diff,
     row_diff,
-    statement_filter,
     table_key,
 )
 from sqlguard.safety.invariants import (
@@ -133,6 +132,5 @@ __all__ = [
     "compute_row_diff",
     "parse_spark_call",
     "row_diff",
-    "statement_filter",
     "table_key",
 ]

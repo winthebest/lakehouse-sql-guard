@@ -204,6 +204,9 @@ class ActionRecord:
     approver: str | None = None
     decided_at: datetime | None = None
     outcome_json: str | None = None
+    owner: str | None = None  # who is publishing it: "host:pid:token" (set when it is claimed)
+    lease_until: datetime | None = None  # the owner promises to be alive until then
+    drop_pending: int = 0  # 1 while the audit branch of a finished action still has to be dropped
 
     @property
     def terminal(self) -> bool:
@@ -230,10 +233,15 @@ class ActionRecord:
         return None if self.outcome_json is None else json.loads(self.outcome_json)
 
     def hash_inputs(self) -> dict[str, Any]:
-        """Exactly what `action_hash` covers."""
+        """Exactly what `action_hash` covers: what is decided on and what is shown about it."""
         maintenance = self.maintenance_data
         return {
-            "v": 1,
+            "v": 2,
+            "sql_redacted": self.sql_redacted,
+            "impact": self.impact_json,
+            "reasons": self.reasons_json,
+            "branch": self.branch,
+            "expires_at": _stamp(self.expires_at),
             "kind": self.kind,
             "dialect": self.dialect,
             "sql": self.sql_normalized,
@@ -276,6 +284,8 @@ class ActionRecord:
 
 
 _COLUMNS = tuple(f.name for f in fields(ActionRecord))
+_ERASE = ("sql_normalized = NULL", "maintenance_json = NULL")
+_DROP_PENDING = "drop_pending = CASE WHEN branch IS NULL THEN 0 ELSE 1 END"
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS actions (
     id TEXT PRIMARY KEY,
@@ -304,7 +314,10 @@ CREATE TABLE IF NOT EXISTS actions (
     requester TEXT NOT NULL,
     approver TEXT,
     decided_at TEXT,
-    outcome_json TEXT
+    outcome_json TEXT,
+    owner TEXT,
+    lease_until TEXT,
+    drop_pending INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS actions_state ON actions (state, expires_at);
 CREATE TABLE IF NOT EXISTS used_proofs (
@@ -318,7 +331,7 @@ _SELECT = ", ".join(f'"{c}"' for c in _COLUMNS)
 
 def _record(row: sqlite3.Row) -> ActionRecord:
     values = dict(zip(_COLUMNS, tuple(row), strict=True))
-    for name in ("created_at", "expires_at", "decided_at"):
+    for name in ("created_at", "expires_at", "decided_at", "lease_until"):
         values[name] = _parse_stamp(values[name])
     values["state"] = ActionState(values["state"])
     return ActionRecord(**values)
@@ -375,15 +388,24 @@ class ActionStore:
         finally:
             conn.close()
 
-    def _scrub(self) -> None:
-        """Fold the WAL into the main file and empty it, so erased rows leave no copy behind."""
+    def scrub(self) -> bool:
+        """Fold the WAL into the main file and empty it, so erased rows leave no copy behind.
+
+        Returns False when another connection holds a read transaction and the WAL could not be
+        emptied; the erased bytes then linger in `-wal` until a later call (the Guard repeats it
+        on `expire_pending` and `reconcile`) or until the last connection closes.
+        """
         conn = self._open()
         try:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
-        except sqlite3.Error:  # best effort: another connection may be mid-read
-            pass
+            conn.execute("PRAGMA busy_timeout = 100")  # a reader should not stall a decision
+            busy, log, done = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            return busy == 0 and log <= done
+        except sqlite3.Error:
+            return False
         finally:
             conn.close()
+
+    _scrub = scrub
 
     # -- reads -----------------------------------------------------------------------------------
 
@@ -459,12 +481,15 @@ class ActionStore:
         now: datetime,
         approver: str | None = None,
         outcome: Mapping[str, Any] | None = None,
+        owner: str | None = None,
+        keep_branch: bool = False,
     ) -> bool:
         """Move `expected` -> `new`; True only for the caller whose update changed the row.
 
-        A terminal `new` erases the raw SQL and the detailed maintenance plan. `PENDING ->
-        PUBLISHING` and the decision `PENDING -> REJECTED` go through `claim`, which also
-        consumes the proof.
+        A terminal `new` erases the raw SQL and the detailed maintenance plan, and marks the
+        branch as still to be dropped (`drop_pending`) unless `keep_branch`. With `owner`, the
+        update applies only while that owner still holds the row. `PENDING -> PUBLISHING` and
+        the decision `PENDING -> REJECTED` go through `claim`, which also consumes the proof.
         """
         self._check_edge(expected, new)
         sets = ["state = ?", "decided_at = COALESCE(decided_at, ?)"]
@@ -476,12 +501,17 @@ class ActionStore:
             sets.append("outcome_json = ?")
             params.append(canonical_json(outcome))
         if new in TERMINAL_STATES:
-            sets.extend(("sql_normalized = NULL", "maintenance_json = NULL"))
+            sets.extend(_ERASE)
+            if not keep_branch:
+                sets.append(_DROP_PENDING)
+        where, where_params = "id = ? AND state = ?", [action_id, expected.value]
+        if owner is not None:
+            where += " AND owner = ?"
+            where_params.append(owner)
         try:
             with self._tx() as conn:
                 changed = conn.execute(
-                    f"UPDATE actions SET {', '.join(sets)} WHERE id = ? AND state = ?",
-                    (*params, action_id, expected.value),
+                    f"UPDATE actions SET {', '.join(sets)} WHERE {where}", (*params, *where_params)
                 ).rowcount
         except sqlite3.Error as err:
             raise StoreError(f"cannot update action {action_id}: {err}") from err
@@ -498,11 +528,14 @@ class ActionStore:
         approver: str,
         now: datetime,
         outcome: Mapping[str, Any] | None = None,
+        owner: str | None = None,
+        lease_until: datetime | None = None,
     ) -> bool:
         """Decide a pending action in one transaction: `pending -> new` and the proof is spent.
 
-        `new` is `PUBLISHING` (approve) or `REJECTED`. Returns False, changing nothing, when the
-        action is no longer pending or has expired. Raises ProofReplayed (also changing
+        `new` is `PUBLISHING` (approve; `owner` and `lease_until` record who is publishing and
+        until when they promise to be alive) or `REJECTED`. Returns False, changing nothing, when
+        the action is no longer pending or has expired. Raises ProofReplayed (also changing
         nothing) when the proof was used before. Either both effects happen or neither.
         """
         if new not in (S.PUBLISHING, S.REJECTED):
@@ -514,8 +547,11 @@ class ActionStore:
         if outcome is not None:
             sets.append("outcome_json = ?")
             params.append(canonical_json(outcome))
+        if new is S.PUBLISHING:
+            sets.extend(("owner = ?", "lease_until = ?"))
+            params.extend((owner, None if lease_until is None else _stamp(lease_until)))
         if new in TERMINAL_STATES:
-            sets.extend(("sql_normalized = NULL", "maintenance_json = NULL"))
+            sets.extend((*_ERASE, _DROP_PENDING))
         try:
             with self._tx() as conn:
                 changed = conn.execute(
@@ -538,20 +574,33 @@ class ActionStore:
             self._scrub()
         return True
 
-    def expire_due(self, now: datetime) -> list[ActionRecord]:
-        """Mark every pending action whose time is up as expired; returns the rows it expired."""
+    def expire_due(
+        self, now: datetime, *, catalog_name: str | None = None, engine: str | None = None
+    ) -> list[ActionRecord]:
+        """Mark pending actions whose time is up as expired; returns the rows it expired.
+
+        With `catalog_name` / `engine`, only actions queued for that catalog and engine.
+        """
+        scope, scope_params = "", []
+        if catalog_name is not None:
+            scope += " AND catalog_name = ?"
+            scope_params.append(catalog_name)
+        if engine is not None:
+            scope += " AND engine = ?"
+            scope_params.append(engine)
         try:
             with self._tx() as conn:
                 rows = conn.execute(
-                    f"SELECT {_SELECT} FROM actions WHERE state = 'pending' AND expires_at <= ?",
-                    (_stamp(now),),
+                    f"SELECT {_SELECT} FROM actions "
+                    f"WHERE state = 'pending' AND expires_at <= ?{scope}",
+                    (_stamp(now), *scope_params),
                 ).fetchall()
                 if rows:
                     conn.execute(
-                        "UPDATE actions SET state = 'expired', decided_at = ?, "
-                        "sql_normalized = NULL, maintenance_json = NULL "
-                        "WHERE state = 'pending' AND expires_at <= ?",
-                        (_stamp(now), _stamp(now)),
+                        f"UPDATE actions SET state = 'expired', decided_at = ?, "
+                        f"{', '.join(_ERASE)}, {_DROP_PENDING} "
+                        f"WHERE state = 'pending' AND expires_at <= ?{scope}",
+                        (_stamp(now), _stamp(now), *scope_params),
                     )
         except sqlite3.Error as err:
             raise StoreError(f"cannot expire actions: {err}") from err
@@ -561,6 +610,84 @@ class ActionStore:
             replace(_record(r), state=S.EXPIRED, sql_normalized=None, maintenance_json=None)
             for r in rows
         ]
+
+    def renew_lease(self, action_id: str, owner: str, lease_until: datetime) -> bool:
+        """Extend `owner`'s hold on a publishing action; False once someone else holds it."""
+        return self._cas(
+            "UPDATE actions SET lease_until = ? "
+            "WHERE id = ? AND state = 'publishing' AND owner = ?",
+            (_stamp(lease_until), action_id, owner),
+        )
+
+    def take_over(
+        self,
+        action_id: str,
+        *,
+        expected_owner: str | None,
+        new_owner: str,
+        now: datetime,
+        lease_until: datetime,
+    ) -> bool:
+        """Become the owner of a publishing action whose lease has run out (compare-and-set)."""
+        return self._cas(
+            "UPDATE actions SET owner = ?, lease_until = ? WHERE id = ? AND state = 'publishing' "
+            "AND owner IS ? AND (lease_until IS NULL OR lease_until <= ?)",
+            (new_owner, _stamp(lease_until), action_id, expected_owner, _stamp(now)),
+        )
+
+    def mark_dropped(self, action_id: str) -> None:
+        self._cas("UPDATE actions SET drop_pending = 0 WHERE id = ?", (action_id,))
+
+    def list_drop_pending(
+        self, *, catalog_name: str | None = None, engine: str | None = None, limit: int = 500
+    ) -> list[ActionRecord]:
+        """Finished actions whose audit branch has not been dropped yet."""
+        scope, params = "", []
+        if catalog_name is not None:
+            scope += " AND catalog_name = ?"
+            params.append(catalog_name)
+        if engine is not None:
+            scope += " AND engine = ?"
+            params.append(engine)
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                f"SELECT {_SELECT} FROM actions WHERE drop_pending = 1{scope} LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+        except sqlite3.Error as err:
+            raise StoreError(f"cannot list branches to drop: {err}") from err
+        finally:
+            conn.close()
+        return [_record(r) for r in rows]
+
+    def count_pending(self) -> int:
+        conn = self._open()
+        try:
+            return int(
+                conn.execute("SELECT count(*) FROM actions WHERE state = 'pending'").fetchone()[0]
+            )
+        finally:
+            conn.close()
+
+    def live_branches(self) -> set[str]:
+        """Branch names of actions that are not finished (their branches must not be swept)."""
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                "SELECT branch FROM actions WHERE branch IS NOT NULL "
+                "AND state IN ('pending', 'publishing')"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r[0] for r in rows}
+
+    def _cas(self, statement: str, params: Sequence[Any]) -> bool:
+        try:
+            with self._tx() as conn:
+                return conn.execute(statement, params).rowcount == 1
+        except sqlite3.Error as err:
+            raise StoreError(f"cannot update the action store: {err}") from err
 
     @staticmethod
     def _check_edge(expected: ActionState, new: ActionState) -> None:

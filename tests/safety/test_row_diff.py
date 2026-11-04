@@ -1,4 +1,4 @@
-"""Row-level diff between two snapshots: keys, caps, determinism, and WHERE pushdown."""
+"""Row-level diff between two snapshots: keys, caps, determinism, and the whole-table comparison."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from sqlguard.safety import (
     TableKey,
     compute_row_diff,
     row_diff,
-    statement_filter,
     table_key,
 )
 
@@ -249,111 +248,73 @@ def test_a_missing_snapshot_is_an_error_not_an_empty_diff(catalog, t):
         compute_row_diff(catalog.table("t"), base, 12345)
 
 
-# -- pushdown --------------------------------------------------------------------------------
-
-STATEMENTS = [
-    ("DELETE FROM t WHERE id = 1", True),
-    ("DELETE FROM t WHERE region = 'us' AND amount > 30", True),
-    ("DELETE FROM t WHERE id IN (1, 3) OR region = 'eu'", True),
-    ("DELETE FROM t WHERE id BETWEEN 2 AND 3", True),
-    ("DELETE FROM t WHERE region IS NOT NULL AND amount >= 20.5", True),
-    ("DELETE FROM t WHERE 2 < id", True),
-    ("UPDATE t SET amount = amount + 1 WHERE region = 'eu'", True),
-    ("UPDATE t SET amount = 0 WHERE id = 2", True),
-    ("DELETE FROM t AS x WHERE x.id = 1", True),
-    # assigns a column the WHERE clause reads: a rewritten row could leave the filter
-    ("UPDATE t SET region = 'ap' WHERE region = 'eu'", False),
-    ("UPDATE t SET id = id + 10 WHERE id < 3", False),
-    ("DELETE FROM t WHERE NOT (id = 1)", False),
-    ("DELETE FROM t WHERE lower(region) = 'eu'", False),
-    ("DELETE FROM t WHERE id IN (SELECT id FROM t)", False),
-    ("DELETE FROM t WHERE amount = 'x'", False),  # string literal against a double column
-    ("DELETE FROM t WHERE id = 1.5", False),  # fractional literal against an integer column
-    ("DELETE FROM t WHERE region = 1", False),
-    ("DELETE FROM t", False),  # no WHERE
-    ("INSERT INTO t VALUES (7, 'x', 1.0)", False),
-    ("DELETE FROM t WHERE id = 1; DELETE FROM t WHERE id = 2", False),
-    ("DELETE FROM t WHERE other.id = 1", False),
-    ("DELETE FROM t WHERE nope = 1", False),
-    ("not sql at all (", False),
-]
+# -- no part of a statement narrows the comparison ----------------------------------------------
 
 
-@pytest.mark.parametrize(("sql", "pushed"), STATEMENTS)
-def test_which_statements_are_pushed_down(t, sql, pushed):
-    iceberg, _ = t
-    assert (statement_filter(sql, "duckdb", iceberg.schema()) is not None) is pushed
-
-
-@pytest.mark.parametrize(
-    "sql",
-    [sql for sql, pushed in STATEMENTS if pushed]
-    + [
-        "UPDATE t SET region = 'ap' WHERE region = 'eu'",
-        "UPDATE t SET id = id + 10 WHERE id < 3",
-        "DELETE FROM t WHERE NOT (id = 1)",
-    ],
-)
-def test_pushdown_never_changes_the_diff(catalog, t, sql):
-    """The filtered diff has the same rows, counts and digest as the unfiltered one."""
+def test_the_whole_table_is_compared_whatever_the_statement(catalog, t):
+    """A reviewer sees every changed row: nothing is filtered by the statement's WHERE."""
     from sqlguard.safety.executor import DuckDBIcebergAdapter
 
     iceberg, base = t
     adapter = DuckDBIcebergAdapter(catalog)
     branch = adapter.create_branch("t")
-    adapter.apply_sql(branch, sql)
-    head = adapter.diff(branch).branch.head
+    adapter.apply_sql(branch, "UPDATE t SET region = 'ap' WHERE region = 'eu'")
+    diff = adapter.diff(branch)
     table = catalog.table("t")
-    plain = compute_row_diff(table, base, head, key=table_key(table))
-    flt = statement_filter(sql, "duckdb", table.schema())
-    pushed = compute_row_diff(table, base, head, key=table_key(table), row_filter=flt)
-    assert pushed.digest == plain.digest
-    assert [r.to_dict() for r in pushed.rows] == [r.to_dict() for r in plain.rows]
-    assert (pushed.rows_added, pushed.rows_deleted, pushed.rows_modified) == (
-        plain.rows_added,
-        plain.rows_deleted,
-        plain.rows_modified,
+    full = compute_row_diff(table, base, diff.branch.head, key=table_key(table))
+    assert full.rows_modified == 2 and {r.key["id"] for r in full.rows} == {1, 2}
+    assert (
+        full.digest
+        == row_diff(
+            diff.before,
+            diff.after,
+            ["id"],
+            table="db.t",
+            base_snapshot_id=base,
+            head_snapshot_id=diff.branch.head,
+            key_source="identifier",
+        ).digest
     )
 
 
-def test_pushdown_reads_fewer_rows_and_is_reported(catalog):
-    big = pa.table(
+def test_nan_rows_and_float32_values_are_diffed_like_the_engine_sees_them(catalog):
+    """Rows an engine would match (NaN above every number, float32 0.1) are all listed."""
+    data = pa.table(
         {
-            "id": pa.array(range(1000), pa.int64()),
-            "bucket": pa.array([i // 100 for i in range(1000)], pa.int64()),
+            "id": pa.array(range(6), pa.int64()),
+            "f": pa.array([0.1, 0.1, 1.0, math.nan, math.nan, 20.0], pa.float32()),
         }
     )
-    iceberg = catalog.create_table("t", big)
-    # one file per bucket, so file-level pruning applies
-    iceberg.overwrite(big.slice(0, 0))
-    for bucket in range(10):
-        catalog.table("t").append(big.filter(pa.compute.equal(big["bucket"], bucket)))
-    table = catalog.table("t")
-    base = table.current_snapshot().snapshot_id
-    table.delete("id = 5")
-    head = catalog.table("t").current_snapshot().snapshot_id
-    table = catalog.table("t")
-    flt = statement_filter("DELETE FROM t WHERE id = 5", "duckdb", table.schema())
-    pushed = compute_row_diff(table, base, head, key=("id",), row_filter=flt)
-    plain = compute_row_diff(table, base, head, key=("id",))
-    assert pushed.digest == plain.digest and pushed.rows_deleted == 1
-    assert plain.scanned_rows[0] == 1000
-    assert pushed.scanned_rows[0] < plain.scanned_rows[0]
-    assert pushed.pushdown and plain.pushdown is None
+    catalog.create_table("f", data)
+    base = catalog.table("f").current_snapshot().snapshot_id
+    catalog.table("f").overwrite(data.filter(pa.compute.is_in(data["id"], pa.array([2, 5]))))
+    head = catalog.table("f").current_snapshot().snapshot_id
+    diff = compute_row_diff(catalog.table("f"), base, head, key=("id",))
+    assert diff.rows_deleted == 4 and {r.key["id"] for r in diff.rows} == {0, 1, 3, 4}
 
 
-def test_pushdown_lets_a_big_table_through_the_cap(catalog):
-    data = pa.table({"id": pa.array(range(400), pa.int64())})
-    catalog.create_table("t", data.slice(0, 0))
-    for start in range(0, 400, 100):
-        catalog.table("t").append(data.slice(start, 100))
-    table = catalog.table("t")
-    base = table.current_snapshot().snapshot_id
-    table.delete("id = 5")
-    table = catalog.table("t")
-    head = table.current_snapshot().snapshot_id
-    limits = DiffLimits(max_rows=150)
+def test_check_against_impact_refuses_a_diff_that_disagrees_with_the_measured_impact():
+    from dataclasses import replace
+
+    from sqlguard.safety.impact import check_against_impact, compute_table_impact
+
+    before = rows(*BASE)
+    after = rows(*BASE[1:])
+    impact = compute_table_impact("t", before, after, ["id"])
+    good = row_diff(before, after, ["id"])
+    check_against_impact(good, impact)  # same key, same counts: fine
+    check_against_impact(row_diff(before, after), impact)  # other key mode: the net change agrees
+    with pytest.raises(DiffError, match="disagrees"):
+        check_against_impact(replace(good, rows_added=1, rows_deleted=2), impact)
+    with pytest.raises(DiffError, match="add up"):
+        check_against_impact(replace(good, rows_deleted=0), impact)
+
+
+def test_check_size_refuses_data_already_in_memory():
+    from sqlguard.safety.impact import check_size
+
+    check_size(rows(*BASE), rows(*BASE), DiffLimits())
     with pytest.raises(DiffTooLarge):
-        compute_row_diff(table, base, head, limits=limits)
-    flt = statement_filter("DELETE FROM t WHERE id = 5", "duckdb", table.schema())
-    assert compute_row_diff(table, base, head, row_filter=flt, limits=limits).rows_deleted == 1
+        check_size(rows(*BASE), rows(*BASE), DiffLimits(max_rows=3))
+    with pytest.raises(DiffTooLarge):
+        check_size(rows(*BASE), rows(*BASE), DiffLimits(max_bytes=10))
