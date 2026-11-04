@@ -37,7 +37,9 @@ Differences from the DuckDB adapter that an approver should know:
   * `expire_snapshots` deletes the data and manifest files that no remaining snapshot needs, not
     just the metadata (the plan says so).
   * `rollback` has no compare-and-swap in Spark. It re-checks main right before the call and,
-    if a writer slipped in between, restores the writer's snapshot and raises `BranchDiverged`.
+    if a writer slipped in between, restores the writer's snapshot (a PyIceberg commit that
+    asserts main is still at the rollback target) and raises `BranchDiverged`. With no
+    `expected_current` the snapshot observed before the call is the expectation.
   * Spark reports orphan files by location only, so `OrphanFile.modified` is the cutoff the
     procedure applied (every listed file is older than it).
   * Timestamps are collected in the Python process's local zone; results are converted to UTC.
@@ -54,7 +56,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import pyarrow as pa
-from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.exceptions import CommitFailedException, NoSuchTableError
 from pyiceberg.table import Table
 from sqlglot import exp
 
@@ -477,14 +479,28 @@ class SparkIcebergAdapter:
         if iceberg.snapshot_by_id(snapshot_id) is None:
             raise ExecutionError(f"Cannot roll back to unknown snapshot id: {snapshot_id}")
         qualified = self.catalog.identifier(table)
+        expected = current if expected_current is None else expected_current
         rows = self._call("rollback_to_snapshot", table=qualified, snapshot_id=int(snapshot_id))
         previous = int(rows[0][0]) if rows else current
-        if expected_current is not None and previous != expected_current:
-            # A writer committed between the check and the call; put its snapshot back.
-            self._call("set_current_snapshot", table=qualified, snapshot_id=int(previous))
+        if previous != expected:
+            # A writer committed between the check and the call, and the procedure replaced its
+            # snapshot. Put it back with a compare-and-swap on main (it must still be at the
+            # rollback target), so a commit made after the rollback is never overwritten.
+            try:
+                loaded = self._load(table)
+                if self._current_id(loaded) != snapshot_id:
+                    raise ValueError(f"main is at {self._current_id(loaded)}, not {snapshot_id}")
+                loaded.manage_snapshots().set_current_snapshot(snapshot_id=int(previous)).commit()
+            except (CommitFailedException, ValueError) as err:
+                raise BranchDiverged(
+                    f"main of {table} changed during rollback (was {previous}, expected "
+                    f"{expected}) and the replaced snapshot could not be restored: {err}"
+                ) from err
+            finally:
+                self._refresh(table)
             raise BranchDiverged(
                 f"main of {table} changed during rollback (was {previous}, expected "
-                f"{expected_current}); the newer snapshot was restored"
+                f"{expected}); the newer snapshot was restored"
             )
 
     # -- maintenance -----------------------------------------------------------------------------

@@ -386,6 +386,12 @@ def test_query_runs_read_only_sql_on_main(adapter: SparkIcebergAdapter, spark: F
 # -- maintenance ---------------------------------------------------------------------------------
 
 
+def extra_row() -> pa.Table:
+    return pa.table(
+        {"id": pa.array([900], pa.int64()), "customer": ["w"], "amount": pa.array([1.0])}
+    )
+
+
 def add_snapshots(lake: LakehouseCatalog, count: int) -> None:
     for i in range(count):
         lake.table("orders").append(
@@ -490,15 +496,59 @@ def test_rollback_restores_a_writer_that_slipped_in(
 ) -> None:
     add_snapshots(lake, 1)
     first, expected = (s.snapshot_id for s in lake.snapshots("orders"))
-    newer = 12345
-    spark.on("rollback_to_snapshot", lambda text: [(newer, first)])
+    newer: list[int] = []
+
+    def spark_rolls_back_over_a_writer(text: str):
+        lake.table("orders").append(extra_row())  # lands before the procedure loads the table
+        newer.append(lake.table("orders").current_snapshot().snapshot_id)
+        lake.table("orders").manage_snapshots().rollback_to_snapshot(first).commit()
+        return [(newer[0], first)]
+
+    spark.on("rollback_to_snapshot", spark_rolls_back_over_a_writer)
     with pytest.raises(BranchDiverged, match="restored"):
         adapter.rollback("orders", first, expected_current=expected)
-    assert spark.calls("set_current_snapshot") == [
-        f"CALL `demo`.system.set_current_snapshot(table => 'db.orders', snapshot_id => {newer})"
-    ]
+    assert adapter.current_snapshot_id("orders") == newer[0]  # the writer's commit is live again
+    assert not spark.calls("set_current_snapshot")  # restored by a catalog CAS, not a procedure
     with pytest.raises(BranchDiverged):
         adapter.rollback("orders", first, expected_current=first)
+
+
+def test_rollback_without_an_expected_snapshot_still_protects_a_racing_writer(
+    adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
+) -> None:
+    add_snapshots(lake, 1)
+    first = lake.snapshots("orders")[0].snapshot_id
+    newer: list[int] = []
+
+    def spark_rolls_back_over_a_writer(text: str):
+        lake.table("orders").append(extra_row())
+        newer.append(lake.table("orders").current_snapshot().snapshot_id)
+        lake.table("orders").manage_snapshots().rollback_to_snapshot(first).commit()
+        return [(newer[0], first)]
+
+    spark.on("rollback_to_snapshot", spark_rolls_back_over_a_writer)
+    with pytest.raises(BranchDiverged, match="restored"):
+        adapter.rollback("orders", first)
+    assert adapter.current_snapshot_id("orders") == newer[0]
+
+
+def test_a_commit_after_the_rollback_is_not_overwritten_by_the_restore(
+    adapter: SparkIcebergAdapter, lake: LakehouseCatalog, spark: FakeSpark
+) -> None:
+    add_snapshots(lake, 1)
+    first, expected = (s.snapshot_id for s in lake.snapshots("orders"))
+
+    def two_writers(text: str):
+        lake.table("orders").append(extra_row())
+        slipped = lake.table("orders").current_snapshot().snapshot_id
+        lake.table("orders").manage_snapshots().rollback_to_snapshot(first).commit()
+        lake.table("orders").append(extra_row())  # a second writer, on top of the rollback
+        return [(slipped, first)]
+
+    spark.on("rollback_to_snapshot", two_writers)
+    with pytest.raises(BranchDiverged, match="could not be restored"):
+        adapter.rollback("orders", first, expected_current=expected)
+    assert lake.read("orders").num_rows == 21  # the second writer's row survived
 
 
 def orphan_location(lake: LakehouseCatalog, name: str = "orphan.parquet") -> str:
@@ -594,18 +644,23 @@ def _sql(text: str):
 
 # -- real Spark (docker compose stack) -----------------------------------------------------------
 
+# The `spark` tests need a stack that is only reachable from inside the compose network:
+# docker/run-integration.sh sets these. Without SQLGUARD_REST_URI they are skipped.
 REMOTE = os.environ.get("SQLGUARD_SPARK_REMOTE", "sc://localhost:15002")
-REST_URI = os.environ.get("SQLGUARD_REST_URI", "http://localhost:8181")
-S3_ENDPOINT = os.environ.get("SQLGUARD_S3_ENDPOINT", "http://localhost:9000")
-S3_KEY = os.environ.get("SQLGUARD_S3_KEY", "admin")
-S3_SECRET = os.environ.get("SQLGUARD_S3_SECRET", "password")
-# Set to a Lakekeeper warehouse name to use vended credentials instead of the static S3 ones.
+REST_URI = os.environ.get("SQLGUARD_REST_URI")
+# Set to a Lakekeeper warehouse name to use vended credentials; otherwise static S3 credentials
+# for another REST catalog come from the variables below.
 REST_WAREHOUSE = os.environ.get("SQLGUARD_REST_WAREHOUSE")
+S3_ENDPOINT = os.environ.get("SQLGUARD_S3_ENDPOINT")
+S3_KEY = os.environ.get("SQLGUARD_S3_KEY")
+S3_SECRET = os.environ.get("SQLGUARD_S3_SECRET")
 SPARK_CATALOG = os.environ.get("SQLGUARD_SPARK_CATALOG", "demo")
 
 
 @pytest.fixture(scope="module")
 def spark_session():
+    if REST_URI is None:
+        pytest.skip("SQLGUARD_REST_URI is not set; run these through docker/run-integration.sh")
     pyspark_sql = pytest.importorskip("pyspark.sql", reason="install the `spark` extra")
     try:
         session = pyspark_sql.SparkSession.builder.remote(REMOTE).getOrCreate()
