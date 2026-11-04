@@ -1,0 +1,44 @@
+[project]
+name = "lakehouse-sql-guard"
+version = "0.1.0"
+description = "Pre-execution SQL guard for Apache Iceberg lakehouses: detects temporal feature leakage and gates destructive AI-agent actions."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlglot>=30.29,<31",
+    "pyiceberg[sql-sqlite,pyarrow]>=0.12,<0.13",
+    "duckdb>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+bench = ["scikit-learn>=1.5", "matplotlib>=3.9", "openai>=1.50"]
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+sqlguard = "sqlguard.cli:main"
+sqlguard-mcp = "sqlguard.mcp_server:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "hypothesis>=6.100", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sqlguard"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["spark: requires the Docker Spark/Iceberg stack", "network: downloads public data"]
+addopts = "-m 'not spark and not network'"
