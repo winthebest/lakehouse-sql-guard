@@ -176,7 +176,7 @@ def main() -> int:
     assert len(lake.snapshots("orders")) == kept
     print(f"    -> held. All {kept} snapshots are still there.")
 
-    heading("Audit trail (a held action is logged as declined by the no-reviewer approver)")
+    heading("Audit trail (held actions have no approver; the approved one names its reviewer)")
     for line in audit_path.read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
         if record["phase"] != "completed":

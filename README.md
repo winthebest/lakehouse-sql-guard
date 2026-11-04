@@ -114,10 +114,14 @@ relations: {analytics.main.stg_orders: orders}   # SQL name -> catalog table, fo
 ### Give an agent guarded tools (MCP)
 
 `sqlguard-mcp` serves `list_tables`, `describe_table`, `run_sql`, `expire_snapshots`,
-`remove_orphan_files`, `rollback` (all through the guard; there is no unguarded mode) and a
-`check_training_sql` leakage tool over stdio. Actions that need approval are rehearsed and
-returned with their measured impact; nothing is approved automatically. Client config:
-[examples/mcp-client-config.json](examples/mcp-client-config.json).
+`remove_orphan_files`, `rollback`, `get_action_status` (all through the guard; there is no
+unguarded mode and no tool that approves) and a `check_training_sql` leakage tool over stdio.
+With `--store`, an action that needs approval is rehearsed, saved and returned to the agent as
+`pending_approval` with an `action_id`; you decide it with `sqlguard serve` or
+`sqlguard approvals`. Policy v2 (`config/policy.v2.yaml`) asks for every write to `prod`,
+whatever its size. Install for Claude Code, Cursor or Claude Desktop, and the sandbox settings
+that keep catalog credentials away from the agent's shell: [docs/mcp.md](docs/mcp.md) and
+[examples/mcp](examples/mcp).
 
 ### Approve or reject queued actions
 
