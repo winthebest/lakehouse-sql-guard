@@ -14,7 +14,8 @@ dependencies = [
 
 [project.optional-dependencies]
 bench = ["scikit-learn>=1.5", "matplotlib>=3.9", "anthropic>=2.4", "openpyxl>=3.1"]
-mcp = ["mcp>=1.2"]
+mcp = ["mcp>=2.3,<3"]
+spark = ["pyspark-client>=4.0.5,<4.1"]
 
 [project.scripts]
 sqlguard = "sqlguard.cli:main"
