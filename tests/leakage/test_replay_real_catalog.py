@@ -365,24 +365,38 @@ def history_from(tmp_path, first_day: int):
     return catalog
 
 
-def test_prediction_times_before_the_history_are_skipped_not_fatal(tmp_path):
+def test_prediction_times_before_the_history_are_left_out_not_fatal(tmp_path):
     """Labels run from day 3, the events history from day 5: a leak must still show."""
     catalog = history_from(tmp_path, first_day=5)
     result = Replayer(catalog, BASE, min_rows=1, min_points=1).run(UNBOUNDED)
     assert result.status is ReplayStatus.MISMATCH
     assert (
-        "skipped" in result.reason and "table history starts after prediction time" in result.reason
+        "left out" in result.reason
+        and "table history starts after prediction time" in result.reason
     )
-    assert 0 < result.points_checked < len(Replayer(catalog, BASE).points)
+    assert result.points_checked > 0
+
+
+def test_the_sample_is_drawn_from_the_times_the_history_covers(tmp_path):
+    """Times before the history are not sampled and wasted: the whole budget goes to the rest."""
+    catalog = history_from(tmp_path, first_day=5)
+    result = Replayer(catalog, BASE, max_points=10, min_rows=1, min_points=1).run(sql())
+    assert result.status is ReplayStatus.PASS
+    assert result.points_checked == 10
+    assert result.timestamps_compared == 10
+    # the default evidence thresholds are met by the resampled points
+    default = Replayer(catalog, BASE).run(sql())
+    assert default.status is ReplayStatus.PASS and "left out" in default.reason
 
 
 def test_a_clean_query_with_some_points_skipped_needs_enough_of_the_rest(tmp_path):
     catalog = history_from(tmp_path, first_day=5)
     query = sql()
     few = Replayer(catalog, BASE, min_rows=1, min_points=100).run(query)
-    assert few.status is ReplayStatus.UNVERIFIABLE and "skipped" in few.reason
+    assert few.status is ReplayStatus.UNVERIFIABLE and "left out" in few.reason
+    assert not few.insufficient_evidence  # a gap in coverage keeps blocking
     enough = Replayer(catalog, BASE, min_rows=1, min_points=1).run(query)
-    assert enough.status is ReplayStatus.PASS and "skipped" in enough.reason
+    assert enough.status is ReplayStatus.PASS and "left out" in enough.reason
 
 
 def test_history_covering_only_the_last_prediction_never_reads_as_clean(tmp_path):
@@ -392,10 +406,17 @@ def test_history_covering_only_the_last_prediction_never_reads_as_clean(tmp_path
     replayer = Replayer(catalog, BASE)
     report = validate(sql(), BASE, catalog=catalog, replay=replayer)
     assert report.replay.status is ReplayStatus.UNVERIFIABLE
-    assert "skipped" in report.replay.reason and not report.replay.insufficient_evidence
+    assert "left out" in report.replay.reason and not report.replay.insufficient_evidence
     assert report.verdict == "unverifiable"
     # a plain small sample (nothing skipped) still does not block a query static cleared
     full = history_from(tmp_path / "full", first_day=0)
     small = Replayer(full, BASE, min_rows=10_000)
     again = validate(sql(), BASE, catalog=full, replay=small)
     assert again.replay.insufficient_evidence and again.verdict == "clean"
+
+
+def test_a_query_with_no_prediction_time_in_its_output_is_still_unverifiable(tmp_path):
+    catalog = history_from(tmp_path, first_day=5)
+    result = Replayer(catalog, BASE).run(f"{SEL}, 1 AS x FROM labels l WHERE 1 = 0")
+    assert result.status is ReplayStatus.UNVERIFIABLE
+    assert "no label prediction time" in result.reason
