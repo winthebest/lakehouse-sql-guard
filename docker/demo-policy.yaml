@@ -1,0 +1,29 @@
+# Policy for the Spark demo. It is the strict default with three changes so a 100-row demo table
+# can show every path: short retention (the demo's snapshots are minutes old), a 50% delete
+# invariant instead of the example's 10%, and a declared unique key so updates are counted.
+version: 1
+default_namespace: db
+
+protected_tables:
+  - customers_pii
+
+retention:
+  default:
+    min_snapshot_age_days: 0
+    min_snapshots: 2
+    min_orphan_age_days: 3
+
+thresholds:
+  max_affected_row_pct: 10   # a change touching more than 10% of the rows needs a human
+
+invariants:
+  default:
+    max_delete_pct: 50
+    min_rows: 1
+  tables:
+    orders:
+      unique_key: [id]
+
+task_scope:
+  allowed_namespaces:
+    - db
