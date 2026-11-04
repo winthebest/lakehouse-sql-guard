@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
 from sqlglot import exp
@@ -940,6 +940,38 @@ def _live_scopes(scopes: list[Scope]) -> set[int]:
     return live
 
 
+def resolve_relations(tree: exp.Expression, relations: Mapping[str, str]) -> exp.Expression:
+    """`tree` with each qualified relation name that `relations` maps read as its catalog table.
+
+    `analytics.main.fct_events` becomes `events` when the spec maps it to `events` (or to
+    `ns.events`), so schemas and the spec's table declarations, which are keyed by catalog table,
+    apply to it. A name without an alias keeps the name the query used as its alias, so columns
+    written `fct_events.id` still resolve. Names the mapping does not list, and bare names, are
+    left alone, and so is the tree when nothing is renamed: the result is `tree` itself or a copy.
+    """
+    if not relations:
+        return tree
+    renames: list[tuple[int, str]] = []
+    for position, table in enumerate(tree.find_all(exp.Table)):
+        parts = (table.catalog, table.db, table.name)
+        key = ".".join(p.lower() for p in parts if p)
+        if table.name and table.db and key in relations:
+            renames.append((position, relations[key].rsplit(".", 1)[-1]))
+    if not renames:
+        return tree
+    tree = tree.copy()
+    tables = list(tree.find_all(exp.Table))
+    for position, target in renames:
+        table = tables[position]
+        used = table.name
+        if not table.alias and used.lower() != target:
+            table.set("alias", exp.TableAlias(this=exp.to_identifier(used)))
+        table.set("this", exp.to_identifier(target))
+        table.set("db", None)
+        table.set("catalog", None)
+    return tree
+
+
 def analyze(sql: str, spec: LeakageSpec, schema: Schema) -> QueryAnalysis:
     """Qualify `sql` and attach normalized time bounds to every table reference."""
     return analyze_tree(parse_single(sql, spec.dialect), spec, schema)
@@ -949,6 +981,7 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
     """`analyze` for a parsed statement. The tree is not modified; the analysis works on a copy
     whose nodes carry the same `meta` as the originals, so a caller can map them back."""
     schema = {t.lower(): {c.lower(): ty for c, ty in cols.items()} for t, cols in schema.items()}
+    tree = resolve_relations(tree, spec.relations)
     if any(op.args.get("by_name") for op in tree.find_all(exp.SetOperation)):
         tree = tree.copy()  # the BY NAME rewrite works in place
     qualified = qualify_statement(_positional(tree), schema, spec.dialect)
