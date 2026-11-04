@@ -26,7 +26,7 @@ trap cleanup EXIT
 
 # Only long-running services are waited for; Lakekeeper's bootstrap is a dependency of Trino and
 # Spark, and Polaris' runs below (a finished one-shot makes `up --wait` fail).
-selection=()
+run_env=()
 use_polaris=0
 [[ "${SQLGUARD_IT_POLARIS:-1}" == "1" ]] && use_polaris=1
 
@@ -35,9 +35,10 @@ if [[ "$use_polaris" == "1" ]]; then
   "${compose[@]}" --profile polaris up -d --wait rest-fixture trino spark polaris
   "${compose[@]}" --profile polaris run --rm polaris-bootstrap
 else
-  selection=(-k "not polaris")
+  # An empty URI makes the Polaris tests skip, whatever -k the caller passes.
+  run_env=(-e SQLGUARD_IT_POLARIS_URI=)
   "${compose[@]}" up -d --wait rest-fixture trino spark
 fi
-"${compose[@]}" run --rm runner uv run --frozen --extra spark --extra mcp \
+"${compose[@]}" run --rm ${run_env[@]+"${run_env[@]}"} runner uv run --frozen --extra spark --extra mcp \
   pytest -p no:cacheprovider -m "integration or spark" \
-  tests/integration tests/safety/test_spark_adapter.py ${selection[@]+"${selection[@]}"} "$@"
+  tests/integration tests/safety/test_spark_adapter.py "$@"

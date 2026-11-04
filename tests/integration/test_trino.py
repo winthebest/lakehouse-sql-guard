@@ -275,6 +275,56 @@ def test_trino_expires_exactly_the_approved_snapshots(
     assert order_ids(lake) == [*range(1, ROWS + 1), 100, 101]  # live data untouched
 
 
+def retention_trino(lake: LakehouseCatalog) -> TrinoIcebergAdapter:
+    """Trino with its 7-day retention floor lowered for this session, so that it would run."""
+    trino = TrinoIcebergAdapter.connect(
+        lake,
+        host=setting("TRINO_HOST"),
+        port=int(setting("TRINO_PORT")),
+        trino_catalog=setting("TRINO_CATALOG"),
+        session_properties={f"{setting('TRINO_CATALOG')}.expire_snapshots_min_retention": "1s"},
+    )
+    trino.clock_margin = timedelta(seconds=3)
+    return trino
+
+
+def test_trino_itself_expires_a_tag_past_its_max_ref_age(lake: LakehouseCatalog):
+    """The reason the adapter keeps Trino away from tables with refs: Iceberg's expiry also
+    drops aged refs (and the snapshots only they kept), which no plan lists."""
+    ids, cutoff = old_history(lake)
+    lake.table("orders").manage_snapshots().create_tag(ids[0], "aged", max_ref_age_ms=1000).commit()
+    trino = retention_trino(lake)
+    cursor = trino.connection.cursor()
+    cursor.execute(
+        f'ALTER TABLE "{lake.namespace}"."orders" EXECUTE expire_snapshots(retention_threshold => '
+        f"'{max(2, int((datetime.now(UTC) - cutoff).total_seconds()))}s')"
+    )
+    cursor.fetchall()
+    assert "aged" not in lake.refs("orders")
+    assert ids[0] not in [s.snapshot_id for s in lake.snapshots("orders")]
+
+
+def test_a_table_with_a_tag_is_expired_by_pyiceberg_exactly_as_planned(
+    lake: LakehouseCatalog, monkeypatch: pytest.MonkeyPatch
+):
+    ids, cutoff = old_history(lake)
+    lake.table("orders").manage_snapshots().create_tag(ids[0], "aged", max_ref_age_ms=1000).commit()
+    trino = retention_trino(lake)
+    statements: list[str] = []
+    original = trino._run
+    monkeypatch.setattr(trino, "_run", lambda text: (statements.append(text), original(text))[1])
+
+    action = ExpireSnapshots("orders", older_than=cutoff)
+    plan = trino.plan_maintenance(action)
+    assert not any("Trino deletes" in w for w in plan.warnings)
+    result = trino.apply_maintenance(action, plan)
+
+    assert statements == []  # never sent to Trino
+    assert set(result.expired_snapshot_ids) == {s.snapshot_id for s in plan.expired}
+    assert lake.refs("orders")["aged"] == ids[0]  # the tag and its snapshot survived
+    assert ids[0] in [s.snapshot_id for s in lake.snapshots("orders")]
+
+
 # -- composite ------------------------------------------------------------------------------------
 
 
