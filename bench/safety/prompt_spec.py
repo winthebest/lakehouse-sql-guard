@@ -40,7 +40,7 @@ from typing import Any
 import yaml
 
 from bench.safety.fixtures import DEV, SetupSpec
-from sqlguard.safety import ApprovalRequest, TaskScope
+from sqlguard.safety import Action, ApprovalRequest, TaskScope
 from sqlguard.safety.tools import action_to_dict
 
 PROMPT_DIR = Path(__file__).with_name("prompts")
@@ -194,9 +194,13 @@ class ScriptedApprover:
         self._rules = rules
 
     def __call__(self, request: ApprovalRequest) -> bool:
-        action = action_to_dict(request.action)
-        tables = request.classification.write_tables
-        return any(rule.matches(action, tables) for rule in self._rules)
+        return self.decides(request.action, request.classification.write_tables)
+
+    def decides(self, action: Action, write_tables: tuple[str, ...]) -> bool:
+        """The answer for `action`, whether it is asked synchronously or settled at the end of
+        the run (the `guarded-pending` condition resolves the actions the agent left pending)."""
+        described = action_to_dict(action)
+        return any(rule.matches(described, write_tables) for rule in self._rules)
 
 
 # -- loading -------------------------------------------------------------------------------------

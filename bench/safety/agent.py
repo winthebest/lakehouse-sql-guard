@@ -11,9 +11,12 @@ and says nothing about safety, caution, or approval, so the two conditions are c
 the model does by default.
 
 Request parameters: `model`, `max_tokens`, `system`, `tools`, `messages` and
-`output_config={"effort": "medium"}`. No sampling parameters, no forced `tool_choice`, and
-thinking is left at its default. There is no server-side model fallback: the run measures the
-model that was named, and a refusal is recorded as that model's refusal.
+`output_config={"effort": "medium"}`. The system prompt and the tool list end a prompt-caching
+prefix (`cache_control` on the system block and on the last tool); the marks are added to the
+request only, so the recorded `system` and tool names are unchanged. No sampling parameters, no
+forced `tool_choice`, and thinking is left at its default. There is no server-side model
+fallback: the run measures the model that was named, and a refusal is recorded as that model's
+refusal.
 
 Every request, response and tool call is handed to `emit` as a JSON-able record; the caller
 appends them to a JSONL transcript.
@@ -75,21 +78,23 @@ class Prices:
     input: float
     output: float
     cache_read: float | None = None  # None: cache reads are billed at the input price
+    cache_write: float | None = None  # None: cache writes are billed at the input price
 
     def cost(self, usage: Mapping[str, int]) -> float:
         cached = usage.get("cache_read_input_tokens", 0)
+        written = self.input if self.cache_write is None else self.cache_write
         total = usage.get("input_tokens", 0) * self.input
-        total += usage.get("cache_creation_input_tokens", 0) * self.input
+        total += usage.get("cache_creation_input_tokens", 0) * written
         total += cached * (self.input if self.cache_read is None else self.cache_read)
         total += usage.get("output_tokens", 0) * self.output
         return total / 1_000_000
 
 
-# List prices as of 2026-10, USD per million tokens (haiku: prompts up to 100K tokens). Cache
-# writes are costed at the input price, since no separate cache-write price is recorded here.
+# List prices as of 2026-10, USD per million tokens (haiku: prompts up to 100K tokens). A
+# 5-minute cache write is billed at 1.25x the input price and a cache read at a fraction of it.
 PRICES: dict[str, Prices] = {
-    MAIN_MODEL: Prices(input=4.00, output=20.00, cache_read=0.20),
-    COMPARISON_MODEL: Prices(input=0.10, output=0.50),
+    MAIN_MODEL: Prices(input=4.00, output=20.00, cache_read=0.20, cache_write=5.00),
+    COMPARISON_MODEL: Prices(input=0.10, output=0.50, cache_read=0.01, cache_write=0.125),
 }
 
 
@@ -148,6 +153,24 @@ def make_client() -> Any:
     import anthropic
 
     return anthropic.Anthropic()
+
+
+# -- prompt caching ------------------------------------------------------------------------------
+
+_CACHE = {"type": "ephemeral"}
+
+
+def cached_system(system_text: str) -> list[dict[str, Any]]:
+    """The system prompt as one text block that ends a cacheable prefix."""
+    return [{"type": "text", "text": system_text, "cache_control": dict(_CACHE)}]
+
+
+def cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copies of the tool definitions; the last one ends a cacheable prefix."""
+    marked = [dict(tool) for tool in tools]
+    if marked:
+        marked[-1]["cache_control"] = dict(_CACHE)
+    return marked
 
 
 # -- one request ---------------------------------------------------------------------------------
@@ -271,7 +294,7 @@ def run_agent(
     the model gets `_WRAP_UP_ROUNDS` more rounds to give its answer. All results of one response
     go back in a single user message, and earlier turns are never edited.
     """
-    tools = tool_schemas()
+    tools = tool_schemas(with_status=getattr(backend, "supports_status", False))
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_text}]
     run = AgentRun()
     used = wrap_up = pauses = 0
@@ -297,8 +320,13 @@ def run_agent(
                 "messages": jsonable(messages),
             }
         )
+        sent = {
+            **params,
+            "system": cached_system(system_text),
+            "tools": cached_tools(tools),
+        }
         try:
-            response, seconds = create_message(client, params)
+            response, seconds = create_message(client, sent)
         except FatalModelError:
             raise
         except ModelError as err:

@@ -42,7 +42,7 @@ from pyiceberg.table import Table
 
 from bench.safety.state import StateSnapshot, TableState
 from sqlguard.core.catalog import LakehouseCatalog
-from sqlguard.safety import Guard, Policy, SqlAction, classify
+from sqlguard.safety import ActionStore, Guard, Policy, ProofVerifier, SqlAction, classify
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,8 +142,24 @@ class World:
         self._original_ids = iceberg_metadata._generate_snapshot_id
         iceberg_metadata._generate_snapshot_id = _SnapshotIds()  # type: ignore[assignment]
 
-    def guard(self) -> Guard:
-        return Guard(self.catalog, self.policy, audit_path=self.audit_path, clock=lambda: self.now)
+    def guard(
+        self,
+        *,
+        store: ActionStore | Path | None = None,
+        proof_verifier: ProofVerifier | None = None,
+        requester: str | None = None,
+    ) -> Guard:
+        """A guard on this world. With a `store` an action that needs approval is queued."""
+        extra: dict[str, Any] = {} if requester is None else {"requester": requester}
+        return Guard(
+            self.catalog,
+            self.policy,
+            audit_path=self.audit_path,
+            clock=lambda: self.now,
+            store=store,
+            proof_verifier=proof_verifier,
+            **extra,
+        )
 
     def close(self) -> None:
         iceberg_metadata._generate_snapshot_id = self._original_ids  # type: ignore[assignment]
@@ -156,20 +172,22 @@ class World:
 
 
 @contextmanager
-def temp_world(setup: SetupSpec | None = None) -> Iterator[World]:
+def temp_world(
+    setup: SetupSpec | None = None, policy_path: Path | str = POLICY_PATH
+) -> Iterator[World]:
     """A fresh world in a temp directory that is removed afterwards."""
     with (
         tempfile.TemporaryDirectory(prefix="sqlguard-bench-") as tmp,
-        build_world(Path(tmp), setup or SetupSpec()) as world,
+        build_world(Path(tmp), setup or SetupSpec(), policy_path) as world,
     ):
         yield world
 
 
-def build_world(root: Path, setup: SetupSpec) -> World:
+def build_world(root: Path, setup: SetupSpec, policy_path: Path | str = POLICY_PATH) -> World:
     root.mkdir(parents=True, exist_ok=True)
     catalog = LakehouseCatalog.local(root / "warehouse", namespace=DEV)
     catalog.catalog.create_namespace_if_not_exists(PROD)
-    world = World(root, catalog, Policy.load(POLICY_PATH))
+    world = World(root, catalog, Policy.load(policy_path))
     try:
         for name in setup.tables:
             data, ages = _BUILDERS[name]()
