@@ -6,6 +6,13 @@ Detectors
 - replay:   point-in-time replay only (score = fraction of rows that differ)
 - combined: static rules + replay (the shipped validator)
 
+A detector that cannot check a query (unparseable, undeclared table, spec mismatch, expired
+history, too little replay evidence, or a static L4 hint that only replay can settle) reports
+`unverifiable`. The product fails closed on those; the benchmark scores them as the detector's
+score says (an analysis crash scores 1.0, an unsettled hint scores below the cut) and counts and
+lists them separately (`n_unverifiable`, `unverifiable_cases`) so they are never hidden inside
+the FPR or recall.
+
 Protocol: `prereg` picks each detector's threshold on the dev split (FPR <= 5%) and writes it
 with the commit SHA *before* held-out templates exist; `run` evaluates with those thresholds.
 """
@@ -15,7 +22,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,7 +34,7 @@ from bench.leakage.world import WorldConfig, build_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
-from sqlguard.leakage.validator import Weights, validate
+from sqlguard.leakage.validator import UNCHECKED, LeakageReport, Weights, validate
 
 DETECTORS = ("baseline", "static", "replay", "combined")
 SYNTHETIC_SPEC = Path(__file__).parent / "spec.yaml"
@@ -42,6 +49,8 @@ class Scored:
     scores: dict[str, float]
     leak_types: list[str]
     seconds: dict[str, float]
+    verdicts: dict[str, str] = field(default_factory=dict)  # detector -> "unverifiable" if so
+    reasons: dict[str, str] = field(default_factory=dict)  # detector -> why it is unverifiable
 
 
 def git_sha() -> tuple[str, bool]:
@@ -51,6 +60,18 @@ def git_sha() -> tuple[str, bool]:
     sha = out("git", "rev-parse", "--short", "HEAD") or "unknown"
     dirty = bool(out("git", "status", "--porcelain", "--untracked-files=no"))
     return sha, dirty
+
+
+def unverifiable_reason(report: LeakageReport) -> str:
+    """Why a validator report is `unverifiable` (empty for any other verdict)."""
+    if report.verdict != "unverifiable":
+        return ""
+    unchecked = [f.message for f in report.findings if f.rule_id in UNCHECKED]
+    if unchecked:
+        return "; ".join(unchecked)
+    if report.replay is not None and report.replay.reason:
+        return report.replay.reason
+    return "a static hint (L4) can only be settled by replay"
 
 
 def score_cases(
@@ -74,6 +95,12 @@ def score_cases(
         seconds["replay"] = time.perf_counter() - t
         combined = validate(case.sql, spec, schema=schema, replay=replayer, weights=weights)
         replay_score = replay.mismatch_rate if replay.status is ReplayStatus.MISMATCH else 0.0
+        reasons = {
+            "static": unverifiable_reason(static),
+            "combined": unverifiable_reason(combined),
+            "replay": replay.reason if replay.status is ReplayStatus.UNVERIFIABLE else "",
+        }
+        reasons = {d: r for d, r in reasons.items() if r}
         scored.append(
             Scored(
                 case,
@@ -85,6 +112,8 @@ def score_cases(
                 },
                 combined.leak_types,
                 seconds,
+                {d: "unverifiable" for d in reasons},
+                reasons,
             )
         )
     return scored
@@ -112,6 +141,7 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
             "threshold": None if cut[d] == float("inf") else cut[d],
             "auc": round(auc(roc_curve(labels, scores)), 4),
             "recall_by_type": by_type,
+            "n_unverifiable": sum(d in s.verdicts for s in scored),
             "median_ms": round(
                 1000 * sorted(s.seconds.get(d, 0) for s in scored)[len(scored) // 2], 2
             )
@@ -133,6 +163,18 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
         if (s.scores["combined"] >= cut["combined"]) != s.case.is_leaky
     ]
     report["combined_errors"] = errors
+    report["unverifiable_cases"] = [
+        {
+            "case_id": s.case.case_id,
+            "truth": s.case.leak_type,
+            "detector": d,
+            "score": round(s.scores[d], 4),
+            "reason": s.reasons[d],
+        }
+        for s in scored
+        for d in DETECTORS
+        if d in s.verdicts
+    ]
     return report
 
 
@@ -258,6 +300,21 @@ def markdown(result: dict) -> str:
             row = " | ".join(f"{m['recall_by_type'].get(t, 0):.2f}" for t in types)
             lines.append(f"| {d} | {row} |")
         lines += ["", f"Attribution accuracy (combined): {split['attribution_accuracy']}", ""]
+        counts = {
+            d: m["n_unverifiable"] for d, m in split["detectors"].items() if m["n_unverifiable"]
+        }
+        if counts:
+            lines += [
+                "Unverifiable cases (the product fails closed on these): "
+                + ", ".join(f"{d} {n}" for d, n in counts.items()),
+                "",
+            ]
+            lines += [
+                f"- `{u['case_id']}` ({u['truth']}) {u['detector']}, score {u['score']}: "
+                f"{u['reason']}"
+                for u in split["unverifiable_cases"]
+            ]
+            lines.append("")
     gap = result["optimism_gap"]
     lines += [
         "## Optimism gap (logistic regression, synthetic world)",
