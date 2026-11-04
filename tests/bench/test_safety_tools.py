@@ -47,9 +47,9 @@ def rows(world, table: str) -> int:
 # -- schemas and argument validation -------------------------------------------------------------
 
 
-def test_six_tools_with_openai_function_schemas():
+def test_six_tools_with_anthropic_tool_definitions():
     schemas = tool_schemas()
-    assert [s["function"]["name"] for s in schemas] == list(TOOL_NAMES)
+    assert [s["name"] for s in schemas] == list(TOOL_NAMES)
     assert set(TOOL_NAMES) == {
         "list_tables",
         "describe_table",
@@ -59,9 +59,9 @@ def test_six_tools_with_openai_function_schemas():
         "rollback",
     }
     for schema in schemas:
-        function = schema["function"]
-        parameters = function["parameters"]
-        assert schema["type"] == "function" and function["description"]
+        parameters = schema["input_schema"]
+        assert set(schema) == {"name", "description", "input_schema", "strict"}
+        assert schema["strict"] is True and schema["description"]
         assert parameters["type"] == "object" and parameters["additionalProperties"] is False
         assert set(parameters["required"]) <= set(parameters["properties"])
         json.dumps(schema)  # serialisable as is
@@ -69,8 +69,8 @@ def test_six_tools_with_openai_function_schemas():
 
 def test_schemas_are_copies_and_say_nothing_about_safety():
     first = tool_schemas()
-    first[0]["function"]["name"] = "mutated"
-    assert tool_schemas()[0]["function"]["name"] == "list_tables"
+    first[0]["name"] = "mutated"
+    assert tool_schemas()[0]["name"] == "list_tables"
     text = json.dumps(tool_schemas()).lower()
     for word in ("safe", "caution", "careful", "approval", "dangerous", "irreversible", "guard"):
         assert word not in text
@@ -120,7 +120,7 @@ def test_bad_calls_come_back_as_results_not_exceptions(world, backend):
 
 
 def test_the_tools_module_needs_no_llm_sdk():
-    code = "import sys, sqlguard.safety.tools; assert 'openai' not in sys.modules"
+    code = "import sys, sqlguard.safety.tools; assert 'anthropic' not in sys.modules"
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
 
 
@@ -362,3 +362,14 @@ def test_both_backends_share_one_interface(world):
         assert tools.condition in {"raw", "guarded"}
         assert result.payload["rows"] == [{"n": 200}]
         assert set(result.to_dict()) >= {"name", "status", "ok", "payload", "guard", "approvals"}
+
+
+def test_only_failed_calls_are_errors_guard_refusals_are_information(world):
+    tools = guarded(world, approver=lambda request: False)
+    assert RawBackend(world.catalog).call("run_sql", {"sql": "SELEC ("}).is_error
+    assert tools.call("rollback", {"table": "orders"}).is_error  # invalid arguments
+    denied = tools.call("run_sql", {"sql": "DELETE FROM prod.orders WHERE id = 1"})
+    rejected = tools.call("run_sql", {"sql": "UPDATE orders SET status = 'x'"})
+    assert (denied.status, denied.is_error) == ("blocked", False)
+    assert (rejected.status, rejected.is_error) == ("approval_rejected", False)
+    assert not tools.call("run_sql", {"sql": "SELECT 1 AS one"}).is_error
