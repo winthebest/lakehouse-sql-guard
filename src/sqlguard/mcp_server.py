@@ -19,6 +19,10 @@ operator (for example `Guard.submit(..., approver=...)` in their own tooling).
 make the server read or create files elsewhere. A server started with `--catalog` has no local
 warehouse, so it accepts no `warehouse` argument.
 
+Limit: the default executor rehearses a write by loading the whole table into memory and
+rewriting it on a branch. That suits warehouses of benchmark size; do not point `--catalog` at a
+large production table until an engine-backed executor is selectable.
+
 Configuration comes from flags or, when a flag is absent, environment variables:
 
     --warehouse        SQLGUARD_WAREHOUSE        existing local Iceberg warehouse (or --catalog)
@@ -416,11 +420,13 @@ def build_tools(config: ServerConfig) -> LakehouseTools:
             catalog = LakehouseCatalog.from_config(config.catalog, namespace=config.namespace)
         except (OSError, ValueError) as err:
             raise ConfigError(str(err)) from err
-    else:
-        assert warehouse is not None  # checked above
+    elif warehouse is not None:
         catalog = LakehouseCatalog.local(warehouse, config.namespace)
+    else:
+        raise ConfigError("a warehouse or a catalog name is required")
     audit_path = config.audit_log or (warehouse / "sqlguard-audit.jsonl" if warehouse else None)
-    assert audit_path is not None  # a catalog server must name its audit log, checked above
+    if audit_path is None:
+        raise ConfigError("--audit-log is required with --catalog")
     try:
         guard = Guard(catalog, policy, audit_path=audit_path)
     except (OSError, AuditError) as err:

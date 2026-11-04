@@ -8,10 +8,12 @@ catalog PyIceberg can load (REST, Glue, SQL).
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+import re
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pyarrow as pa
 from pyiceberg.catalog import Catalog, load_catalog
@@ -75,6 +77,44 @@ class SnapshotInfo:
     operation: str
     visible_at: datetime  # logical time if recorded, else commit time (naive UTC)
     sequence_number: int | None = None
+
+
+_SENSITIVE_KEY = re.compile(r"credential|token|secret|passw|pwd|key", re.IGNORECASE)
+_URL_USERINFO = re.compile(r"(://)\S*@")
+_KEY_VALUE = re.compile(
+    r"""(?P<key>[\w.\-]*(?:credential|token|secret|passw|pwd|key)[\w.\-]*)(?P<sep>['"]?\s*[:=]\s*)"""
+    r"""(?P<quote>['"]?)(?P<value>[^\s,'"}&]+)""",
+    re.IGNORECASE,
+)
+
+
+def _secret_values(properties: Mapping[str, object]) -> set[str]:
+    """Values in `properties` that must never be shown: sensitive keys and URL passwords."""
+    found: set[str] = set()
+    for key, value in properties.items():
+        if not isinstance(value, str) or not value:
+            continue
+        if _SENSITIVE_KEY.search(str(key)):
+            found.add(value)
+        if "://" in value:
+            try:
+                password = urlsplit(value).password
+            except ValueError:
+                password = None
+            if password:
+                found.add(password)
+    return found
+
+
+def redact(text: str, secrets: Collection[str] = ()) -> str:
+    """`text` without URL credentials (`scheme://user:pw@host`) or values of secret-looking keys.
+
+    `secrets` are values known to be sensitive; they are removed wherever they appear.
+    """
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, "***")
+    text = _URL_USERINFO.sub(r"\1***@", text)
+    return _KEY_VALUE.sub(lambda m: f"{m['key']}{m['sep']}{m['quote']}***", text)
 
 
 def add_catalog_args(parser: argparse.ArgumentParser) -> None:
@@ -149,16 +189,20 @@ class LakehouseCatalog:
         A SQL catalog keeps each table under the catalog *name* it was created with, so a
         warehouse made by `local` (named `sqlguard`) is read back with `name="sqlguard"`.
         """
-        config = Config()
-        name = name or config.get_default_catalog_name()
-        merged = merge_config(config.get_catalog_config(name) or {}, dict(properties or {}))
+        secrets: set[str] = set()
         try:
+            config = Config()
+            name = name or config.get_default_catalog_name()
+            merged = merge_config(config.get_catalog_config(name) or {}, dict(properties or {}))
+            secrets = _secret_values(merged)
             catalog = load_catalog(name, **merged)
             found = catalog.namespace_exists(namespace)
         except NoSuchNamespaceError:
             found = False
         except Exception as err:  # noqa: BLE001 - bad config, unreachable service, bad credentials
-            raise ValueError(f"cannot open catalog {name!r}: {err}") from err
+            # PyIceberg's messages can quote the URI or properties, credentials included; `from
+            # None` also keeps them out of tracebacks.
+            raise ValueError(f"cannot open catalog {name!r}: {redact(str(err), secrets)}") from None
         if not found:
             raise ValueError(f"namespace {namespace!r} does not exist in catalog {name!r}")
         return cls(catalog, namespace)

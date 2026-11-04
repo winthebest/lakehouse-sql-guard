@@ -18,7 +18,7 @@ from pyiceberg.catalog.sql import SqlCatalog
 
 from bench.leakage.world import WorldConfig, build_world
 from sqlguard.cli import main
-from sqlguard.core.catalog import LakehouseCatalog, add_catalog_args, catalog_from_args
+from sqlguard.core.catalog import LakehouseCatalog, add_catalog_args, catalog_from_args, redact
 
 SPEC = str(Path(__file__).resolve().parents[2] / "bench" / "leakage" / "spec.yaml")
 NAME = "lab"  # a SQL catalog's tables belong to the catalog name they were created under
@@ -245,3 +245,68 @@ def test_mcp_serves_a_catalog_from_pyiceberg_yaml(home: Path, warehouse: Path, t
         "check_training_sql", {"sql": "SELECT 1", "spec_path": "spec.yaml", "warehouse": "/w"}
     )
     assert result.status == "error" and "server's own warehouse" in json.dumps(result.payload)
+
+
+# -- credentials never reach the error text ------------------------------------------------------
+
+PASSWORD = "S3cretPw-7731"
+# a URI PyIceberg cannot infer a catalog type from; its error message quotes the whole URI
+PLANTED_URI = f"postgres://admin:{PASSWORD}@db.internal/iceberg"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"Could not infer the catalog type from the uri: {PLANTED_URI}",
+        f"props {{'uri': 'jdbc:mysql://u:{PASSWORD}@h/db', 'x': 1}}",
+        f"props {{'credential': '{PASSWORD}', 'token': '{PASSWORD}'}}",
+        f"s3.secret-access-key={PASSWORD} password: {PASSWORD} api_key = {PASSWORD}",
+    ],
+)
+def test_redact_removes_credentials(text: str) -> None:
+    cleaned = redact(text)
+    assert PASSWORD not in cleaned
+    assert "***" in cleaned
+
+
+def test_redact_removes_known_secret_values_wherever_they_appear() -> None:
+    assert PASSWORD not in redact(f"odd place: {PASSWORD}!", {PASSWORD})
+
+
+def test_redact_keeps_the_rest_of_the_message_useful() -> None:
+    cleaned = redact(f"cannot reach {PLANTED_URI} (timeout)")
+    assert "db.internal/iceberg" in cleaned and "timeout" in cleaned
+
+
+def test_from_config_errors_and_tracebacks_do_not_carry_the_password(home: Path) -> None:
+    with pytest.raises(ValueError) as caught:
+        LakehouseCatalog.from_config("probe", {"uri": PLANTED_URI, "credential": PASSWORD})
+    assert PASSWORD not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_cli_stderr_does_not_carry_the_password(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("PYICEBERG_CATALOG__PROBE__URI", PLANTED_URI)
+    sql = tmp_path / "q.sql"
+    sql.write_text("SELECT 1", encoding="utf-8")
+    argv = ["leakage", "check", str(sql), "--spec", SPEC, "--catalog", "probe"]
+    assert run(argv) == 2
+    captured = capsys.readouterr()
+    assert "cannot open catalog" in captured.err
+    assert PASSWORD not in captured.err + captured.out
+
+
+def test_mcp_stderr_does_not_carry_the_password(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sqlguard.mcp_server import main as mcp_main
+
+    monkeypatch.setenv("PYICEBERG_CATALOG__PROBE__URI", PLANTED_URI)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_main(["--catalog", "probe", "--audit-log", str(tmp_path / "audit.jsonl")])
+    assert exit_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "cannot open catalog" in captured.err
+    assert PASSWORD not in captured.err + captured.out
