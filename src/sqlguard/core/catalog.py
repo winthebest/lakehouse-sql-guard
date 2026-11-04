@@ -151,6 +151,21 @@ class LakehouseCatalog:
             current = iceberg_table.snapshot_by_id(parent) if parent is not None else None
         return lineage
 
+    def history_truncated(self, table: str) -> bool:
+        """True when older snapshots were expired, so early states cannot be time-travelled.
+
+        Uses sequence numbers (a table's first snapshot is 1 in format v2) because expiry may
+        also clear the surviving snapshot's parent pointer.
+        """
+        snapshots = self.table(table).snapshots()
+        if not snapshots:
+            return False
+        oldest = min(snapshots, key=lambda s: s.sequence_number or 0)
+        if oldest.sequence_number:
+            return oldest.sequence_number > 1
+        parent = oldest.parent_snapshot_id
+        return parent is not None and self.table(table).snapshot_by_id(parent) is None
+
     def refs(self, table: str) -> dict[str, int]:
         return {name: ref.snapshot_id for name, ref in self.table(table).refs().items()}
 
