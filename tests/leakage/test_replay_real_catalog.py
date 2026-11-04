@@ -279,3 +279,30 @@ def test_cutoff_from_the_label_times_replays_with_the_whole_label_table(world, s
 def test_cutoff_that_depends_on_the_row_is_not_kept_whole(world, spec):
     query = CUT.format(cut="(SELECT MAX(x.label_ts) FROM labels x WHERE x.user_id = l.user_id)")
     assert Replayer(world, spec, seed=42).run(query).status is ReplayStatus.MISMATCH
+
+
+# --- shapes the static pass accepts but a point-in-time rerun cannot reproduce -----------------
+
+WINDOW_14D = "AND e.event_ts >= l.label_ts - INTERVAL 14 DAY"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # groups with any row stamped after the prediction are dropped from the full run only
+        f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        f"{WINDOW_14D} GROUP BY l.user_id, l.label_ts, l.churned "
+        "HAVING MAX(e.ingested_at) < l.label_ts",
+        # only the entity's latest prediction survives the full run; a rerun at an earlier
+        # prediction time sees that earlier row as the latest
+        f"{SEL}, SUM(e.amount) AS amt FROM labels l LEFT JOIN events e ON e.user_id = l.user_id "
+        f"AND e.ingested_at < l.label_ts {WINDOW_14D} GROUP BY l.user_id, l.label_ts, l.churned "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY l.user_id ORDER BY l.label_ts DESC) = 1",
+    ],
+    ids=["having max", "latest prediction per entity"],
+)
+def test_row_selection_by_later_data_is_clean_statically_but_a_replay_mismatch(world, spec, query):
+    replayer = Replayer(world, spec, seed=42)
+    assert validate(query, spec, catalog=world).verdict == "clean"
+    assert replayer.run(query).status is ReplayStatus.MISMATCH
+    assert validate(query, spec, catalog=world, replay=replayer).verdict == "leaky"

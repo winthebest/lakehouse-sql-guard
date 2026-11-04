@@ -84,6 +84,10 @@ CLEAN = {
     "epoch of both sides": (
         f"{SEL}, SUM(e.amount) a {INNER} AND epoch(e.ingested_at) < epoch(l.label_ts) {GROUP}"
     ),
+    "extract epoch on both sides": (
+        f"{SEL}, SUM(e.amount) a {INNER} "
+        f"AND EXTRACT(epoch FROM e.ingested_at) < EXTRACT(epoch FROM l.label_ts) {GROUP}"
+    ),
     "epoch with a seconds margin": (
         f"{SEL}, SUM(e.amount) a {INNER} "
         f"AND epoch(e.ingested_at) < epoch(l.label_ts) - 3600 {GROUP}"
@@ -261,6 +265,10 @@ LEAKY = {
     "epoch difference reversed": (
         f"{SEL}, SUM(e.amount) a {INNER} AND epoch(e.ingested_at) - epoch(l.label_ts) > 60 {GROUP}",
         "L1",
+    ),
+    "difference in months has no exact length": (
+        f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > INTERVAL 1 MONTH {GROUP}",
+        "L3",
     ),
     "bare number against a difference of timestamps": (
         f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > 60 {GROUP}",
@@ -495,6 +503,12 @@ def test_matured_labels_do_not_excuse_the_spine_label():
         "(SELECT AVG(h.churned)", "(SELECT AVG(h.churned) + sp.churned"
     )
     assert check(mixed, **KNOWN)[0] == "leaky"
+
+
+def test_a_month_back_counts_at_its_shortest_length_for_label_maturity():
+    sql = MATURED.replace("INTERVAL {mature} DAY", "INTERVAL 1 MONTH")
+    assert check(sql, label_known_after="27 days") == ("clean", set())
+    assert check(sql, label_known_after="29 days")[0] == "leaky"
 
 
 def test_labels_are_matured_only_along_every_use():
