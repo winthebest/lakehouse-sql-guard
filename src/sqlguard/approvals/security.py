@@ -25,6 +25,7 @@ browser, read this terminal or call the CLI is not stopped by it (see `docs/limi
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import threading
@@ -38,7 +39,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-SESSION_COOKIE = "sqlguard_session"
+COOKIE_PREFIX = "sqlguard_"
 PREFIX_BYTES = 24  # 192 bits
 CSRF_FIELD = "csrf_token"
 SESSION_SECONDS = 8 * 3600
@@ -120,6 +121,12 @@ class AccessControl:
         return self._token
 
     @property
+    def cookie_name(self) -> str:
+        """The session cookie's name, derived from the secret prefix, so a page on another port
+        cannot set a cookie of the same name to shadow the real one ("cookie tossing")."""
+        return COOKIE_PREFIX + hashlib.sha256(self._prefix.encode()).hexdigest()[:16]
+
+    @property
     def base(self) -> str:
         """The path every URL of the app starts with, without a trailing slash."""
         return f"/s/{self._prefix}"
@@ -164,6 +171,22 @@ class AccessControl:
             del self._sessions[key]
 
 
+def session_cookie(request: Request, name: str) -> str | None:
+    """The value of cookie `name`, read from the raw `Cookie` headers.
+
+    Zero or several values for the name give None: when two cookies of one name arrive (one of
+    them planted by another page), neither is trusted, instead of the parser silently keeping
+    the last. The request is then simply not signed in and no session is consumed.
+    """
+    found: list[str] = []
+    for header in request.headers.getlist("cookie"):
+        for part in header.split(";"):
+            key, sep, value = part.strip().partition("=")
+            if sep and key == name:
+                found.append(value)
+    return found[0] if len(found) == 1 else None
+
+
 def same_origin(request: Request) -> bool:
     """True for a request a page of this very server made (the browser sets `Origin`)."""
     origin = request.headers.get("origin")
@@ -190,7 +213,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         relative = path[len(base) :] or "/"
         public = relative in PUBLIC_PATHS or relative.startswith(PUBLIC_PREFIXES)
         if not public:
-            session = self.access.session(request.cookies.get(SESSION_COOKIE))
+            session = self.access.session(session_cookie(request, self.access.cookie_name))
             if session is None:
                 return _deny(401, "Not signed in. Open the link that `sqlguard serve` printed.")
             request.state.session = session

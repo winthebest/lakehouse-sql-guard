@@ -76,10 +76,10 @@ def test_a_foreign_host_cannot_even_redeem_the_token(make_client, access):
 
 
 @pytest.mark.parametrize("path", ["/", "/queue", "/audit", "/a/" + "0" * 32])
-def test_without_a_session_nothing_is_served(make_client, path):
+def test_without_a_session_nothing_is_served(make_client, access, path):
     client = make_client(signed_in=False)
     assert client.get(path).status_code == 401
-    client.cookies.set("sqlguard_session", "guess")
+    client.cookies.set(access.cookie_name, "guess")
     assert client.get(path).status_code == 401
     assert post(client, path + "/approve", {}).status_code == 401
 
@@ -107,7 +107,7 @@ def test_a_program_holding_only_the_cookie_value_gets_nothing(
     """Browsers send a cookie to every port of 127.0.0.1, so another local server (one the agent
     started, that the person visits) learns its value. It does not learn the secret path."""
     result = queue(pguard, scope)
-    leaked = client.cookies.get("sqlguard_session")
+    leaked = client.cookies.get(access.cookie_name)
     thief = make_client(signed_in=False)
     thief.raw = True  # does not know the prefix
     thief.cookies.set("sqlguard_session", leaked)
@@ -142,6 +142,61 @@ def test_the_cookie_is_scoped_to_the_secret_path_so_a_browser_sends_it_nowhere_e
 
 def cookie_pairs(header: str):
     return [tuple(part.strip().split("=", 1)) for part in header.split(";") if "=" in part][:1]
+
+
+def cookie_header(*pairs: tuple[str, str]) -> dict[str, str]:
+    return {"Cookie": "; ".join(f"{name}={value}" for name, value in pairs)}
+
+
+@pytest.mark.parametrize("real_first", [True, False])
+def test_a_cookie_planted_by_another_page_cannot_shadow_the_real_one(
+    client, make_client, access, real_first
+):
+    """Another 127.0.0.1 page can set cookies for every port (cookie tossing). A planted cookie
+    with the old fixed name, or one guessing the new name, must not sign the person out."""
+    real = client.cookies.get(access.cookie_name)
+    assert access.cookie_name != "sqlguard_session" and access.base.split("/")[-1] not in (
+        access.cookie_name
+    )
+    browser = make_client(signed_in=False)
+    browser.raw = True
+    for planted in (
+        ("sqlguard_session", "evil"),
+        ("sqlguard_" + "0" * 16, "evil"),
+        ("session", "evil"),
+    ):
+        pairs = [(access.cookie_name, real), planted]
+        pairs = pairs if real_first else pairs[::-1]
+        assert browser.get(f"{access.base}/", headers=cookie_header(*pairs)).status_code == 200
+
+
+@pytest.mark.parametrize("real_first", [True, False])
+def test_two_values_for_the_session_cookie_are_trusted_neither_way(
+    client, make_client, access, real_first
+):
+    real = client.cookies.get(access.cookie_name)
+    browser = make_client(signed_in=False)
+    browser.raw = True
+    pairs = [(access.cookie_name, real), (access.cookie_name, "evil")]
+    pairs = pairs if real_first else pairs[::-1]
+    assert browser.get(f"{access.base}/", headers=cookie_header(*pairs)).status_code == 401
+    # the session was not consumed by the refusal: the real cookie alone still works
+    assert (
+        browser.get(
+            f"{access.base}/", headers=cookie_header((access.cookie_name, real))
+        ).status_code
+        == 200
+    )
+    assert client.get("/").status_code == 200
+    # two Cookie headers are counted the same way as two values in one header
+    split = [("cookie", f"{access.cookie_name}={real}"), ("cookie", f"{access.cookie_name}=evil")]
+    assert browser.get(f"{access.base}/", headers=split).status_code == 401
+
+
+def test_the_cookie_name_comes_from_the_secret_and_differs_per_start():
+    first, second = AccessControl(), AccessControl()
+    assert first.cookie_name != second.cookie_name
+    assert first.cookie_name.startswith("sqlguard_") and len(first.cookie_name) == 9 + 16
 
 
 def test_looking_at_the_sign_in_page_does_not_spend_the_token(make_client, access):
@@ -240,7 +295,7 @@ def test_another_sessions_csrf_token_is_not_accepted(make_client, access, pguard
     form = form_for(mine, result.action_id)
     other = AccessControl()
     theirs = other.redeem(other.token)
-    assert theirs.csrf != mine.cookies.get("sqlguard_session")
+    assert theirs.csrf != mine.cookies.get(access.cookie_name)
     form["csrf_token"] = theirs.csrf
     assert post(mine, f"/a/{result.action_id}/approve", form).status_code == 403
     untouched(orders, pguard, result)
@@ -264,7 +319,7 @@ def test_signing_out_needs_the_csrf_token_and_ends_the_session(client, access):
     reply = post(client, "/logout", {"csrf_token": token})
     assert reply.status_code == 200 and "Signed out" in reply.text
     assert "max-age=0" in reply.headers["set-cookie"].lower()
-    client.cookies.set("sqlguard_session", "x")  # whatever the browser still holds is useless
+    client.cookies.set(access.cookie_name, "x")  # whatever the browser still holds is useless
     assert client.get("/").status_code == 401
 
 

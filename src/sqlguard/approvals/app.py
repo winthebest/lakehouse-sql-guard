@@ -25,7 +25,6 @@ from starlette.staticfiles import StaticFiles
 
 from sqlguard.approvals.security import (
     SECURITY_HEADERS,
-    SESSION_COOKIE,
     SESSION_SECONDS,
     AccessControl,
     SecurityMiddleware,
@@ -33,6 +32,7 @@ from sqlguard.approvals.security import (
     allowed_hosts,
     parse_form,
     read_form,
+    session_cookie,
 )
 from sqlguard.approvals.service import ReviewError, ReviewService
 from sqlguard.safety.guard import ActionNotPending, Outcome, ProofRejected, UnknownAction
@@ -146,7 +146,7 @@ def create_app(
 
     async def login(request: Request) -> Response:
         form = await parse_form(request)
-        session = access.redeem(form.get("token", ""), request.cookies.get(SESSION_COOKIE))
+        session = access.redeem(form.get("token", ""), session_cookie(request, access.cookie_name))
         if session is None:
             return sealed(
                 Response(
@@ -158,7 +158,7 @@ def create_app(
             )
         response = RedirectResponse(f"{access.base}/", status_code=303)
         response.set_cookie(
-            SESSION_COOKIE,
+            access.cookie_name,
             session.id,
             max_age=SESSION_SECONDS,
             httponly=True,
@@ -177,7 +177,7 @@ def create_app(
             "Signed out",
             "The session ended. Restart `sqlguard serve` to sign in again.",
         )
-        response.delete_cookie(SESSION_COOKIE, path=f"{access.base}/")
+        response.delete_cookie(access.cookie_name, path=f"{access.base}/")
         return response
 
     async def queue_page(request: Request) -> Response:
