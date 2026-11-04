@@ -114,3 +114,10 @@ def test_run_needs_known_splits(tmp_path):
         run(42, tmp_path, False, tmp_path, splits=("holdout",))
     with pytest.raises(SystemExit):
         main(["run", "--splits", "holdout"])
+
+
+def test_bench_cli_takes_the_splits_to_score():
+    from bench import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["leakage", "run", "--splits", "holdout"])
