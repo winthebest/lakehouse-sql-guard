@@ -39,6 +39,20 @@ thresholds:
   max_affected_row_pct: 10
   max_affected_rows: null
 
+# Invariants every change must satisfy on the audit branch before it is published, and that are
+# checked again on main afterwards (a failure there rolls the publish back). Table entries
+# override the default field by field. Omit a setting to not check it.
+invariants:
+  default:
+    max_delete_pct: 50         # at most this % of existing rows may be deleted
+    max_row_decrease_pct: 50   # net row count may not shrink by more than this %
+    min_rows: 1                # the table must keep at least this many rows
+  tables:
+    orders:
+      max_delete_pct: 10
+      not_null: [id]           # columns that must contain no NULL
+      unique_key: [id]         # columns that must be unique; also lets the impact report count modified rows
+
 # Default task scope, used when the caller does not pass one. Empty scope allows no table.
 task_scope:
   allowed_namespaces:

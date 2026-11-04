@@ -127,6 +127,12 @@ def _aggregate(statements: list[StatementClass]) -> Classification:
     )
 
 
+def _headline(err: Exception) -> str:
+    """First line of an error, bounded: parser errors append the offending SQL (and its values)."""
+    lines = str(err).splitlines()
+    return (lines[0] if lines else type(err).__name__)[:160]
+
+
 def _unique(items) -> tuple[str, ...]:
     return tuple(dict.fromkeys(items))
 
@@ -142,14 +148,20 @@ def _classify_sql(action: SqlAction, namespace: str) -> list[StatementClass]:
     try:
         parsed = parse(action.sql, action.dialect)
     except Exception as err:  # fail closed: any tokenizer/parser failure must become UNKNOWN
-        return [_unknown(0, f"SQL could not be parsed: {err}", sql=action.sql.strip()[:200])]
+        return [
+            _unknown(0, f"SQL could not be parsed: {_headline(err)}", sql=action.sql.strip()[:200])
+        ]
     results: list[StatementClass] = []
     for index, statement in enumerate(parsed):
         try:
             results.append(_classify_statement(index, statement, namespace))
         except Exception as err:  # fail closed on unexpected AST shapes
             results.append(
-                _unknown(index, f"classifier error: {type(err).__name__}: {err}", sql=statement.sql)
+                _unknown(
+                    index,
+                    f"classifier error: {type(err).__name__}: {_headline(err)}",
+                    sql=statement.sql,
+                )
             )
     return results
 
@@ -494,7 +506,7 @@ def _classify_call(index: int, node: exp.Command, sql: str, namespace: str) -> S
     try:
         action = parse_spark_call(text)
     except UnsupportedCall as err:
-        return _unknown(index, f"CALL not understood: {err}", verb="CALL", sql=sql)
+        return _unknown(index, f"CALL not understood: {_headline(err)}", verb="CALL", sql=sql)
     return _classify_maintenance(index, action, namespace, sql=sql)
 
 
