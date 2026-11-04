@@ -122,7 +122,7 @@ waiting for an answer. The person reviews it in a local web page or in the termi
 ```bash
 uv sync --extra ui
 uv run sqlguard serve --warehouse ./warehouse --store ./actions.db --policy policy.yaml
-uv run sqlguard approvals list --store ./actions.db --warehouse ./warehouse
+uv run sqlguard approvals list --store ./actions.db
 ```
 
 `serve` prints a one-time sign-in link to its own terminal; the page shows the SQL, the
