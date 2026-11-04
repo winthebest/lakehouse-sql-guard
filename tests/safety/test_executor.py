@@ -6,8 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 import pyarrow as pa
 import pytest
-from pyiceberg.exceptions import CommitFailedException
-from pyiceberg.table.update.snapshot import ManageSnapshots
 
 from sqlguard.safety.executor import (
     BranchDiverged,
@@ -115,16 +113,14 @@ def test_publish_refuses_when_main_moved(adapter, orders):
     assert adapter.current_snapshot_id("orders") == moved
 
 
-def test_commit_conflict_during_publish_counts_as_divergence(adapter, orders, monkeypatch):
+def test_a_real_concurrent_commit_during_publish_is_detected(adapter, orders, race_on_next_commit):
+    """Another writer commits after the main == base check and before our commit lands."""
     branch = adapter.create_branch("orders")
     adapter.apply_sql(branch, "DELETE FROM orders WHERE id = 1")
-
-    def conflict(self):
-        raise CommitFailedException("requirement failed: branch main has changed")
-
-    monkeypatch.setattr(ManageSnapshots, "commit", conflict)
+    race_on_next_commit()
     with pytest.raises(BranchDiverged):
         adapter.publish(branch)
+    assert 999 in order_ids(orders) and 1 in order_ids(orders)  # their row stays, our delete not
 
 
 def test_dropping_a_branch_is_idempotent_and_never_drops_main(adapter, orders):

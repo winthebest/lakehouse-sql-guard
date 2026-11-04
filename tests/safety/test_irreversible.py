@@ -229,6 +229,7 @@ def test_expire_plus_orphan_cleanup_is_what_destroys_data(guard, orders, scope):
     orders.table("orders").overwrite(one_row(501))
     orders.table("orders").overwrite(one_row(502))
     files_before = parquet_files(orders)
+    original_files = {p.name for p in table_dir(orders).rglob("*.parquet")} & files_before
     approve = lambda r: True  # noqa: E731
 
     guard.submit(expire(), scope, approve)
@@ -240,7 +241,8 @@ def test_expire_plus_orphan_cleanup_is_what_destroys_data(guard, orders, scope):
     assert cleanup.outcome is Outcome.MAINTENANCE_DONE
     assert len(parquet_files(orders)) < len(files_before)
     assert order_ids(orders) == [502]  # the current state survives
-    with pytest.raises(Exception):  # noqa: B017, PT011  # the original data is gone for good
+    assert original_files and len(original_files & parquet_files(orders)) < len(original_files)
+    with pytest.raises(ValueError, match="Snapshot not found"):
         orders.read("orders", first)
 
 
@@ -321,9 +323,135 @@ def test_maintenance_on_a_missing_table_fails_cleanly(guard, scope):
 def test_maintenance_is_audited_with_plan_and_result(guard, orders, history, scope, audit):
     guard.submit(expire(), scope)
     guard.submit(expire(), scope, lambda r: True)
-    waiting, done = audit.read()
+    started = [r for r in audit.read() if r["phase"] == "started"]
+    waiting, done = [r for r in audit.read() if r["phase"] == "completed"]
+    assert [r["id"] for r in started] == [done["id"]]  # only the executed run has a started record
+    assert started[0]["approval"] == "approved" and started[0]["outcome"] is None
     assert waiting["outcome"] == "awaiting_approval" and waiting["approval"] == "missing"
     assert waiting["maintenance_plan"]["expired_snapshot_ids"] == history[:-1]
     assert done["approval"] == "approved" and done["executed"] is True
     assert done["maintenance_result"]["expired_snapshot_ids"] == history[:-1]
     assert done["class"] == "irreversible"
+
+
+# -- pointer moves are measured like any other publish -------------------------------------------
+
+
+def test_rollback_approval_shows_the_row_and_snapshot_difference(guard, orders, history, scope):
+    seen = []
+
+    def approver(request):
+        seen.append(request)
+        return True
+
+    result = guard.submit(RollbackToSnapshot("orders", snapshot_id=history[0]), scope, approver)
+    assert result.outcome is Outcome.MAINTENANCE_DONE
+    shown = seen[0].impact.tables[0]
+    assert (shown.rows_before, shown.rows_after, shown.rows_deleted) == (ROWS + 3, ROWS, 3)
+    assert seen[0].plan.current_snapshot_id == history[-1]
+    assert seen[0].plan.target_snapshot_id == history[0]
+    assert result.impact == seen[0].impact
+
+
+def test_rollback_that_violates_an_invariant_is_not_executed(make_guard, orders, history, scope):
+    policy = Policy.from_dict({"invariants": {"default": {"min_rows": ROWS + 1}}})
+    called = []
+    result = make_guard(policy).submit(
+        RollbackToSnapshot("orders", snapshot_id=history[0]),
+        scope,
+        lambda r: called.append(r) or True,
+    )
+    assert result.outcome is Outcome.INVARIANT_FAILED and not result.executed
+    assert not called and any("min_rows" in r for r in result.reasons)
+    assert len(order_ids(orders)) == ROWS + 3
+
+
+def test_fast_forward_is_measured_and_checked_too(make_guard, orders, scope):
+    adapter = DuckDBIcebergAdapter(orders)
+    adapter.apply_sql(
+        adapter.create_branch("orders", "feature"), "DELETE FROM orders WHERE id <= 5"
+    )
+    action = FastForward("orders", branch="main", to="feature")
+
+    seen = []
+    result = make_guard().submit(action, scope, lambda r: seen.append(r.impact) or True)
+    assert result.outcome is Outcome.MAINTENANCE_DONE
+    assert seen[0].tables[0].rows_deleted == 5
+
+    strict = Policy.from_dict({"invariants": {"default": {"max_delete_pct": 10}}})
+    orders.table("orders").manage_snapshots().rollback_to_snapshot(
+        result.snapshots_before["db.orders"]
+    ).commit()
+    blocked = make_guard(strict).submit(action, scope, lambda r: True)
+    assert blocked.outcome is Outcome.INVARIANT_FAILED
+    assert len(order_ids(orders)) == ROWS
+
+
+@pytest.mark.parametrize(
+    "action_for",
+    [
+        lambda ref: RollbackToSnapshot("orders", ref=ref),
+        lambda ref: FastForward("orders", branch="main", to=ref),
+    ],
+)
+def test_internal_audit_branches_are_never_publish_targets(guard, orders, scope, action_for):
+    adapter = DuckDBIcebergAdapter(orders)
+    branch = adapter.create_branch("orders")  # default name: the guard's own audit-branch prefix
+    adapter.apply_sql(branch, "DELETE FROM orders WHERE id = 1")
+    before = orders.table("orders").current_snapshot().snapshot_id
+    result = guard.submit(action_for(branch.name), scope, lambda r: True)
+    assert result.outcome is Outcome.EXECUTION_FAILED and "audit branch" in result.error
+    assert orders.table("orders").current_snapshot().snapshot_id == before
+
+
+def test_a_ref_outside_main_history_needs_approval_even_if_policy_allows_rollbacks(
+    make_guard, orders, scope
+):
+    adapter = DuckDBIcebergAdapter(orders)
+    adapter.apply_sql(adapter.create_branch("orders", "feature"), "DELETE FROM orders WHERE id = 1")
+    policy = Policy.from_dict({"class_decisions": {"risky_write": "allow"}})
+    action = RollbackToSnapshot("orders", ref="feature")
+    guard = make_guard(policy)
+
+    waiting = guard.submit(action, scope)
+    assert waiting.outcome is Outcome.AWAITING_APPROVAL and not waiting.executed
+    assert any("not part of main's history" in r for r in waiting.reasons)
+    assert len(order_ids(orders)) == ROWS
+
+    done = guard.submit(action, scope, lambda r: True)
+    assert done.outcome is Outcome.MAINTENANCE_DONE and 1 not in order_ids(orders)
+
+
+def test_a_tag_inside_main_history_is_an_ordinary_rollback(make_guard, orders, history, scope):
+    orders.table("orders").manage_snapshots().create_tag(history[0], "release-1").commit()
+    policy = Policy.from_dict({"class_decisions": {"risky_write": "allow"}})
+    result = make_guard(policy).submit(RollbackToSnapshot("orders", ref="release-1"), scope)
+    assert result.outcome is Outcome.MAINTENANCE_DONE
+    assert order_ids(orders) == list(range(1, ROWS + 1))
+
+
+# -- audit lists are bounded but say so -----------------------------------------------------------
+
+
+def test_long_file_lists_are_truncated_with_an_explicit_flag(guard, orders, history, scope, audit):
+    directory = table_dir(orders) / "data"
+    old = time.time() - 30 * 86400
+    for i in range(130):
+        path = directory / f"junk-{i:03d}.parquet"
+        path.write_bytes(b"x")
+        os.utime(path, (old, old))
+    action = RemoveOrphanFiles("orders", older_than=CLOCK_NOW - timedelta(days=5))
+
+    guard.submit(action, scope)
+    done = guard.submit(action, scope, lambda r: True)
+
+    waiting_record, completed = [r for r in audit.read() if r["phase"] == "completed"]
+    for plan in (waiting_record["maintenance_plan"], completed["maintenance_plan"]):
+        assert plan["orphan_file_count"] == 130 and len(plan["orphan_files"]) == 100
+        assert plan["orphan_files_truncated"] is True
+    result = completed["maintenance_result"]
+    assert result["deleted_file_count"] == 130 and len(result["deleted_files"]) == 100
+    assert result["deleted_files_truncated"] is True
+    assert len(done.plan.orphan_files) == 130  # the in-memory result is complete
+    started = [r for r in audit.read() if r["phase"] == "started"]
+    assert len(started) == 1

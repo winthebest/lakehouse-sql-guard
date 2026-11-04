@@ -7,7 +7,7 @@ import pytest
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
 from sqlguard.safety import Policy, PolicyError, SqlAction
-from sqlguard.safety.audit import AuditError
+from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.executor import BranchDiverged, DuckDBIcebergAdapter
 from sqlguard.safety.guard import ApprovalRequest, Guard, Outcome
 from tests.safety.conftest import ROWS, main_ids, order_ids
@@ -301,17 +301,21 @@ def test_every_submission_is_audited_with_all_fields(make_guard, orders, scope, 
         guard.submit(sql("DELETE FROM orders WHERE id IS NOT NULL"), scope),
     ]
     records = audit.read()
-    assert [r["id"] for r in records] == [r.audit_id for r in results]
+    completed = [r for r in records if r["phase"] == "completed"]
+    assert [r["id"] for r in completed] == [r.audit_id for r in results]
     required = {
         "id",
         "ts",
+        "phase",
         "action",
         "classification",
         "class",
         "decision",
         "reasons",
         "approval",
+        "approver",
         "outcome",
+        "needs_attention",
         "executed",
         "published",
         "rolled_back",
@@ -321,14 +325,22 @@ def test_every_submission_is_audited_with_all_fields(make_guard, orders, scope, 
         "snapshots_after",
         "error",
     }
-    for record, result in zip(records, results, strict=True):
+    for record, result in zip(completed, results, strict=True):
         assert required <= set(record)
         assert record["outcome"] == result.outcome.value
         assert record["decision"] == result.decision.value
-    published = records[1]
+    published = completed[1]
     assert published["snapshots_before"]["db.orders"] != published["snapshots_after"]["db.orders"]
     assert published["impact"]["tables"][0]["rows_deleted"] == 1
-    assert records[0]["action"] == {"type": "sql", "sql": "SELECT 1", "dialect": "duckdb"}
+    assert completed[0]["action"]["sql"] == "SELECT ?" and completed[0]["action"]["redacted"]
+
+    # side-effecting submissions leave a "started" record before the completion record
+    started_ids = [r["id"] for r in records if r["phase"] == "started"]
+    assert started_ids == [results[1].audit_id, results[5].audit_id]
+    first_started = next(i for i, r in enumerate(records) if r["phase"] == "started")
+    assert records[first_started]["id"] == results[1].audit_id
+    assert records[first_started]["snapshots_before"]["db.orders"] is not None
+    assert records[first_started]["outcome"] is None
 
 
 def test_audit_log_is_append_only_across_guards(make_guard, scope, audit):
@@ -383,3 +395,135 @@ def test_table_invariants_override_the_default_field_by_field():
     merged = policy.invariants.for_table("db.orders")
     assert (merged.max_delete_pct, merged.min_rows, merged.not_null) == (10.0, 1, ("id",))
     assert policy.invariants.for_table("db.other").max_delete_pct == 50.0
+
+
+# -- approval must be exactly True ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("answer", ["yes", "n", 1, [1], {"ok": True}, object(), None])
+def test_only_a_literal_true_approves(guard, orders, scope, audit, answer):
+    result = guard.submit(sql("DELETE FROM orders WHERE id IS NOT NULL"), scope, lambda r: answer)
+    assert result.outcome is Outcome.REJECTED and not result.published
+    assert order_ids(orders) == list(range(1, ROWS + 1))
+    assert audit.read()[-1]["approval"] == "invalid_response"
+
+
+def test_a_literal_false_is_a_plain_rejection(guard, scope, audit):
+    guard.submit(sql("DELETE FROM orders WHERE id IS NOT NULL"), scope, lambda r: False)
+    assert audit.read()[-1]["approval"] == "rejected"
+
+
+def test_truthy_answers_cannot_approve_irreversible_maintenance(make_guard, orders, scope):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlguard.safety import ExpireSnapshots
+
+    now = datetime.now(UTC) + timedelta(days=60)
+    orders.table("orders").append(
+        pa.table({"id": pa.array([1], pa.int64()), "customer": ["x"], "amount": pa.array([1.0])})
+    )
+    guard = make_guard(clock=lambda: now)
+    action = ExpireSnapshots("orders", older_than=now - timedelta(days=10))
+    result = guard.submit(action, scope, lambda r: "approved")
+    assert result.outcome is Outcome.REJECTED and not result.executed
+    assert len(orders.table("orders").snapshots()) == 2
+
+
+def test_approver_identity_is_recorded_when_provided(guard, scope, audit):
+    def approve(request):
+        return True
+
+    approve.approver_id = "alice@example.com"
+    guard.submit(sql("DELETE FROM orders WHERE id IS NOT NULL"), scope, approve)
+    guard.submit(sql("DELETE FROM orders"), scope, lambda r: False)
+    records = [r for r in audit.read() if r["phase"] == "completed"]
+    assert records[0]["approver"] == "alice@example.com" and records[1]["approver"] is None
+
+
+# -- the audit trail survives a failing log --------------------------------------------------------
+
+
+class FlakyAudit(AuditLog):
+    def __init__(self, path, fail_on: str) -> None:
+        super().__init__(path)
+        self.fail_on = fail_on
+
+    def append(self, record):
+        if record.get("phase") == self.fail_on:
+            raise AuditError("No space left on device")
+        return super().append(record)
+
+
+def test_failed_completion_record_still_returns_the_result_and_keeps_the_intent(
+    orders, scope, audit_path, caplog
+):
+    guard = Guard(orders, audit_path=FlakyAudit(audit_path, "completed"))
+    with caplog.at_level("CRITICAL", logger="sqlguard.audit"):
+        result = guard.submit(sql("DELETE FROM orders WHERE id = 1"), scope)
+
+    assert result.outcome is Outcome.PUBLISHED and result.published
+    assert "No space left" in result.audit_error
+    assert 1 not in order_ids(orders)  # the change is live ...
+    records = AuditLog(audit_path).read()  # ... and the log says what was attempted
+    assert [r["phase"] for r in records] == ["started"]
+    assert records[0]["id"] == result.audit_id
+    assert records[0]["action"]["sql_sha256"] and records[0]["classification"]["write_tables"]
+    assert records[0]["snapshots_before"]["db.orders"] is not None
+    assert "audit completion record could not be written" in caplog.text
+    assert result.audit_id in caplog.text  # the full record went to the fallback log
+
+
+def test_failed_intent_record_stops_the_action_before_it_runs(orders, scope, audit_path):
+    guard = Guard(orders, audit_path=FlakyAudit(audit_path, "started"))
+    with pytest.raises(AuditError):
+        guard.submit(sql("DELETE FROM orders WHERE id = 1"), scope)
+    assert order_ids(orders) == list(range(1, ROWS + 1)) and set(orders.refs("orders")) == {"main"}
+
+
+def test_interruption_during_publish_is_audited_and_cleaned_up(orders, scope, audit_path):
+    class Interrupted(DuckDBIcebergAdapter):
+        def publish(self, branch):
+            raise KeyboardInterrupt
+
+    guard = Guard(orders, audit_path=audit_path, adapter=Interrupted(orders))
+    with pytest.raises(KeyboardInterrupt):
+        guard.submit(sql("DELETE FROM orders WHERE id = 1"), scope)
+    completed = [r for r in AuditLog(audit_path).read() if r["phase"] == "completed"]
+    assert completed[0]["outcome"] == "error" and "KeyboardInterrupt" in completed[0]["error"]
+    assert order_ids(orders) == list(range(1, ROWS + 1)) and set(orders.refs("orders")) == {"main"}
+
+
+# -- audit content: redaction and bounded text -----------------------------------------------------
+
+
+def test_sql_literals_are_redacted_in_the_audit_but_hashed(guard, scope, audit):
+    import hashlib
+
+    text = "INSERT INTO orders VALUES (77, 'secret-token-123', 4.5)"
+    guard.submit(sql(text), scope)
+    action = [r for r in audit.read() if r["phase"] == "completed"][-1]["action"]
+    assert action["sql"] == "INSERT INTO orders VALUES (?, ?, ?)"
+    assert action["sql_sha256"] == hashlib.sha256(text.encode()).hexdigest()
+    assert "secret-token-123" not in audit.path.read_text()
+
+
+def test_redaction_can_be_switched_off(make_guard, scope, audit):
+    make_guard(redact_sql_literals=False).submit(sql("SELECT 'visible'"), scope)
+    action = audit.read()[-1]["action"]
+    assert action["sql"] == "SELECT 'visible'" and action["redacted"] is False
+
+
+def test_unparseable_sql_is_not_stored_verbatim(guard, scope, audit):
+    guard.submit(sql("DELETE FROM orders WHERE name = 'pii-value' garbage garbage ((("), scope)
+    assert "pii-value" not in audit.path.read_text()
+    assert audit.read()[-1]["action"]["sql_sha256"]
+
+
+def test_engine_error_text_is_truncated(guard, orders, scope, audit):
+    value = "x" * 1000
+    result = guard.submit(sql(f"UPDATE orders SET id = '{value}' WHERE id = 1"), scope)
+    assert result.outcome is Outcome.EXECUTION_FAILED
+    assert len(result.error) <= 300 and all(len(r) <= 300 for r in result.reasons)
+    record = audit.read()[-1]
+    assert len(record["error"]) <= 300 and all(len(r) <= 300 for r in record["reasons"])
+    assert value not in audit.path.read_text()
