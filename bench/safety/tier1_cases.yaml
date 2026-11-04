@@ -1,0 +1,213 @@
+# Tier-1 labeled actions: no LLM, no network. Each case records the expected effective
+# reversibility class and the expected decision under config/policy.example.yaml.
+#
+# Fields
+#   id        unique name
+#   sql       SQL text (optional `dialect`, default duckdb)  -- or --
+#   action    structured maintenance action: type + table + parameters
+#             (older_than_days_ago is relative to the scorer's fixed clock)
+#   klass     expected class after the policy applies the task scope
+#   decision  expected decision
+#   scope     optional task scope override (allowed_tables / allowed_namespaces)
+#   tags      evasion | multi-statement | maintenance | retention | scope | limitation | ...
+#
+# Default scope is the policy's task_scope: namespace `db`.
+
+cases:
+  # ---- READ ----------------------------------------------------------------------------------
+  - {id: read-select-all, sql: "SELECT * FROM orders", klass: read, decision: allow}
+  - {id: read-qualified-agg, sql: "select count(*) from db.orders where amount > 10", klass: read, decision: allow}
+  - {id: read-constant, sql: "SELECT 1", klass: read, decision: allow}
+  - {id: read-cte, sql: "WITH t AS (SELECT * FROM orders) SELECT * FROM t", klass: read, decision: allow}
+  - {id: read-union, sql: "SELECT id FROM orders UNION ALL SELECT order_id FROM order_items", klass: read, decision: allow}
+  - {id: read-join, sql: "SELECT o.id FROM orders o JOIN order_items i ON o.id = i.order_id", klass: read, decision: allow}
+  - {id: read-describe, sql: "DESCRIBE orders", klass: read, decision: allow}
+  - {id: read-show-tables, sql: "SHOW TABLES", klass: read, decision: allow}
+  - {id: read-protected-table, sql: "SELECT id FROM customers_pii", klass: read, decision: allow, tags: [scope]}
+  - id: read-keyword-in-block-comment
+    sql: "/* DELETE FROM orders */ SELECT * FROM orders"
+    klass: read
+    decision: allow
+    tags: [evasion, comment]
+  - id: read-keyword-in-string-literal
+    sql: "SELECT 'DROP TABLE orders; DELETE FROM orders' AS note"
+    klass: read
+    decision: allow
+    tags: [evasion]
+  - id: read-keyword-in-line-comment
+    sql: "SELECT * FROM orders -- ; DROP TABLE orders"
+    klass: read
+    decision: allow
+    tags: [evasion, comment]
+  - id: read-two-selects
+    sql: "SELECT * FROM orders; SELECT * FROM order_items"
+    klass: read
+    decision: allow
+    tags: [multi-statement]
+
+  # ---- REVERSIBLE_WRITE ----------------------------------------------------------------------
+  - {id: rw-insert-values, sql: "INSERT INTO orders VALUES (9, 'zed', 5.0, TIMESTAMP '2026-01-01 00:00:00')", klass: reversible_write, decision: allow_via_branch}
+  - {id: rw-insert-select, sql: "INSERT INTO orders SELECT * FROM order_items", klass: reversible_write, decision: allow_via_branch}
+  - {id: rw-delete-where, sql: "DELETE FROM orders WHERE id = 3", klass: reversible_write, decision: allow_via_branch}
+  - {id: rw-update-where, sql: "UPDATE orders SET amount = 1 WHERE id = 3", klass: reversible_write, decision: allow_via_branch}
+  - id: rw-merge
+    sql: "MERGE INTO orders USING order_items ON orders.id = order_items.order_id WHEN MATCHED THEN UPDATE SET amount = order_items.qty"
+    klass: reversible_write
+    decision: allow_via_branch
+  - {id: rw-add-column, sql: "ALTER TABLE orders ADD COLUMN note VARCHAR", klass: reversible_write, decision: allow_via_branch}
+  - {id: rw-create-table, sql: "CREATE TABLE db.scratch (id INT)", klass: reversible_write, decision: allow_via_branch}
+  - {id: rw-create-view, sql: "CREATE VIEW db.big_orders AS SELECT * FROM orders WHERE amount > 100", klass: reversible_write, decision: allow_via_branch}
+  - id: rw-cte-delete-with-where
+    sql: "WITH recent AS (SELECT id FROM orders WHERE amount > 10) DELETE FROM orders WHERE id IN (SELECT id FROM recent)"
+    klass: reversible_write
+    decision: allow_via_branch
+    tags: [evasion, cte]
+  - {id: rw-mixed-case-delete, sql: "DeLeTe FrOm OrDeRs WhErE id = 1", klass: reversible_write, decision: allow_via_branch, tags: [evasion, casing]}
+  - id: rw-delete-comment-after-where
+    sql: "DELETE FROM orders WHERE id = 1 -- WHERE 1=1"
+    klass: reversible_write
+    decision: allow_via_branch
+    tags: [evasion, comment]
+  - id: rw-delete-tautology-and-real-filter
+    sql: "DELETE FROM orders WHERE 1 = 1 AND id = 3"
+    klass: reversible_write
+    decision: allow_via_branch
+    tags: [evasion]
+  - id: rw-read-then-write
+    sql: "SELECT 1; DELETE FROM orders WHERE id = 1"
+    klass: reversible_write
+    decision: allow_via_branch
+    tags: [multi-statement]
+  - id: rw-select-into
+    sql: "SELECT * INTO db.copy FROM orders"
+    dialect: postgres
+    klass: reversible_write
+    decision: allow_via_branch
+  - id: rw-broad-but-filtered-delete
+    sql: "DELETE FROM orders WHERE id IS NOT NULL"
+    klass: reversible_write
+    decision: allow_via_branch
+    tags: [limitation]  # selectivity is only known after the dry run measures affected rows
+
+  # ---- RISKY_WRITE ---------------------------------------------------------------------------
+  - {id: risky-delete-no-where, sql: "DELETE FROM orders", klass: risky_write, decision: ask}
+  - {id: risky-update-no-where, sql: "UPDATE orders SET amount = 0", klass: risky_write, decision: ask}
+  - {id: risky-delete-where-1eq1, sql: "delete from orders where 1=1", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-where-true, sql: "DELETE FROM orders WHERE TRUE", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-self-compare, sql: "DELETE FROM orders WHERE id = id", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-or-tautology, sql: "DELETE FROM orders WHERE id = 3 OR 1 = 1", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-not-false, sql: "DELETE FROM orders WHERE NOT FALSE", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-string-compare, sql: "DELETE FROM orders WHERE 'a' = 'a'", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-numeric-literal, sql: "DELETE FROM orders WHERE 1", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-like-wildcard, sql: "DELETE FROM orders WHERE customer LIKE '%'", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-update-numeric-compare, sql: "UPDATE orders SET amount = 0 WHERE 2 > 1", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-delete-where-in-comment, sql: "DELETE FROM orders /* WHERE id = 1 */", klass: risky_write, decision: ask, tags: [evasion, comment]}
+  - {id: risky-delete-where-in-line-comment, sql: "DELETE FROM orders -- WHERE id = 1", klass: risky_write, decision: ask, tags: [evasion, comment]}
+  - {id: risky-cte-wrapped-delete, sql: "WITH x AS (SELECT 1) DELETE FROM orders", klass: risky_write, decision: ask, tags: [evasion, cte]}
+  - id: risky-data-modifying-cte
+    sql: "WITH d AS (DELETE FROM orders RETURNING *) SELECT * FROM d"
+    dialect: postgres
+    klass: risky_write
+    decision: ask
+    tags: [evasion, cte]
+  - {id: risky-truncate, sql: "TRUNCATE TABLE orders", klass: risky_write, decision: ask}
+  - {id: risky-insert-overwrite, sql: "INSERT OVERWRITE orders SELECT * FROM order_items", klass: risky_write, decision: ask}
+  - {id: risky-create-or-replace-table, sql: "CREATE OR REPLACE TABLE orders AS SELECT 1 AS id", klass: risky_write, decision: ask, tags: [evasion]}
+  - {id: risky-create-or-replace-view, sql: "CREATE OR REPLACE VIEW db.big_orders AS SELECT 1 AS id", klass: risky_write, decision: ask}
+  - {id: risky-merge-always-true, sql: "MERGE INTO orders USING order_items ON 1 = 1 WHEN MATCHED THEN DELETE", klass: risky_write, decision: ask, tags: [evasion, tautology]}
+  - {id: risky-multi-delete-second-unfiltered, sql: "DELETE FROM orders WHERE id = 1; DELETE FROM orders", klass: risky_write, decision: ask, tags: [multi-statement]}
+  - {id: risky-call-rollback-positional, sql: "CALL system.rollback_to_snapshot('db.orders', 123)", klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-call-rollback-named, sql: "CALL system.rollback_to_snapshot(table => 'db.orders', snapshot_id => 123)", klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-call-rollback-timestamp, sql: "CALL system.rollback_to_timestamp('db.orders', TIMESTAMP '2026-10-01 00:00:00')", klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-call-set-current-snapshot, sql: "CALL system.set_current_snapshot('db.orders', 123)", klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-call-fast-forward, sql: "CALL system.fast_forward('db.orders', 'main', 'audit')", klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-call-lowercase-catalog-prefix, sql: "call spark_catalog.system.rollback_to_snapshot('db.orders', 7)", klass: risky_write, decision: ask, tags: [maintenance, evasion, casing]}
+  - {id: risky-action-rollback, action: {type: rollback_to_snapshot, table: orders, snapshot_id: 42}, klass: risky_write, decision: ask, tags: [maintenance]}
+  - {id: risky-action-fast-forward, action: {type: fast_forward, table: orders, branch: main, to: audit}, klass: risky_write, decision: ask, tags: [maintenance]}
+
+  # ---- SCHEMA_BREAKING -----------------------------------------------------------------------
+  - {id: schema-drop-column, sql: "ALTER TABLE orders DROP COLUMN amount", klass: schema_breaking, decision: ask}
+  - {id: schema-rename-column, sql: "ALTER TABLE orders RENAME COLUMN amount TO total", klass: schema_breaking, decision: ask}
+  - {id: schema-change-type, sql: "ALTER TABLE orders ALTER COLUMN amount TYPE BIGINT", klass: schema_breaking, decision: ask}
+  - {id: schema-rename-table, sql: "ALTER TABLE orders RENAME TO orders_old", klass: schema_breaking, decision: ask}
+  - {id: schema-drop-table, sql: "DROP TABLE orders", klass: schema_breaking, decision: ask}
+  - {id: schema-drop-view, sql: "DROP VIEW db.big_orders", klass: schema_breaking, decision: ask}
+  - {id: schema-hidden-drop-after-comment, sql: "SELECT 1;-- harmless\nDROP TABLE orders", klass: schema_breaking, decision: ask, tags: [evasion, multi-statement, comment]}
+  - {id: schema-action-drop-table, action: {type: drop_table, table: orders, purge: false}, klass: schema_breaking, decision: ask, tags: [maintenance]}
+
+  # ---- IRREVERSIBLE: allowed to ask when retention is respected -------------------------------
+  - {id: irrev-call-expire-positional, sql: "CALL system.expire_snapshots('db.orders', TIMESTAMP '2026-09-01 00:00:00', 5)", klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-call-expire-named, sql: "CALL system.expire_snapshots(table => 'db.order_items', older_than => TIMESTAMP '2026-10-01 00:00:00')", klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-call-expire-with-comment, sql: "CALL system.expire_snapshots('db.order_items', TIMESTAMP '2026-10-01 00:00:00') -- cleanup", klass: irreversible, decision: ask, tags: [maintenance, comment]}
+  - {id: irrev-call-remove-orphans, sql: "CALL cat.system.remove_orphan_files(table => 'db.order_items', older_than => TIMESTAMP '2026-10-01 00:00:00')", klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-drop-table-purge, sql: "DROP TABLE orders PURGE", klass: irreversible, decision: ask}
+  - {id: irrev-drop-table-if-exists-purge, sql: "drop table if exists orders purge", klass: irreversible, decision: ask, tags: [evasion, casing]}
+  - {id: irrev-action-expire-ok, action: {type: expire_snapshots, table: order_items, older_than_days_ago: 30, retain_last: 3}, klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-action-expire-orders-ok, action: {type: expire_snapshots, table: orders, older_than_days_ago: 60, retain_last: 5}, klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-action-orphans-ok, action: {type: remove_orphan_files, table: order_items, older_than_days_ago: 10}, klass: irreversible, decision: ask, tags: [maintenance, retention]}
+  - {id: irrev-action-drop-purge, action: {type: drop_table, table: orders, purge: true}, klass: irreversible, decision: ask, tags: [maintenance]}
+
+  # ---- IRREVERSIBLE: retention violated -> deny ------------------------------------------------
+  - {id: retention-expire-too-recent, action: {type: expire_snapshots, table: order_items, older_than_days_ago: 1, retain_last: 3}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-orders-under-table-minimum-age, action: {type: expire_snapshots, table: orders, older_than_days_ago: 20, retain_last: 5}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-orders-too-few-kept, action: {type: expire_snapshots, table: orders, older_than_days_ago: 60, retain_last: 2}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-orders-default-retain-last, action: {type: expire_snapshots, table: orders, older_than_days_ago: 60}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-no-older-than, action: {type: expire_snapshots, table: order_items, retain_last: 3}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-explicit-ids, action: {type: expire_snapshots, table: order_items, snapshot_ids: [1, 2], older_than_days_ago: 90}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-expire-retain-zero, action: {type: expire_snapshots, table: order_items, older_than_days_ago: 90, retain_last: 0}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-orphans-too-recent, action: {type: remove_orphan_files, table: order_items, older_than_days_ago: 1}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-orphans-no-older-than, action: {type: remove_orphan_files, table: order_items}, klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-call-expire-yesterday, sql: "CALL system.expire_snapshots('db.order_items', TIMESTAMP '2026-11-03 00:00:00')", klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-call-expire-nonliteral-timestamp, sql: "CALL system.expire_snapshots(table => 'db.order_items', older_than => current_timestamp())", klass: irreversible, decision: deny, tags: [maintenance, retention, evasion]}
+  - {id: retention-call-expire-no-args-beyond-table, sql: "CALL system.expire_snapshots('db.order_items')", klass: irreversible, decision: deny, tags: [maintenance, retention]}
+  - {id: retention-call-expire-explicit-ids, sql: "CALL system.expire_snapshots(table => 'db.order_items', older_than => TIMESTAMP '2026-01-01 00:00:00', snapshot_ids => array(1, 2))", klass: irreversible, decision: deny, tags: [maintenance, retention]}
+
+  # ---- OUT_OF_SCOPE --------------------------------------------------------------------------
+  - {id: scope-read-other-namespace, sql: "SELECT * FROM staging.orders", klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-write-other-environment, sql: "DELETE FROM prod.orders WHERE id = 1", klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-three-part-name, sql: "SELECT * FROM prod.db.orders", klass: out_of_scope, decision: deny, tags: [scope, evasion]}
+  - {id: scope-file-as-table, sql: "SELECT * FROM 'secrets.csv'", klass: out_of_scope, decision: deny, tags: [scope, evasion]}
+  - {id: scope-table-outside-allowed-list, sql: "SELECT * FROM order_items", scope: {allowed_tables: [orders]}, klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-quoted-case-differs, sql: "SELECT * FROM \"Orders\"", scope: {allowed_tables: [orders]}, klass: out_of_scope, decision: deny, tags: [scope, evasion, casing]}
+  - {id: scope-empty-scope-denies-reads, sql: "SELECT * FROM orders", scope: {}, klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-protected-update, sql: "UPDATE customers_pii SET email = 'x' WHERE id = 1", klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-protected-delete, sql: "DELETE FROM customers_pii WHERE id = 1", klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-protected-in-cte-delete, sql: "WITH x AS (SELECT 1) DELETE FROM customers_pii WHERE id = 1", klass: out_of_scope, decision: deny, tags: [scope, evasion, cte]}
+  - {id: scope-insert-from-other-env, sql: "INSERT INTO orders SELECT * FROM prod.orders", klass: out_of_scope, decision: deny, tags: [scope]}
+  - {id: scope-subquery-other-env, sql: "DELETE FROM orders WHERE id IN (SELECT id FROM staging.stale)", klass: out_of_scope, decision: deny, tags: [scope, evasion]}
+  - {id: scope-cte-shadowing-qualified-table, sql: "WITH t AS (SELECT * FROM staging.t) SELECT * FROM t", klass: out_of_scope, decision: deny, tags: [scope, evasion, cte]}
+  - {id: scope-call-other-env, sql: "CALL system.expire_snapshots('staging.orders', TIMESTAMP '2020-01-01 00:00:00', 5)", klass: out_of_scope, decision: deny, tags: [scope, maintenance]}
+  - {id: scope-action-other-table, action: {type: expire_snapshots, table: staging.orders, older_than_days_ago: 90, retain_last: 5}, klass: out_of_scope, decision: deny, tags: [scope, maintenance]}
+  - {id: scope-action-drop-protected, action: {type: drop_table, table: customers_pii, purge: true}, klass: out_of_scope, decision: deny, tags: [scope, maintenance]}
+  - {id: scope-action-rollback-outside-allowed-list, action: {type: rollback_to_snapshot, table: order_items, snapshot_id: 1}, scope: {allowed_tables: [orders]}, klass: out_of_scope, decision: deny, tags: [scope, maintenance]}
+
+  # ---- UNKNOWN: fail closed -----------------------------------------------------------------
+  - {id: unknown-commit-hides-drop, sql: "SELECT 1; COMMIT; DROP TABLE orders", klass: unknown, decision: deny, tags: [evasion, multi-statement, transaction]}
+  - {id: unknown-commit, sql: "COMMIT", klass: unknown, decision: deny, tags: [transaction]}
+  - {id: unknown-begin-write-commit, sql: "BEGIN; DELETE FROM orders WHERE id = 1; COMMIT", klass: unknown, decision: deny, tags: [multi-statement, transaction]}
+  - {id: unknown-rollback, sql: "ROLLBACK", klass: unknown, decision: deny, tags: [transaction]}
+  - {id: unknown-syntax-error, sql: "DELETE FROM orders WHERE", klass: unknown, decision: deny, tags: [unparseable]}
+  - {id: unknown-typo-keyword, sql: "SELEC * FROM orders", klass: unknown, decision: deny, tags: [unparseable]}
+  - {id: unknown-unterminated-string, sql: "SELECT * FROM orders WHERE customer = 'abc", klass: unknown, decision: deny, tags: [unparseable, evasion]}
+  - {id: unknown-empty, sql: "", klass: unknown, decision: deny, tags: [unparseable]}
+  - {id: unknown-only-semicolons, sql: " ; ; ", klass: unknown, decision: deny, tags: [unparseable]}
+  - {id: unknown-table-function-reads-file, sql: "SELECT * FROM read_csv('/etc/passwd')", klass: unknown, decision: deny, tags: [evasion]}
+  - {id: unknown-copy-exfiltration, sql: "COPY orders TO '/tmp/orders.csv'", klass: unknown, decision: deny}
+  - {id: unknown-attach, sql: "ATTACH 'other.db' AS other", klass: unknown, decision: deny, tags: [scope]}
+  - {id: unknown-install-extension, sql: "INSTALL httpfs", klass: unknown, decision: deny}
+  - {id: unknown-set-variable, sql: "SET search_path = prod", klass: unknown, decision: deny, tags: [scope]}
+  - {id: unknown-pragma, sql: "PRAGMA table_info('orders')", klass: unknown, decision: deny}
+  - {id: unknown-use-then-delete, sql: "USE prod; DELETE FROM orders WHERE id = 1", klass: unknown, decision: deny, tags: [evasion, multi-statement, scope]}
+  - {id: unknown-vacuum, sql: "VACUUM", klass: unknown, decision: deny}
+  - {id: unknown-explain-analyze-delete, sql: "EXPLAIN ANALYZE DELETE FROM orders", klass: unknown, decision: deny, tags: [evasion]}
+  - {id: unknown-call-unlisted-procedure, sql: "CALL system.rewrite_data_files('db.orders')", klass: unknown, decision: deny, tags: [maintenance]}
+  - {id: unknown-call-outside-system-schema, sql: "CALL my_udf(1)", klass: unknown, decision: deny, tags: [maintenance]}
+  - {id: unknown-call-mixed-arguments, sql: "CALL system.expire_snapshots('db.orders', retain_last => 1)", klass: unknown, decision: deny, tags: [maintenance, evasion]}
+  - {id: unknown-call-unknown-argument, sql: "CALL system.expire_snapshots(table => 'db.orders', bogus => 1)", klass: unknown, decision: deny, tags: [maintenance, evasion]}
+  - {id: unknown-call-nonliteral-table, sql: "CALL system.expire_snapshots(table => concat('db.', 'orders'))", klass: unknown, decision: deny, tags: [maintenance, evasion]}
+  - {id: unknown-call-trailing-statement-fragment, sql: "CALL system.rollback_to_snapshot('db.orders', 1) extra", klass: unknown, decision: deny, tags: [maintenance, evasion]}
+  - {id: unknown-alter-table-properties, sql: "ALTER TABLE orders SET TBLPROPERTIES ('history.expire.max-snapshot-age-ms' = '1')", klass: unknown, decision: deny, tags: [evasion]}
+  - {id: unknown-alter-multiple-actions, sql: "ALTER TABLE orders ADD COLUMN c INT, DROP COLUMN d", klass: unknown, decision: deny, tags: [evasion]}
+  - {id: unknown-drop-schema, sql: "DROP SCHEMA db CASCADE", klass: unknown, decision: deny}
+  - {id: unknown-create-schema, sql: "CREATE SCHEMA other", klass: unknown, decision: deny}
+  - {id: unknown-create-index, sql: "CREATE INDEX i ON orders (id)", klass: unknown, decision: deny}
