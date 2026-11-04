@@ -96,13 +96,18 @@ relations: {analytics.main.stg_orders: orders}   # SQL name -> catalog table, fo
 - `boundary: inclusive` also removes L5 for `<= prediction_ts` and pins replay at
   `prediction_ts` instead of just before it.
 - `relations`: maps qualified SQL names (dbt's database and schema are not Iceberg
-  namespaces) to catalog tables. Replay applies it; static analysis does not.
+  namespaces) to catalog tables. Static analysis and replay both apply it.
 
 ### Use it in CI
 
 - pre-commit: [examples/pre-commit-config.yaml](examples/pre-commit-config.yaml)
 - GitHub Actions: [examples/github-action.yml](examples/github-action.yml) (works on dbt's
   compiled SQL)
+- dbt projects: `sqlguard leakage dbt --manifest <build dir>/manifest.json` inlines upstream
+  models so a leak in an intermediate model is found and attributed to that model; see
+  [docs/dbt.md](docs/dbt.md), [examples/dbt](examples/dbt),
+  [examples/github-action-dbt.yml](examples/github-action-dbt.yml) and the
+  `sqlguard-leakage-dbt` pre-commit hook.
 - `--replay --warehouse <path>` adds point-in-time replay when a catalog with snapshot
   history is available.
 

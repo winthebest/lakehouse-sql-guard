@@ -104,9 +104,10 @@ Known gaps (a leak can be missed statically; replay may still catch it):
 
 Reported unverifiable rather than checked:
 
-14. Static analysis ignores the spec's `relations`: a SQL name whose bare table name differs
-    from the catalog table (a dbt `analytics.main.fct_events` for `events`) is unclassified,
-    so the query is unverifiable statically. Only replay applies the mapping.
+14. A qualified SQL name that is neither `<namespace>.<table>` of the catalog nor listed in the
+    spec's `relations` is unclassified, so the query is unverifiable. For dbt projects, models
+    that declare `time_column`, `role: static` or `role: label_spine` are trusted as declared
+    and their own SQL is not checked ([docs/dbt.md](dbt.md#what-is-not-checked)).
 
 ## Leakage: replay
 
