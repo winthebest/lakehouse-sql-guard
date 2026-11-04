@@ -32,7 +32,7 @@ def test_every_proof_is_different_and_tampering_breaks_it(clock):
     version, nonce, expiry, mac = first.split(".")
     for forged in (
         ".".join((version, nonce, str(int(expiry) + 3600), mac)),  # a longer life
-        ".".join((version, nonce[:-1] + "0", expiry, mac)),
+        ".".join((version, nonce[:-1] + ("0" if nonce[-1] != "0" else "1"), expiry, mac)),
         ".".join((version, nonce, expiry, mac[:-1] + ("0" if mac[-1] != "0" else "1"))),
         first + ".extra",
         first.upper(),
