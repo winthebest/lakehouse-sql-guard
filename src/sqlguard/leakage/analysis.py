@@ -1420,6 +1420,21 @@ def _global_scans(analysis: QueryAnalysis, resolver: _Resolver) -> None:
             analysis.global_scans.append(ref)
 
 
+def _anchored_at_maximum(aggregate: exp.Expression) -> bool:
+    """MAX, or a quantile whose fraction is not a literal below 1 (1.0 is the maximum; a fraction
+    we cannot read is assumed to be)."""
+    if isinstance(aggregate, exp.Max):
+        return True
+    if isinstance(aggregate, exp.Quantile | exp.ApproxQuantile):
+        fraction = aggregate.args.get("quantile")
+    elif isinstance(aggregate, exp.PercentileCont | exp.PercentileDisc):
+        fraction = aggregate.args.get("expression")
+    else:
+        return False  # MIN, median
+    value = _constant(fraction) if fraction is not None else None
+    return value is None or value >= 1
+
+
 def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
     """Is the scan compared, in a row filter, with nothing but spine prediction times?
 
@@ -1446,7 +1461,7 @@ def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
         lower = child is node.args["low"]
     else:
         return False
-    if lower and any(isinstance(p.unalias(), exp.Max) for p in select.selects):
+    if lower and any(_anchored_at_maximum(p.unalias()) for p in select.selects):
         return False
     context = _row_filter(node)
     if context is None:
@@ -1788,6 +1803,18 @@ def _clock_uses(analysis: QueryAnalysis, resolver: _Resolver) -> list[ClockUse]:
     return uses
 
 
+def _produces_spine_rows(scope: Scope, analysis: QueryAnalysis) -> bool:
+    """Is `scope` the output SELECT or on the chain that feeds the spine, and does it read its
+    label tables only as the spine (never also as history)?
+
+    A subquery over a label reference merely equated to the spine computes a feature, and a label
+    CTE read both as the spine and as history gives features that depend on the clock.
+    """
+    return id(scope) in analysis.seed_scopes and not any(
+        ref.temporal for ref in analysis.refs if ref.scope is scope and ref.kind == "label"
+    )
+
+
 def _only_spine_filter(node, scope: Scope, analysis: QueryAnalysis, resolver: _Resolver) -> bool:
     """Is the clock call in a WHERE / HAVING of the SELECT that produces the spine rows?
 
@@ -1799,7 +1826,7 @@ def _only_spine_filter(node, scope: Scope, analysis: QueryAnalysis, resolver: _R
             return False  # only plain arithmetic on the clock; anything else is a feature
         comparison = comparison.parent
     context = _row_filter(comparison) if comparison is not None else None
-    if context is None or context.kind == "on" or not _rows_are_output(scope, analysis, resolver):
+    if context is None or context.kind == "on" or not _produces_spine_rows(scope, analysis):
         return False
     columns = list(comparison.find_all(exp.Column))
     return bool(columns) and all(

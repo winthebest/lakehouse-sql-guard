@@ -168,6 +168,11 @@ CLEAN = {
         f"{SEL}, SUM(ev.amount) a FROM labels l LEFT JOIN ev ON ev.user_id = l.user_id "
         f"AND ev.t < l.label_ts {GROUP}"
     ),
+    "clock in a spine cte read only as the spine": (
+        "WITH sp AS (SELECT user_id, label_ts, churned FROM labels "
+        "WHERE label_ts > now() - INTERVAL 365 DAY) "
+        "SELECT sp.user_id, sp.label_ts, sp.churned FROM sp"
+    ),
     "clock in a spine filter, now": f"{FEAT} AND l.label_ts <= now() - INTERVAL 1 DAY".replace(
         "AND", "WHERE", 1
     ),
@@ -521,6 +526,22 @@ LEAKY = {
         "AND (SELECT MAX(label_ts) FROM labels)",
         "L3",
     ),
+    "cutoff at the 1.0 quantile": (
+        f"{FEAT} WHERE l.label_ts >= (SELECT quantile_cont(label_ts, 1.0) FROM labels)",
+        "L3",
+    ),
+    "cutoff at the 1 discrete quantile": (
+        f"{FEAT} WHERE l.label_ts >= (SELECT quantile_disc(label_ts, 1) FROM labels)",
+        "L3",
+    ),
+    "cutoff at an approximate quantile of 1": (
+        f"{FEAT} WHERE l.label_ts > (SELECT approx_quantile(label_ts, 1.0) FROM labels)",
+        "L3",
+    ),
+    "cutoff at a quantile whose fraction is a column": (
+        f"{FEAT} WHERE l.label_ts >= (SELECT quantile_cont(label_ts, user_id) FROM labels)",
+        "L3",
+    ),
     "cutoff from an aggregate that is not a time statistic": (
         f"{FEAT} WHERE l.user_id < (SELECT COUNT(label_ts) FROM labels)",
         "L3",
@@ -555,6 +576,31 @@ LEAKY = {
     "transaction_timestamp": (
         f"{SEL}, date_diff('day', MAX(e.ingested_at), transaction_timestamp()) r {LEFT} "
         f"AND e.ingested_at < l.label_ts {GROUP}",
+        "L7",
+    ),
+    # a clock in the filter of anything but the SELECT producing the spine rows changes a feature
+    "clock in a count over a label equated to the spine": (
+        f"{SEL}, (SELECT COUNT(*) FROM labels h WHERE h.user_id = l.user_id "
+        "AND h.label_ts = l.label_ts AND h.label_ts > now() - INTERVAL 30 DAY) recent "
+        "FROM labels l",
+        "L7",
+    ),
+    "clock in an exists over a label equated to the spine": (
+        f"{SEL}, EXISTS (SELECT 1 FROM labels h WHERE h.user_id = l.user_id "
+        "AND h.label_ts = l.label_ts AND h.label_ts > current_date - 30) recent FROM labels l",
+        "L7",
+    ),
+    "clock in a lateral over a label equated to the spine": (
+        f"{SEL}, x.ok FROM labels l, LATERAL (SELECT COUNT(*) ok FROM labels h "
+        "WHERE h.user_id = l.user_id AND h.label_ts = l.label_ts "
+        "AND h.label_ts < now() - INTERVAL 7 DAY) x",
+        "L7",
+    ),
+    "clock in a label cte read as spine and as history": (
+        "WITH h AS (SELECT user_id, label_ts, churned FROM labels "
+        "WHERE label_ts > now() - INTERVAL 365 DAY) "
+        "SELECT a.user_id, a.label_ts, a.churned, COUNT(b.label_ts) n FROM h a "
+        "LEFT JOIN h b ON b.user_id = a.user_id AND b.label_ts < a.label_ts GROUP BY 1, 2, 3",
         "L7",
     ),
     "age of a timestamp as of today": (
