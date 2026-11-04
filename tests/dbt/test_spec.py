@@ -182,7 +182,9 @@ def test_yaml_spec_wins_and_every_change_is_warned_about():
     assert result.spec.time_columns == {"events": "ingested_at", "other": "ts"}
     assert result.spec.availability_columns == {"events": "ingested_at"}  # untouched fields stay
     assert result.warnings == [
-        "--spec changes time_columns[events] from dbt meta: event_ts -> ingested_at"
+        "--spec sets boundary = inclusive (the dbt meta does not); this can relax a rule",
+        "--spec changes time_columns[events] from dbt meta: event_ts -> ingested_at",
+        "--spec sets static_tables = users (the dbt meta does not); this can relax a rule",
     ]
     same = built(train(), override={"time_columns": {"EVENTS": "Event_TS"}, "boundary": "strict"})
     assert same.warnings == []
@@ -194,7 +196,10 @@ def test_merge_spec_replaces_lists_and_merges_mappings():
         {"entity_keys": ["b"], "relations": {"x.z": "z"}},
     )
     assert merged == {"entity_keys": ["b"], "relations": {"x.y": "y", "x.z": "z"}}
-    assert warnings == ["--spec changes entity_keys from dbt meta: ['a'] -> ['b']"]
+    assert warnings == [
+        "--spec changes entity_keys from dbt meta: ['a'] -> ['b']",
+        "--spec sets relations[x.z] = z (the dbt meta does not); this can relax a rule",
+    ]
 
 
 def test_fixture_project_spec():
@@ -205,3 +210,37 @@ def test_fixture_project_spec():
     assert derived["time_columns"] == {"orders": "ordered_at"}
     assert derived["static_tables"] == ["customers"]
     assert derived["relations"]["jaffle.raw.orders"] == "raw.orders"
+
+
+def test_every_spec_field_that_relaxes_a_rule_is_warned_about_even_when_meta_sets_nothing():
+    override = {
+        "boundary": "inclusive",
+        "max_ingest_delay": {"events": "3 days"},
+        "label_known_after": "14 days",
+        "availability_columns": {"events": "ingested_at"},
+        "static_tables": ["users"],
+    }
+    warned = built(train(), override=override).warnings
+    assert [w.split(" = ")[0] for w in warned] == [
+        "--spec sets boundary",
+        "--spec sets max_ingest_delay[events]",
+        "--spec sets label_known_after",
+        "--spec sets static_tables",
+    ]  # events already has this availability column in the meta: nothing changed there
+    assert built(train(), override={"boundary": "strict"}).warnings == []
+    assert built(train(), override={"boundary": "Strict"}).warnings == []
+
+
+def test_duplicate_table_names_can_be_resolved_from_the_spec_file():
+    other_id, other = source("events", {"time_column": "event_ts"}, EVENTS, schema="archive")
+    sql = SQL + ' union all select * from "db"."archive"."events"'
+    args = (train(sql, (LABELS_ID, EVENTS_ID, other_id)),)
+    base = [*BASE, (other_id, other)]
+    with pytest.raises(SpecError, match="iceberg_table.*relations"):
+        built(*args, base=base)
+    result = built(
+        *args, base=base, override={"relations": {"db.archive.events": "archive.events_old"}}
+    )
+    assert set(result.spec.time_columns) == {"events", "events_old"}
+    assert result.spec.relations["db.archive.events"] == "archive.events_old"
+    assert {"events", "events_old"} <= set(result.schema)

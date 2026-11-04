@@ -122,7 +122,7 @@ def leakage_dbt(args: argparse.Namespace) -> int:
 
     import yaml
 
-    from sqlguard.dbt.check import check_model, training_sets
+    from sqlguard.dbt.check import check_model, stale_files, training_sets
     from sqlguard.dbt.manifest import load_column_types, load_manifest
     from sqlguard.leakage.replay import Replayer
     from sqlguard.leakage.validator import Weights
@@ -167,6 +167,11 @@ def leakage_dbt(args: argparse.Namespace) -> int:
         )
         results.append(checked)
         report = checked.report
+        if stale := stale_files(args.manifest, [checked]):
+            checked.warnings.append(
+                f"{', '.join(stale)} changed after {args.manifest} was written, so the checked "
+                "SQL may be out of date: run `dbt compile` first"
+            )
         failing = report.verdict == "leaky" or (
             report.verdict == "unverifiable" and not args.allow_unverifiable
         )
@@ -176,10 +181,14 @@ def leakage_dbt(args: argparse.Namespace) -> int:
         if args.json:
             continue
         print(f"{report.verdict.upper():13} {report.score:.2f}  {root.original_file_path}")
-        for finding, models in zip(report.findings, checked.finding_models, strict=True):
+        for finding, found in zip(report.findings, checked.finding_models, strict=True):
             where = f" [{finding.location}]" if finding.location else ""
             print(f"    {finding.rule_id:12} {finding.message}{where}")
-            print(f"    {'':12} in {', '.join(m.original_file_path for m in models)}")
+            files = ", ".join(m.original_file_path for m in found.models)
+            print(f"    {'':12} {'in' if found.certain else 'in one of'} {files}")
+        if checked.trusted:
+            names = ", ".join(f"{m.name} ({m.original_file_path})" for m in checked.trusted)
+            print(f"    trusted without inlining (their SQL is not checked): {names}")
         if args.suggest_fix:
             _print_fixes(
                 checked.diff_file,

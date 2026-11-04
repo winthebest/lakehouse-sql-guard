@@ -16,17 +16,29 @@ wins, with a warning for every value it changes.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from sqlguard.core.lineage import Schema
 from sqlguard.dbt.inline import Inlined, relation_key
 from sqlguard.dbt.manifest import Node
 from sqlguard.leakage.spec import LeakageSpec, SpecError
+from sqlguard.leakage.spec import relation_key as spec_relation_key
 
 UNKNOWN_TYPE = "UNKNOWN"
 _SPINE_KEYS = ("entity_keys", "prediction_ts", "label_columns", "boundary", "label_known_after")
 _MAPPING_KEYS = ("time_columns", "availability_columns", "max_ingest_delay", "relations")
+# --spec fields that can only make a check more lenient than the dbt meta alone
+_RELAXING = (
+    "max_ingest_delay",
+    "label_known_after",
+    "availability_columns",
+    "static_tables",
+    "label_table",
+    "relations",
+)
 
 
 @dataclass(frozen=True)
@@ -45,18 +57,22 @@ class PhysicalTable:
     relation: str | None  # the qualified SQL name (`db.schema.name`), None for a bare name
 
 
-def physical_table(node: Node, dialect: str) -> PhysicalTable:
+def physical_table(node: Node, dialect: str, remap: Mapping[str, str]) -> PhysicalTable:
     """The catalog table a node's relation is.
 
-    It is `iceberg_table` from the node's meta when set (dbt-duckdb's iceberg plugin reads it,
-    defaulting to `<schema>.<identifier>`), else `<schema>.<identifier>`.
+    It is what the `--spec` file's `relations` says (`remap`), else `iceberg_table` from the
+    node's meta (dbt-duckdb's iceberg plugin reads it, defaulting to `<schema>.<identifier>`),
+    else `<schema>.<identifier>`.
     """
     if not node.relation_name:
         raise SpecError(f"{node.unique_id} has no relation name, so the query cannot read it")
     parts = relation_key(node.relation_name, dialect)
     schema = parts[-2] if len(parts) > 1 else ""
     template = node.meta.get("iceberg_table")
-    if isinstance(template, str) and template.strip():
+    relation = ".".join(parts) if len(parts) > 1 else None
+    if relation in remap:
+        target = remap[relation]
+    elif isinstance(template, str) and template.strip():
         try:
             target = template.format(schema=schema, identifier=parts[-1]).strip().lower()
         except (KeyError, IndexError):
@@ -66,21 +82,23 @@ def physical_table(node: Node, dialect: str) -> PhysicalTable:
             ) from None
     else:
         target = f"{schema}.{parts[-1]}" if schema else parts[-1]
-    return PhysicalTable(
-        target.rsplit(".", 1)[-1], target, ".".join(parts) if len(parts) > 1 else None
-    )
+    return PhysicalTable(target.rsplit(".", 1)[-1], target, relation)
 
 
-def physical_tables(inlined: Inlined, dialect: str) -> dict[str, PhysicalTable]:
+def physical_tables(
+    inlined: Inlined, dialect: str, remap: Mapping[str, str] = MappingProxyType({})
+) -> dict[str, PhysicalTable]:
     """unique_id -> catalog table, for every physical table the query reads."""
-    tables = {n.unique_id: physical_table(n, dialect) for n in inlined.boundaries.values()}
+    tables = {n.unique_id: physical_table(n, dialect, remap) for n in inlined.boundaries.values()}
     owners: dict[str, str] = {}
     for unique_id, table in tables.items():
         other = owners.setdefault(table.name, unique_id)
         if other != unique_id:
             raise SpecError(
-                f"{unique_id} and {other} are both the table {table.name!r}; the spec names "
-                "tables without their schema. Map one of them in the --spec file."
+                f"{unique_id} and {other} are both the table {table.name!r}, and the spec names "
+                "tables without their schema. Give one a different catalog table: set "
+                "`iceberg_table` in its meta, or map its relation to another name under "
+                "`relations` in the --spec file."
             )
     return tables
 
@@ -92,7 +110,9 @@ def _setting(key: str, *nodes: Node) -> Any:
     return None
 
 
-def derive_spec(inlined: Inlined, dialect: str) -> dict[str, Any]:
+def derive_spec(
+    inlined: Inlined, dialect: str, remap: Mapping[str, str] = MappingProxyType({})
+) -> dict[str, Any]:
     """The spec fields the dbt meta of the query's tables give, as a LeakageSpec dict."""
     root = inlined.root
     boundaries = list(inlined.boundaries.values())
@@ -104,7 +124,7 @@ def derive_spec(inlined: Inlined, dialect: str) -> dict[str, Any]:
         raise SpecError(f"{root.unique_id} reads more than one label_spine ({names})")
     chain = [root, *([spine] if spine else [])]
 
-    tables = physical_tables(inlined, dialect)
+    tables = physical_tables(inlined, dialect, remap)
     table = {unique_id: t.name for unique_id, t in tables.items()}
     relations = {t.relation: t.target for t in tables.values() if t.relation}
 
@@ -160,7 +180,13 @@ def _same(a: Any, b: Any) -> bool:
 def merge_spec(
     derived: dict[str, Any], override: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
-    """`derived` with the fields of the `--spec` file on top, and a warning per changed value."""
+    """`derived` with the fields of the `--spec` file on top, and the warnings that go with it.
+
+    A value the file changes is warned about. So is every field of the file that can relax a rule
+    (`boundary: inclusive`, `max_ingest_delay`, `label_known_after`, `availability_columns`,
+    `static_tables`, `label_table`, `relations`) even when the dbt meta sets nothing there: the
+    file is a deliberate loosening and the run should say so.
+    """
     merged = dict(derived)
     warnings = []
     for key, value in override.items():
@@ -169,20 +195,45 @@ def merge_spec(
             entries = dict(derived[key])
             for entry, new in value.items():
                 old = known.get(str(entry).lower())
-                if old is not None and not _same(old, new):
+                if old is None:
+                    if key in _RELAXING:
+                        warnings.append(_relaxes(f"{key}[{entry}]", new))
+                elif not _same(old, new):
                     warnings.append(f"--spec changes {key}[{entry}] from dbt meta: {old} -> {new}")
                 entries[entry] = new
             merged[key] = entries
             continue
         old = derived.get(key)
-        if old is not None and old != value and not _same(old, value):
+        if old is None:
+            relaxes = key in _RELAXING or (key == "boundary" and not _same(value, "strict"))
+            if relaxes and isinstance(value, dict):
+                warnings += [_relaxes(f"{key}[{entry}]", new) for entry, new in value.items()]
+            elif relaxes and isinstance(value, list):
+                warnings += [_relaxes(f"{key}", name) for name in value]
+            elif relaxes:
+                warnings.append(_relaxes(key, value))
+        elif old != value and not _same(old, value):
+            if key in ("static_tables",) and isinstance(value, list) and isinstance(old, list):
+                warnings += [
+                    _relaxes(key, name)
+                    for name in value
+                    if str(name).lower() not in map(str.lower, old)
+                ]
             warnings.append(f"--spec changes {key} from dbt meta: {old} -> {value}")
         merged[key] = value
     return merged, warnings
 
 
+def _relaxes(field_name: str, value: Any) -> str:
+    return f"--spec sets {field_name} = {value} (the dbt meta does not); this can relax a rule"
+
+
 def build_schema(
-    inlined: Inlined, spec: LeakageSpec, dialect: str, column_types: dict[str, dict[str, str]]
+    inlined: Inlined,
+    spec: LeakageSpec,
+    dialect: str,
+    column_types: dict[str, dict[str, str]],
+    remap: Mapping[str, str] = MappingProxyType({}),
 ) -> tuple[Schema, list[str]]:
     """Columns and types of the physical tables, from the manifest and `catalog.json`."""
     schema: Schema = {}
@@ -192,7 +243,7 @@ def build_schema(
         *spec.time_columns.items(),
         *spec.availability_columns.items(),
     }
-    tables = physical_tables(inlined, dialect)
+    tables = physical_tables(inlined, dialect, remap)
     for node in inlined.boundaries.values():
         name = tables[node.unique_id].name
         known = column_types.get(node.unique_id, {})
@@ -220,8 +271,13 @@ def build_spec(
     override: dict[str, Any] | None = None,
     column_types: dict[str, dict[str, str]] | None = None,
 ) -> SpecBuild:
-    derived = derive_spec(inlined, dialect)
-    merged, warnings = merge_spec(derived, override or {})
+    override = override or {}
+    wanted = override.get("relations") or {}
+    if not isinstance(wanted, dict):
+        raise SpecError(f"relations must be a mapping of relation name -> table, got {wanted!r}")
+    remap = {spec_relation_key(k): spec_relation_key(v) for k, v in wanted.items()}
+    derived = derive_spec(inlined, dialect, remap)
+    merged, warnings = merge_spec(derived, override)
     if not merged.get("time_columns"):
         read = ", ".join(sorted(n.name for n in inlined.boundaries.values())) or "nothing"
         raise SpecError(
@@ -233,5 +289,5 @@ def build_spec(
         spec = LeakageSpec.from_dict(merged)
     except SpecError as err:
         raise SpecError(f"{inlined.root.unique_id}: {err}") from None
-    schema, gaps = build_schema(inlined, spec, dialect, column_types or {})
+    schema, gaps = build_schema(inlined, spec, dialect, column_types or {}, remap)
     return SpecBuild(spec, schema, warnings, gaps)

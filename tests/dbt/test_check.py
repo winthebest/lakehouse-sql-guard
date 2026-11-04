@@ -12,9 +12,12 @@ from tests.dbt.helpers import (
     LABELS_ID,
     TRAINING,
     TRAINING_SQL,
+    USERS_ID,
+    columns,
     load_fixture,
     manifest,
     model,
+    source,
     write,
 )
 
@@ -109,7 +112,7 @@ def test_a_leak_written_in_the_training_model_is_attributed_to_it():
     data = manifest(*BASE, model("train", sql, [LABELS_ID, EVENTS_ID], TRAINING))
     result = check(data, "model.proj.train")
     assert result.report.verdict == "leaky"
-    assert {m.unique_id for ms in result.finding_models for m in ms} == {"model.proj.train"}
+    assert {m.unique_id for a in result.finding_models for m in a.models} == {"model.proj.train"}
 
 
 def test_a_clock_call_in_an_intermediate_model_is_attributed_to_it():
@@ -267,3 +270,254 @@ def test_catalog_json_supplies_types(tmp_path):
         )
     )
     assert exit_code([*argv, "--catalog-json", str(catalog)]) == 0
+
+
+# --- ephemeral models: dbt pastes their SQL into the parent, their reads stay on their node ---
+
+EPH_TRAIN = (
+    'select l.user_id, l.label_ts, l.churned, f.n_events from "db"."raw"."labels" l '
+    "left join __dbt__cte__int_features f on f.user_id = l.user_id"
+)
+EPH_AGG = 'select user_id, count(*) as n_events from "db"."raw"."events" group by user_id'
+
+
+def paste(*ctes: tuple[str, str], then: str) -> str:
+    """The compiled SQL of a model that depends on ephemeral models, as dbt writes it."""
+    return "with " + ", ".join(f"__dbt__cte__{n} as ({sql})" for n, sql in ctes) + " " + then
+
+
+def test_a_leak_in_an_ephemeral_intermediate_model_is_found_and_attributed_to_it(tmp_path):
+    data = manifest(
+        *BASE,
+        model("int_features", None, [EVENTS_ID], materialized="ephemeral"),
+        model(
+            "train",
+            paste(("int_features", EPH_AGG), then=EPH_TRAIN),
+            [LABELS_ID, "model.proj.int_features"],
+            TRAINING,
+        ),
+    )
+    result = check(data, "model.proj.train")
+    assert result.report.verdict == "leaky"
+    leak = next(f for f in result.to_dict()["findings"] if f["rule_id"] == "L3")
+    assert files_of(leak["models"]) == ["models/int_features.sql"]
+    path = str(write(tmp_path / "manifest.json", data))
+    assert exit_code(["leakage", "dbt", "--manifest", path]) == 1
+
+
+def test_an_ephemeral_model_can_read_another_source_than_its_parent():
+    orders_id, orders = source(
+        "orders",
+        {"time_column": "order_ts"},
+        columns(user_id="bigint", order_ts="timestamp", amount="double"),
+    )
+    agg = 'select user_id, sum(amount) as n_events from "db"."raw"."orders" group by user_id'
+    data = manifest(
+        *BASE,
+        (orders_id, orders),
+        model("int_features", None, [orders_id], materialized="ephemeral"),
+        model(
+            "train",
+            paste(("int_features", agg), then=EPH_TRAIN),
+            [LABELS_ID, "model.proj.int_features"],
+            TRAINING,
+        ),
+    )
+    result = check(data, "model.proj.train")
+    assert result.report.verdict == "leaky"
+    assert {f.rule_id for f in result.report.findings} <= {"L2", "L3"}
+    assert "PARSE" not in {f.rule_id for f in result.report.findings}
+
+
+def test_an_ephemeral_model_reading_a_view_model_has_that_model_inlined():
+    stg = 'select user_id, event_ts from "db"."raw"."events"'
+    agg = 'select user_id, count(*) as n_events from "db"."main"."stg_events" group by user_id'
+    data = manifest(
+        *BASE,
+        model("stg_events", stg, [EVENTS_ID]),
+        model("int_features", None, ["model.proj.stg_events"], materialized="ephemeral"),
+        model(
+            "train",
+            paste(("int_features", agg), then=EPH_TRAIN),
+            [LABELS_ID, "model.proj.int_features"],
+            TRAINING,
+        ),
+    )
+    result = check(data, "model.proj.train")
+    assert result.report.verdict == "leaky"
+    assert "dbt_model__stg_events" in result.sql
+    leak = next(f for f in result.to_dict()["findings"] if f["rule_id"] == "L2")
+    assert files_of(leak["models"]) == ["models/int_features.sql"]
+
+
+def test_a_chain_of_two_ephemeral_models_is_followed_to_the_source(tmp_path):
+    first = 'select user_id, event_ts from "db"."raw"."events"'
+    second = "select user_id, count(*) as n_events from __dbt__cte__first group by user_id"
+    sql = (
+        'select l.user_id, l.label_ts, l.churned, f.n_events from "db"."raw"."labels" l '
+        "left join __dbt__cte__second f on f.user_id = l.user_id"
+    )
+    data = manifest(
+        *BASE,
+        model("first", None, [EVENTS_ID], materialized="ephemeral"),
+        model("second", None, ["model.proj.first"], materialized="ephemeral"),
+        model(
+            "train",
+            paste(("first", first), ("second", second), then=sql),
+            [LABELS_ID, "model.proj.second"],
+            TRAINING,
+        ),
+    )
+    result = check(data, "model.proj.train")
+    assert result.report.verdict == "leaky"
+    leak = next(f for f in result.to_dict()["findings"] if f["rule_id"] == "L2")
+    assert files_of(leak["models"]) == ["models/second.sql"]
+    path = str(write(tmp_path / "manifest.json", data))
+    assert exit_code(["leakage", "dbt", "--manifest", path]) == 1
+
+
+def test_a_bounded_ephemeral_model_is_clean():
+    bounded = (
+        'select l.user_id, l.label_ts, count(e.event_id) as n_events from "db"."raw"."labels" l '
+        'left join "db"."raw"."events" e on e.user_id = l.user_id and e.event_ts < l.label_ts '
+        "and e.ingested_at < l.label_ts group by l.user_id, l.label_ts"
+    )
+    sql = (
+        'select l.user_id, l.label_ts, l.churned, f.n_events from "db"."raw"."labels" l '
+        "left join __dbt__cte__int_features f on f.user_id = l.user_id and f.label_ts = l.label_ts"
+    )
+    data = manifest(
+        *BASE,
+        model("int_features", None, [LABELS_ID, EVENTS_ID], materialized="ephemeral"),
+        model(
+            "train",
+            paste(("int_features", bounded), then=sql),
+            [LABELS_ID, "model.proj.int_features"],
+            TRAINING,
+        ),
+    )
+    assert check(data, "model.proj.train").report.verdict == "clean"
+
+
+# --- attribution: the model that introduces the unbounded read, not a thin staging model ---
+
+
+def test_a_filtering_or_static_joining_staging_model_is_not_blamed():
+    stg = (
+        "select e.event_id, e.user_id, e.event_ts, e.ingested_at, e.amount "
+        'from "db"."raw"."events" e join "db"."raw"."users" u on u.user_id = e.user_id '
+        "where e.amount > 0"
+    )
+    data = manifest(
+        *BASE,
+        model("stg_events", stg, [EVENTS_ID, USERS_ID]),
+        model(
+            "int_features",
+            'select user_id, count(*) as n_events from "db"."main"."stg_events" group by user_id',
+            ["model.proj.stg_events"],
+        ),
+        model("train", TRAINING_SQL, [LABELS_ID, "model.proj.int_features"], TRAINING),
+    )
+    result = check(data, "model.proj.train", suggest=True)
+    leak = next(f for f in result.to_dict()["findings"] if f["rule_id"] == "L2")
+    assert (
+        files_of(leak["models"]) == ["models/int_features.sql"] and leak["attribution"] == "model"
+    )
+    assert result.fix_files == ["models/int_features.sql"]
+
+
+def test_a_table_reaching_the_training_set_along_two_paths_lists_candidates():
+    stg = 'select user_id, event_ts, ingested_at from "db"."raw"."events"'
+    data = manifest(
+        *BASE,
+        model("stg_events", stg, [EVENTS_ID]),
+        model(
+            "int_a",
+            'select user_id, count(*) as a from "db"."main"."stg_events" group by user_id',
+            ["model.proj.stg_events"],
+        ),
+        model(
+            "int_b",
+            'select user_id, max(event_ts) as b from "db"."main"."stg_events" group by user_id',
+            ["model.proj.stg_events"],
+        ),
+        model(
+            "train",
+            'select l.user_id, l.label_ts, l.churned, a.a, b.b from "db"."raw"."labels" l '
+            'left join "db"."main"."int_a" a on a.user_id = l.user_id '
+            'left join "db"."main"."int_b" b on b.user_id = l.user_id',
+            [LABELS_ID, "model.proj.int_a", "model.proj.int_b"],
+            TRAINING,
+        ),
+    )
+    result = check(data, "model.proj.train")
+    leak = next(f for f in result.to_dict()["findings"] if f["rule_id"] == "L2")
+    assert sorted(files_of(leak["models"])) == ["models/int_a.sql", "models/int_b.sql"]
+    assert leak["attribution"] == "candidates"
+    assert all("one of: " in f for f in result.fix_files)
+
+
+# --- models read as declared are reported, not silently trusted ---
+
+
+def trusted_project():
+    stg = 'select user_id, event_ts, ingested_at, amount from "db"."raw"."events"'
+    sql = (
+        'select l.user_id, l.label_ts, l.churned, f.amount from "db"."raw"."labels" l '
+        'left join "db"."main"."dim_events" f on f.user_id = l.user_id '
+        "and f.event_ts < l.label_ts and f.ingested_at < l.label_ts"
+    )
+    return manifest(
+        *BASE,
+        model(
+            "dim_events",
+            stg,
+            [EVENTS_ID],
+            {"time_column": "event_ts", "availability_column": "ingested_at"},
+            columns(
+                user_id="bigint", event_ts="timestamp", ingested_at="timestamp", amount="double"
+            ),
+        ),
+        model("train", sql, [LABELS_ID, "model.proj.dim_events"], TRAINING),
+    )
+
+
+def test_models_used_as_stop_points_are_listed_in_json_and_text(tmp_path, capsys):
+    result = check(trusted_project(), "model.proj.train")
+    assert result.report.verdict == "clean"
+    assert result.to_dict()["trusted_models"] == [
+        {
+            "node": "model.proj.dim_events",
+            "file": "models/dim_events.sql",
+            "declared": "time_column",
+        }
+    ]
+    path = str(write(tmp_path / "manifest.json", trusted_project()))
+    assert exit_code(["leakage", "dbt", "--manifest", path]) == 0
+    out = capsys.readouterr().out
+    assert "trusted without inlining (their SQL is not checked): dim_events" in out
+    # a project with no such model reports an empty list
+    assert check(load_fixture(), CLEAN).to_dict()["trusted_models"] == []
+
+
+def test_a_model_file_edited_after_the_manifest_is_warned_about(tmp_path, capsys, monkeypatch):
+    import os
+
+    monkeypatch.chdir(
+        tmp_path
+    )  # a file path is looked up from here and from the manifest's project
+    project = tmp_path / "proj"
+    (project / "build_ci").mkdir(parents=True)
+    path = write(project / "build_ci" / "manifest.json", load_fixture())
+    edited = project / "models" / "intermediate" / "int_customer_recent_orders.sql"
+    edited.parent.mkdir(parents=True)
+    edited.write_text("select 1")
+    os.utime(path, (1_000_000, 1_000_000))
+    argv = ["leakage", "dbt", "--manifest", str(path), "--select", "*clean"]
+    assert exit_code(argv) == 0  # a warning, not a failure
+    err = capsys.readouterr().err
+    assert "models/intermediate/int_customer_recent_orders.sql changed after" in err
+    assert "run `dbt compile` first" in err
+    os.utime(edited, (500_000, 500_000))
+    assert exit_code(argv) == 0
+    assert "changed after" not in capsys.readouterr().err

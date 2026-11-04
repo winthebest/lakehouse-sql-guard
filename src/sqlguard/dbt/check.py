@@ -9,11 +9,12 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Finding, Severity
-from sqlguard.dbt.attribution import Attributor
+from sqlguard.dbt.attribution import Attribution, Attributor
 from sqlguard.dbt.inline import inline
 from sqlguard.dbt.manifest import Manifest, ManifestError, Node
 from sqlguard.dbt.spec import build_spec
@@ -33,23 +34,30 @@ class ModelCheck:
     report: LeakageReport
     spec: LeakageSpec | None = None
     warnings: list[str] = field(default_factory=list)
-    finding_models: list[list[Node]] = field(default_factory=list)  # parallel to report.findings
+    finding_models: list[Attribution] = field(default_factory=list)  # parallel to report.findings
     fixes: list[Fix] = field(default_factory=list)
-    fix_models: list[list[Node]] = field(default_factory=list)  # parallel to fixes
+    fix_models: list[Attribution] = field(default_factory=list)  # parallel to fixes
     suggested: bool = False  # fixes were asked for (an empty list is then an answer)
+    models: list[Node] = field(default_factory=list)  # models whose SQL was checked
+    boundaries: list[Node] = field(default_factory=list)  # physical tables the query reads
+
+    @property
+    def trusted(self) -> list[Node]:
+        """Models read as declared (temporal, static, spine): their own SQL is not checked."""
+        return [n for n in self.boundaries if n.kind == "model"]
 
     @property
     def fix_files(self) -> list[str]:
         """Per suggested fix, the files of the models it belongs to."""
-        return [", ".join(m.original_file_path for m in models) for models in self.fix_models]
+        return [_files(a) for a in self.fix_models]
 
     @property
     def diff_file(self) -> str:
         """The file the suggested diff is labelled with: the model of the first rewrite when it
         is a single one, else the training model."""
-        for fix, models in zip(self.fixes, self.fix_models, strict=True):
+        for fix, found in zip(self.fixes, self.fix_models, strict=True):
             if fix.rewrites:
-                return (models[0] if len(models) == 1 else self.node).original_file_path
+                return (found.models[0] if len(found.models) == 1 else self.node).original_file_path
         return self.node.original_file_path
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,21 +68,37 @@ class ModelCheck:
             **self.report.to_dict(),
         }
         entry["findings"] = [
-            {**finding.to_dict(), "models": _refs(models)}
-            for finding, models in zip(self.report.findings, self.finding_models, strict=True)
+            {**finding.to_dict(), **_attribution(found)}
+            for finding, found in zip(self.report.findings, self.finding_models, strict=True)
         ]
         if self.suggested:
             entry["fixes"] = [
-                {**fix.to_dict(), "models": _refs(models)}
-                for fix, models in zip(self.fixes, self.fix_models, strict=True)
+                {**fix.to_dict(), **_attribution(found)}
+                for fix, found in zip(self.fixes, self.fix_models, strict=True)
             ]
+        entry["trusted_models"] = [
+            {"node": m.unique_id, "file": m.original_file_path, "declared": _declared(m)}
+            for m in self.trusted
+        ]
         if self.warnings:
             entry["warnings"] = self.warnings
         return entry
 
 
-def _refs(models: list[Node]) -> list[dict[str, str]]:
-    return [{"node": m.unique_id, "file": m.original_file_path} for m in models]
+def _declared(node: Node) -> str:
+    return node.role or "time_column"
+
+
+def _files(found: Attribution) -> str:
+    files = ", ".join(m.original_file_path for m in found.models)
+    return files if found.certain else f"one of: {files}"
+
+
+def _attribution(found: Attribution) -> dict[str, Any]:
+    return {
+        "models": [{"node": m.unique_id, "file": m.original_file_path} for m in found.models],
+        "attribution": "model" if found.certain else "candidates",
+    }
 
 
 def training_sets(manifest: Manifest, select: list[str] | None = None) -> list[Node]:
@@ -123,7 +147,14 @@ def check_model(
             "unverifiable", 1.0, [Finding("SPEC", Severity.LOW, gap) for gap in built.gaps]
         )
         return ModelCheck(
-            root, inlined.sql, report, built.spec, built.warnings, [[root] for _ in report.findings]
+            root,
+            inlined.sql,
+            report,
+            built.spec,
+            built.warnings,
+            [Attribution([root], True) for _ in report.findings],
+            models=list(inlined.models.values()),
+            boundaries=list(inlined.boundaries.values()),
         )
 
     replay = replay_for(built.spec) if replay_for else False
@@ -141,11 +172,18 @@ def check_model(
     except Exception:  # noqa: BLE001 - the report already says the query could not be analyzed
         attributor = None
 
-    def models(finding: Finding) -> list[Node]:
-        return attributor.models(finding) if attributor else [root]
+    def models(finding: Finding) -> Attribution:
+        return attributor.models(finding) if attributor else Attribution([root], False)
 
     result = ModelCheck(
-        root, inlined.sql, report, built.spec, built.warnings, [models(f) for f in report.findings]
+        root,
+        inlined.sql,
+        report,
+        built.spec,
+        built.warnings,
+        [models(f) for f in report.findings],
+        models=list(inlined.models.values()),
+        boundaries=list(inlined.boundaries.values()),
     )
     if suggest:
         result.suggested = True
@@ -162,3 +200,25 @@ def check_model(
             models(Finding(fix.rule, Severity.HIGH, "", fix.location)) for fix in result.fixes
         ]
     return result
+
+
+def stale_files(manifest_path: Path | str, checks: list[ModelCheck]) -> list[str]:
+    """Files of the checked models and tables that were edited after the manifest was written.
+
+    The check reads the manifest, not the project: a hook that does not compile first would
+    judge the SQL as it was at the last `dbt compile`. Paths are looked up from the working
+    directory and from the project that holds the manifest's directory.
+    """
+    manifest_file = Path(manifest_path).resolve()
+    written = manifest_file.stat().st_mtime
+    bases = [Path.cwd(), manifest_file.parent.parent]
+    nodes = {n.unique_id: n for c in checks for n in (*c.models, *c.boundaries)}
+    stale = []
+    for node in nodes.values():
+        for base in bases:
+            file = base / node.original_file_path
+            if file.is_file():
+                if file.stat().st_mtime > written:
+                    stale.append(node.original_file_path)
+                break
+    return sorted(set(stale))

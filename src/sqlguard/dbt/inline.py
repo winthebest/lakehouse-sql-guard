@@ -24,6 +24,7 @@ from sqlguard.core.parsing import parse_single
 from sqlguard.dbt.manifest import Manifest, Node
 
 OWNER = "dbt_node"  # meta key: unique_id of the model whose compiled SQL a node came from
+EPHEMERAL_PREFIX = "__dbt__cte__"  # dbt's name for a pasted ephemeral model
 PREFIX = "dbt_model__"  # CTE names of inlined models
 MAX_DEPTH = 64  # models between the training model and the deepest one inlined
 STOP_KINDS = ("source", "seed", "snapshot")
@@ -57,6 +58,10 @@ def relation_key(relation_name: str, dialect: str) -> tuple[str, ...]:
 
 def _table_key(table: exp.Table) -> tuple[str, ...]:
     return tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
+
+
+def _reads(ephemeral: dict[str, Node]) -> list[str]:
+    return [dep for node in ephemeral.values() for dep in node.depends_on]
 
 
 def _parse(node: Node, root: Node, dialect: str) -> exp.Expression:
@@ -95,14 +100,41 @@ def inline(manifest: Manifest, root: Node, max_depth: int = MAX_DEPTH) -> Inline
             name = f"{PREFIX}{node.name}_{n}"
         return name
 
+    def ephemeral_ancestors(node: Node) -> dict[str, Node]:
+        """Ephemeral models dbt pasted into `node`'s SQL, by name (they nest transitively)."""
+        found: dict[str, Node] = {}
+        todo = list(node.depends_on)
+        while todo:
+            dep = manifest.nodes.get(todo.pop())
+            if dep is not None and dep.materialized == "ephemeral" and dep.name not in found:
+                found[dep.name] = dep
+                todo += dep.depends_on
+        return found
+
     def expand(node: Node, path: tuple[str, ...]) -> exp.Expression:
         tree = _parse(node, root, dialect)
-        # A dependency missing from the manifest, or without a relation (an ephemeral model dbt
-        # already inlined), never matches a table; one that does stays a physical table the
-        # spec must classify.
+        # dbt pastes an ephemeral model's SQL into its parent as `__dbt__cte__<name>`, but what it
+        # reads is listed on the ephemeral node, not on the parent: follow those dependencies too,
+        # and make the pasted CTE belong to the ephemeral model.
+        ephemeral = ephemeral_ancestors(node)
+        for cte in tree.find_all(exp.CTE):
+            name = cte.alias_or_name
+            pasted = (
+                ephemeral.get(name[len(EPHEMERAL_PREFIX) :])
+                if name.startswith(EPHEMERAL_PREFIX)
+                else None
+            )
+            if pasted is not None:
+                for part in cte.this.walk():
+                    part.meta[OWNER] = pasted.unique_id
+                models.setdefault(pasted.unique_id, pasted)
+                queries.setdefault(pasted.unique_id, cte.this)
+        # A dependency missing from the manifest, or without a relation, never matches a table;
+        # one that does but is not a dbt node's relation stays a physical table the spec must
+        # classify.
         upstream = {
             relation_key(dep.relation_name, dialect): dep
-            for dep in (manifest.nodes.get(d) for d in node.depends_on)
+            for dep in (manifest.nodes.get(d) for d in (*node.depends_on, *_reads(ephemeral)))
             if dep is not None and dep.relation_name
         }
         for table in list(tree.find_all(exp.Table)):
