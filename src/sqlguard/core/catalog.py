@@ -63,6 +63,11 @@ class SnapshotInfo:
     timestamp_ms: int
     operation: str
     visible_at: datetime  # logical time if recorded, else commit time (naive UTC)
+    sequence_number: int | None = None
+
+
+class HistoryGap(LookupError):
+    """The table state at a requested time is older than its retained snapshot history."""
 
 
 class LakehouseCatalog:
@@ -127,44 +132,60 @@ class LakehouseCatalog:
                     timestamp_ms=s.timestamp_ms,
                     operation=str(s.summary.operation.value) if s.summary else "unknown",
                     visible_at=datetime.fromisoformat(logical) if logical else committed,
+                    sequence_number=s.sequence_number,
                 )
             )
         return infos
 
-    def snapshot_as_of(self, table: str, ts: datetime) -> int | None:
-        """Latest snapshot visible at `ts` (None if the table did not exist yet).
+    def snapshot_as_of(
+        self, table: str, ts: datetime, *, strict_history: bool = False
+    ) -> int | None:
+        """Latest main-branch snapshot visible at `ts` (None if the table did not exist yet).
 
-        Follows the main-branch lineage so rolled-back or branch-only snapshots are ignored.
+        Follows the main-branch lineage, so rolled-back or branch-only snapshots are ignored.
+        With `strict_history`, raise HistoryGap when the state at `ts` predates retained
+        history (snapshots were expired), instead of silently answering "empty".
         """
-        main_lineage = self._main_lineage(table)
-        candidates = [s for s in self.snapshots(table) if s.snapshot_id in main_lineage]
-        visible = [s for s in candidates if s.visible_at <= ts]
-        return visible[-1].snapshot_id if visible else None
+        chain = self._main_chain(table)
+        visible = [s for s in chain if s.visible_at <= ts]
+        if visible:
+            return visible[-1].snapshot_id
+        if strict_history and chain and self._chain_truncated(table, chain):
+            raise HistoryGap(
+                f"history of {table!r} before {chain[0].visible_at.isoformat()} was expired; "
+                f"the state at {ts.isoformat()} can no longer be reconstructed"
+            )
+        return None
 
-    def _main_lineage(self, table: str) -> set[int]:
+    def _main_chain(self, table: str) -> list[SnapshotInfo]:
+        """Main-branch snapshots reachable through parent pointers, oldest first."""
+        infos = {s.snapshot_id: s for s in self.snapshots(table)}
         iceberg_table = self.table(table)
         current = iceberg_table.current_snapshot()
-        lineage: set[int] = set()
-        while current is not None:
-            lineage.add(current.snapshot_id)
+        chain: list[SnapshotInfo] = []
+        while current is not None and current.snapshot_id in infos:
+            chain.append(infos[current.snapshot_id])
             parent = current.parent_snapshot_id
             current = iceberg_table.snapshot_by_id(parent) if parent is not None else None
-        return lineage
+        return chain[::-1]
+
+    def _chain_truncated(self, table: str, chain: list[SnapshotInfo]) -> bool:
+        oldest = chain[0]
+        if oldest.sequence_number:
+            # Format v2: the first commit of a table has sequence number 1.
+            return oldest.sequence_number > 1
+        parent = oldest.parent_id
+        return parent is not None and self.table(table).snapshot_by_id(parent) is None
 
     def history_truncated(self, table: str) -> bool:
-        """True when older snapshots were expired, so early states cannot be time-travelled.
+        """True when older main-branch snapshots were expired (time travel is incomplete).
 
-        Uses sequence numbers (a table's first snapshot is 1 in format v2) because expiry may
-        also clear the surviving snapshot's parent pointer.
+        Checks the main lineage, not all snapshots, so a tag that keeps one old snapshot
+        alive does not hide expired history. Expiry may also clear the survivor's parent
+        pointer, hence sequence numbers.
         """
-        snapshots = self.table(table).snapshots()
-        if not snapshots:
-            return False
-        oldest = min(snapshots, key=lambda s: s.sequence_number or 0)
-        if oldest.sequence_number:
-            return oldest.sequence_number > 1
-        parent = oldest.parent_snapshot_id
-        return parent is not None and self.table(table).snapshot_by_id(parent) is None
+        chain = self._main_chain(table)
+        return bool(chain) and self._chain_truncated(table, chain)
 
     def refs(self, table: str) -> dict[str, int]:
         return {name: ref.snapshot_id for name, ref in self.table(table).refs().items()}

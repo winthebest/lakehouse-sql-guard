@@ -3,45 +3,56 @@
 from __future__ import annotations
 
 from sqlguard.core.findings import Finding, Severity
-from sqlguard.leakage.analysis import QueryAnalysis, TableRef
+from sqlguard.leakage.analysis import QueryAnalysis, TimeBound
 
 DAY = 86_400
 
 
-def future_bounds(ref: TableRef):
-    """Bounds admitting facts at/after prediction time by a day or more."""
-    lower = [b for b in ref.bounds if not b.is_upper and b.offset_seconds >= 0]
-    far_upper = [b for b in ref.bounds if b.is_upper and b.offset_seconds >= DAY]
+def future_bounds(group: list[TimeBound]) -> list[TimeBound]:
+    """Bounds admitting facts at/after prediction time, or up to a day or more after it."""
+    lower = [b for b in group if not b.is_upper and b.offset_seconds >= 0]
+    far_upper = [b for b in group if b.is_upper and b.offset_seconds >= DAY]
     return lower + far_upper
 
 
 def check(analysis: QueryAnalysis) -> list[Finding]:
+    spec = analysis.spec
     findings = []
     for ref in analysis.temporal_refs:
-        future = future_bounds(ref)
-        if future:
-            findings.append(
-                Finding(
-                    rule_id="L1",
-                    severity=Severity.HIGH,
-                    message=f"{ref.describe()} reads facts at or after prediction time",
-                    location=ref.describe(),
-                    evidence={"predicates": [b.sql for b in future]},
+        for group in ref.bound_groups():
+            future = future_bounds(group)
+            if future:
+                findings.append(
+                    Finding(
+                        "L1",
+                        Severity.HIGH,
+                        f"{ref.describe()} reads facts at or after prediction time",
+                        ref.describe(),
+                        {"predicates": [b.sql for b in future]},
+                    )
                 )
-            )
-            continue
-        if not any(b.is_upper for b in ref.bounds) and not ref.aggregated:
-            time_col = analysis.spec.time_columns[ref.table]
+                break
+            if not any(b.is_upper for b in group) and not ref.aggregated:
+                findings.append(
+                    Finding(
+                        "L2",
+                        Severity.HIGH,
+                        f"{ref.describe()} is joined without bounding "
+                        f"{spec.time_columns[ref.table]} before {spec.prediction_ts}",
+                        ref.describe(),
+                        {"bounds": [b.sql for b in group]},
+                    )
+                )
+                break
+    for issue in analysis.windows:
+        if issue.kind == "lookahead":
             findings.append(
                 Finding(
-                    rule_id="L2",
-                    severity=Severity.HIGH,
-                    message=(
-                        f"{ref.describe()} is joined without bounding {time_col} "
-                        f"before {analysis.spec.prediction_ts}"
-                    ),
-                    location=ref.describe(),
-                    evidence={"bounds": [b.sql for b in ref.bounds]},
+                    "L1",
+                    Severity.HIGH,
+                    f"window over {issue.ref.describe()} looks at later rows",
+                    issue.ref.describe(),
+                    {"window": issue.sql},
                 )
             )
     return findings

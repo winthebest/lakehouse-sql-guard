@@ -1,13 +1,12 @@
 # Weights combine findings into a score in [0, 1]: score = 1 - prod(1 - w_i).
 # A report is "leaky" when score >= threshold. Tuned on the dev split only.
+# L4 (static) is a hint below the threshold on its own: replay has to confirm it.
 rules:
   L1: 0.95
   L2: 0.90
   L3: 0.90
-  L4: 0.50
+  L4: 0.40
   L5: 0.85
   L6: 0.95
-  UNCLASSIFIED: 0.10
-  LINEAGE: 0.0
 replay_mismatch: 0.90
 threshold: 0.5

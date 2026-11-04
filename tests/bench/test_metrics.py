@@ -30,8 +30,10 @@ def test_perfect_and_random_auc():
 
 
 def test_threshold_at_fpr():
-    assert threshold_at_fpr(LABELS, SCORES, 0.0) == 0.8
-    assert threshold_at_fpr(LABELS, SCORES, 0.25) == 0.3
+    assert threshold_at_fpr(LABELS, SCORES, 0.0) == pytest.approx(0.75)  # between 0.8 and 0.7
+    assert threshold_at_fpr(LABELS, SCORES, 0.25) == pytest.approx(0.25)
+    assert threshold_at_fpr([True, False], [0.0, 1.0], 0.0) == float("inf")
+    assert threshold_at_fpr([True, True], [0.4, 0.9], 0.0) == 0.4
 
 
 def test_baseline_only_sees_output_timestamps():

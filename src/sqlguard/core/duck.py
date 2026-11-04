@@ -12,14 +12,19 @@ import pyarrow as pa
 from sqlguard.core.catalog import LakehouseCatalog
 
 
-def connect(tables: dict[str, pa.Table]) -> duckdb.DuckDBPyConnection:
-    """New in-memory connection with each Arrow table materialized under its name."""
+def connect(tables: dict[str, pa.Table], sandbox: bool = True) -> duckdb.DuckDBPyConnection:
+    """New in-memory connection exposing each Arrow table under its name (zero-copy).
+
+    With `sandbox` (the default) the connection cannot read or write files or reach the
+    network, and the setting is locked, so untrusted SQL only sees the given tables.
+    """
     conn = duckdb.connect()
     conn.execute("SET TimeZone = 'UTC'")
     for name, data in tables.items():
-        conn.register(f"__arrow_{name}", data)
-        conn.execute(f'CREATE TABLE "{name}" AS SELECT * FROM "__arrow_{name}"')
-        conn.unregister(f"__arrow_{name}")
+        conn.register(name, data)
+    if sandbox:
+        conn.execute("SET enable_external_access = false")
+        conn.execute("SET lock_configuration = true")
     return conn
 
 

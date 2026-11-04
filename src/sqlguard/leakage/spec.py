@@ -2,7 +2,8 @@
 
 Nothing is inferred from column names. Every table the query reads must be classified as
 the label table, a temporal table (with its event-time column), a static table, or an
-outcome table; otherwise the validator reports it as unclassified.
+outcome table; otherwise the validator reports it as unclassified. Names are compared
+case-insensitively (stored lowercase), matching how unquoted SQL identifiers resolve.
 """
 
 from __future__ import annotations
@@ -18,6 +19,26 @@ from sqlguard.core.lineage import SourceColumn
 
 class SpecError(ValueError):
     """Raised when a spec file is missing a required field or is inconsistent."""
+
+
+def _name(value: Any, key: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise SpecError(f"{key} must be a non-empty string, got {value!r}")
+    return value.strip().lower()
+
+
+def _names(value: Any, key: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not value:
+        raise SpecError(f"{key} must be a non-empty list, got {value!r}")
+    return tuple(_name(v, key) for v in value)
+
+
+def _mapping(value: Any, key: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SpecError(f"{key} must be a mapping of table -> column, got {value!r}")
+    return {_name(t, key): _name(c, key) for t, c in value.items()}
 
 
 @dataclass(frozen=True)
@@ -54,12 +75,18 @@ class LeakageSpec:
         return {*self.entity_keys, self.prediction_ts, *self.label_columns}
 
     @property
+    def key_columns(self) -> list[str]:
+        """Columns that identify one training row (used to align rows in replay)."""
+        return [*self.entity_keys, self.prediction_ts]
+
+    @property
     def target_sources(self) -> set[SourceColumn]:
         """Source columns that encode the outcome; no feature may depend on them."""
         labels = {SourceColumn(self.label_table, c) for c in self.label_columns}
         return labels | set(self.outcome_columns)
 
     def classify(self, table: str) -> str:
+        table = table.lower()
         if table == self.label_table:
             return "label"
         if table in self.time_columns:
@@ -81,15 +108,16 @@ class LeakageSpec:
             table, _, column = str(ref).partition(".")
             if not column:
                 raise SpecError(f"outcome_columns entries must be 'table.column', got {ref!r}")
-            outcome.append(SourceColumn(table, column))
+            outcome.append(SourceColumn(table.lower(), column.lower()))
+        static = data.get("static_tables") or []
         return cls(
-            label_table=data["label_table"],
-            entity_keys=tuple(data["entity_keys"]),
-            prediction_ts=data["prediction_ts"],
-            label_columns=tuple(data["label_columns"]),
-            time_columns=dict(data["time_columns"]),
-            availability_columns=dict(data.get("availability_columns") or {}),
-            static_tables=tuple(data.get("static_tables") or ()),
+            label_table=_name(data["label_table"], "label_table"),
+            entity_keys=_names(data["entity_keys"], "entity_keys"),
+            prediction_ts=_name(data["prediction_ts"], "prediction_ts"),
+            label_columns=_names(data["label_columns"], "label_columns"),
+            time_columns=_mapping(data["time_columns"], "time_columns"),
+            availability_columns=_mapping(data.get("availability_columns"), "availability"),
+            static_tables=_names(static, "static_tables") if static else (),
             outcome_columns=tuple(outcome),
             dialect=data.get("dialect", "duckdb"),
         )

@@ -75,9 +75,19 @@ def auc(points: list[tuple[float, float, float]]) -> float:
 
 
 def threshold_at_fpr(labels: list[bool], scores: list[float], max_fpr: float = 0.05) -> float:
-    """Lowest threshold (highest recall) whose FPR stays within `max_fpr`."""
-    best = float("inf")
-    for t, fpr, _ in roc_curve(labels, scores):
+    """Highest-recall threshold whose FPR stays within `max_fpr`, placed with a margin.
+
+    The cut sits halfway between the lowest admissible score and the next lower score, so
+    it classifies dev exactly as the boundary score would, without hugging the weakest
+    leaky case seen on dev (a held-out case scoring slightly lower is still caught).
+    """
+    points = roc_curve(labels, scores)
+    best = None
+    for i, (_, fpr, _) in enumerate(points):
         if fpr <= max_fpr:
-            best = t
-    return best
+            best = i
+    if best is None or best == 0:
+        return float("inf")
+    if best + 1 < len(points):
+        return (points[best][0] + points[best + 1][0]) / 2
+    return points[best][0]
