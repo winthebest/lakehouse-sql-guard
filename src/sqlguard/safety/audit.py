@@ -1,4 +1,5 @@
-"""Append-only JSONL audit log: one line per submission, whatever the outcome.
+"""Append-only JSONL audit log: a "completed" line per submission, and a "started" line before
+any submission that has side effects.
 
 Each record is written with a single `write` on an `O_APPEND` descriptor and fsynced, so
 concurrent writers cannot interleave lines and a crash cannot truncate an earlier record. The
@@ -53,7 +54,7 @@ class AuditLog:
     def append(self, record: dict[str, Any]) -> str:
         """Write `record` (adding `id` and `ts` when absent) and return its id."""
         entry = {"id": uuid.uuid4().hex, "ts": datetime.now(UTC).isoformat(), **record}
-        line = json.dumps(entry, default=_jsonable, sort_keys=False, ensure_ascii=False) + "\n"
+        line = self.render(entry) + "\n"
         try:
             with self._lock:
                 fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
@@ -67,6 +68,11 @@ class AuditLog:
         except OSError as err:
             raise AuditError(f"cannot append to audit log {self.path}: {err}") from err
         return str(entry["id"])
+
+    @staticmethod
+    def render(record: dict[str, Any]) -> str:
+        """The JSON text of one record (without the trailing newline)."""
+        return json.dumps(record, default=_jsonable, sort_keys=False, ensure_ascii=False)
 
     def read(self) -> list[dict[str, Any]]:
         if not self.path.exists():

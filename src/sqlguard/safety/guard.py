@@ -16,8 +16,9 @@ Pipeline for every submission:
       IRREVERSIBLE actions  -> need an approver, and the live retention check must pass first
 
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
-main pointer to the already-verified branch head. Every submission appends one audit record,
-including denials and failures. Any unexpected error fails closed (nothing published, branch
+main pointer to the already-verified branch head. Every submission appends a completion record
+to the audit log (denials and failures included), and anything with side effects first appends
+a "started" record. Any unexpected error fails closed (nothing published, branch
 dropped) and is reported as `Outcome.ERROR`.
 
 This module is deterministic and contains no LLM.
@@ -25,6 +26,9 @@ This module is deterministic and contains no LLM.
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -33,11 +37,13 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import sqlglot
+from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
 from sqlguard.safety.actions import Action, SqlAction
-from sqlguard.safety.audit import AuditLog
+from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.classifier import Classification, ReversibilityClass, classify
 from sqlguard.safety.executor.base import (
     BranchDiverged,
@@ -59,8 +65,16 @@ from sqlguard.safety.invariants import (
 from sqlguard.safety.policy import Policy, PolicyDecision, RetentionRule, TaskScope
 
 C = ReversibilityClass
+_POINTER_MOVES = frozenset({"rollback", "fast_forward"})
 _DML_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
 _AUDIT_FILE_LIST_LIMIT = 100
+_ERROR_TEXT_LIMIT = 300
+_LITERAL_NODES = tuple(
+    getattr(exp, name)
+    for name in ("Literal", "HexString", "BitString", "ByteString", "National")
+    if hasattr(exp, name)
+)
+_log = logging.getLogger("sqlguard.audit")
 
 
 class Outcome(StrEnum):
@@ -115,6 +129,12 @@ class GuardResult:
     snapshots_before: dict[str, int | None] = field(default_factory=dict)
     snapshots_after: dict[str, int | None] = field(default_factory=dict)
     error: str | None = None
+    audit_error: str | None = None  # set when the completion record could not be written
+
+    @property
+    def needs_attention(self) -> bool:
+        """True when main may hold a change that failed verification and was not undone."""
+        return self.outcome in _ATTENTION_OUTCOMES
 
     @property
     def ok(self) -> bool:
@@ -144,6 +164,8 @@ class GuardResult:
             "snapshots_before": self.snapshots_before,
             "snapshots_after": self.snapshots_after,
             "error": self.error,
+            "audit_error": self.audit_error,
+            "needs_attention": self.needs_attention,
         }
 
 
@@ -153,6 +175,8 @@ class _Run:
 
     action: Action
     scope: TaskScope | None
+    audit_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    approver_id: str | None = None
     classification: Classification | None = None
     decision: Decision = Decision.DENY  # fail closed until a policy decision exists
     klass: ReversibilityClass = ReversibilityClass.UNKNOWN
@@ -183,6 +207,9 @@ class _Run:
         self.reasons.extend(reasons)
 
 
+_ATTENTION_OUTCOMES = frozenset({Outcome.ROLLBACK_FAILED, Outcome.ROLLBACK_BLOCKED})
+
+
 class Guard:
     """Gatekeeper for agent actions against one Iceberg catalog.
 
@@ -194,6 +221,14 @@ class Guard:
         extra_invariants: code-defined invariants applied to every table in addition to the
             policy's; use `Invariant.phases` to limit one to publish time or to the live check.
         clock: time source for retention checks (injectable for tests).
+        redact_sql_literals: store SQL in the audit log with string and number literals replaced
+            by `?` (plus a sha256 of the original text). On by default because agent SQL can
+            carry personal data or secrets.
+
+    Audit trail: a "started" record is written before the first side effect (branch creation or
+    maintenance) and a "completed" record afterwards; both share one `id`. If the completion
+    record cannot be written the result is still returned with `audit_error` set and the record
+    is sent to the `sqlguard.audit` logger, and the started record still shows what was attempted.
     """
 
     def __init__(
@@ -205,6 +240,7 @@ class Guard:
         adapter: ExecutorAdapter | None = None,
         extra_invariants: Sequence[Invariant] = (),
         clock: Callable[[], datetime] | None = None,
+        redact_sql_literals: bool = True,
     ) -> None:
         self.catalog = catalog
         self.policy = policy or Policy()
@@ -212,6 +248,7 @@ class Guard:
         self.adapter: ExecutorAdapter = adapter or DuckDBIcebergAdapter(catalog)
         self.extra_invariants = tuple(extra_invariants)
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._redact = redact_sql_literals
 
     # -- public API ------------------------------------------------------------------------------
 
@@ -221,23 +258,34 @@ class Guard:
         task_scope: TaskScope | None = None,
         approver: Approver | None = None,
     ) -> GuardResult:
-        """Run `action` through the pipeline and return what happened (never raises for a
-        denied, failed, or rolled-back action; raises AuditError only if the log is unwritable,
-        before anything has run)."""
+        """Run `action` through the pipeline and return what happened.
+
+        Never raises for a denied, failed, or rolled-back action. `AuditError` is raised only
+        when the log is unwritable before anything has run (a failure to write the "started"
+        record also happens before any side effect); a failure to write the final record is
+        reported in `GuardResult.audit_error` instead, because the action may already be live.
+        """
         self.audit.ensure_writable()
         run = _Run(action=action, scope=task_scope)
         try:
             self._pipeline(run, approver)
+        except AuditError:
+            raise
         except UnsupportedAction as err:
-            run.error = str(err)
-            run.finish(Outcome.UNSUPPORTED, str(err))
+            run.error = _clip(str(err))
+            run.finish(Outcome.UNSUPPORTED, run.error)
         except ExecutionError as err:
-            run.error = str(err)
-            run.finish(Outcome.EXECUTION_FAILED, str(err))
+            run.error = _clip(str(err))
+            run.finish(Outcome.EXECUTION_FAILED, run.error)
         except Exception as err:  # fail closed on anything unexpected
-            run.error = f"{type(err).__name__}: {err}"
+            run.error = _clip(f"{type(err).__name__}: {err}")
             run.finish(Outcome.ERROR, f"unexpected error: {run.error}")
-        return self._record(run)
+        except BaseException as err:  # e.g. KeyboardInterrupt: leave a record, then propagate
+            run.error = f"interrupted by {type(err).__name__}"
+            run.finish(Outcome.ERROR, run.error)
+            self._complete(run)
+            raise
+        return self._complete(run)
 
     # -- pipeline --------------------------------------------------------------------------------
 
@@ -278,26 +326,36 @@ class Guard:
             run.approval = "missing"
             run.finish(Outcome.AWAITING_APPROVAL, "approval is required and no approver was given")
             return False
+        run.approver_id = _approver_id(approver)
         try:
-            granted = bool(approver(request))
+            answer = approver(request)
         except Exception as err:  # an approver that crashes has not approved
             run.approval = "error"
-            run.error = f"approver raised {type(err).__name__}: {err}"
+            run.error = _clip(f"approver raised {type(err).__name__}: {err}")
             run.finish(Outcome.REJECTED, "approver failed; treated as rejected")
             return False
-        run.approval = "approved" if granted else "rejected"
-        if not granted:
-            run.finish(Outcome.REJECTED, "approver rejected the action")
-        return granted
+        if answer is True:  # exactly True: "yes", 1, or a non-empty object must not approve
+            run.approval = "approved"
+            return True
+        run.approval = "rejected" if answer is False else "invalid_response"
+        run.finish(
+            Outcome.REJECTED,
+            "approver rejected the action"
+            if answer is False
+            else f"approver returned {type(answer).__name__}, not a bool; treated as rejected",
+        )
+        return False
 
     def _request(self, run: _Run, decided: PolicyDecision, **extra: Any) -> ApprovalRequest:
-        assert run.classification is not None
+        if run.classification is None:
+            raise RuntimeError("approval requested before classification")
         return ApprovalRequest(run.action, run.classification, decided, **extra)
 
     # -- reads -----------------------------------------------------------------------------------
 
     def _run_read(self, run: _Run, decided: PolicyDecision, approver: Approver | None) -> None:
-        assert isinstance(run.action, SqlAction) and run.classification is not None
+        if not isinstance(run.action, SqlAction) or run.classification is None:
+            raise RuntimeError("read path requires a classified SQL action")
         if decided.decision is Decision.ASK and not self._approved(
             run, approver, self._request(run, decided)
         ):
@@ -323,10 +381,12 @@ class Guard:
         approver: Approver | None,
         now: datetime,
     ) -> None:
-        assert run.classification is not None
+        if run.classification is None:
+            raise RuntimeError("maintenance requires a classified action")
         table = run.classification.statements[0].write_tables[0]
         plan = self.adapter.plan_maintenance(maintenance)
         run.plan = plan
+        run.reasons.extend(w for w in plan.warnings if w not in run.reasons)
 
         if plan.irreversible:
             problems = _retention_violations(plan, self.policy.retention_for(table), now)
@@ -334,22 +394,52 @@ class Guard:
                 run.decision = Decision.DENY
                 run.finish(Outcome.DENIED, *(f"retention violation: {p}" for p in problems))
                 return
-        if (decided.decision is Decision.ASK or plan.irreversible) and not self._approved(
-            run, approver, self._request(run, decided, plan=plan)
+
+        impact: ImpactReport | None = None
+        if plan.kind in _POINTER_MOVES:
+            impact = self._measure_pointer_move(run, table, plan)
+            if run.invariants and any(not r.passed for r in run.invariants):
+                run.finish(
+                    Outcome.INVARIANT_FAILED,
+                    *(f"invariant {r.name}: {r.message}" for r in run.invariants if not r.passed),
+                )
+                return
+
+        needs_approval = decided.decision is Decision.ASK or plan.irreversible
+        if (needs_approval or plan.requires_approval) and not self._approved(
+            run, approver, self._request(run, decided, plan=plan, impact=impact)
         ):
             return
 
         run.before[table] = self.adapter.current_snapshot_id(table)
+        self._intent(run)
         result = self.adapter.apply_maintenance(maintenance, plan)
         run.executed = True
         run.after[table] = result.snapshot_after
         run.published = result.snapshot_after != result.snapshot_before
+        deleted = list(result.deleted_files)
         run.maintenance_result = {
             "expired_snapshot_ids": list(result.expired_snapshot_ids),
-            "deleted_files": list(result.deleted_files)[:_AUDIT_FILE_LIST_LIMIT],
-            "deleted_file_count": len(result.deleted_files),
+            "deleted_files": deleted[:_AUDIT_FILE_LIST_LIMIT],
+            "deleted_file_count": len(deleted),
+            "deleted_files_truncated": len(deleted) > _AUDIT_FILE_LIST_LIMIT,
         }
         run.finish(Outcome.MAINTENANCE_DONE)
+
+    def _measure_pointer_move(self, run: _Run, table: str, plan: MaintenancePlan) -> ImpactReport:
+        """Row and schema diff of main versus the rollback/fast-forward target, plus invariants."""
+        if plan.current_snapshot_id is None or plan.target_snapshot_id is None:
+            raise ExecutionError("pointer move needs both a current and a target snapshot")
+        before = self.adapter.read(table, plan.current_snapshot_id)
+        after = self.adapter.read(table, plan.target_snapshot_id)
+        key = self.policy.invariants.for_table(table).unique_key
+        impact = compute_table_impact(table, before, after, key)
+        invariants = invariants_for(self.policy.invariants, table, self.extra_invariants)
+        run.invariants.extend(
+            evaluate(invariants, InvariantContext(table, before, after, impact), "pre_publish")
+        )
+        run.impact = ImpactReport((impact,))
+        return run.impact
 
     # -- SQL writes ------------------------------------------------------------------------------
 
@@ -371,7 +461,8 @@ class Guard:
         self, run: _Run, decided: PolicyDecision, approver: Approver | None, now: datetime
     ) -> None:
         action, classification = run.action, run.classification
-        assert isinstance(action, SqlAction) and classification is not None
+        if not isinstance(action, SqlAction) or classification is None:
+            raise RuntimeError("write path requires a classified SQL action")
         reason = self._unsupported_reason(classification)
         if reason:
             run.finish(Outcome.UNSUPPORTED, reason)
@@ -382,6 +473,7 @@ class Guard:
             return
 
         run.before[table] = self.adapter.current_snapshot_id(table)
+        self._intent(run)
         branch = self.adapter.create_branch(table)
         run.branch = branch.name
         try:
@@ -401,7 +493,8 @@ class Guard:
         table: str,
     ) -> None:
         action, classification = run.action, run.classification
-        assert isinstance(action, SqlAction) and classification is not None
+        if not isinstance(action, SqlAction) or classification is None:
+            raise RuntimeError("write path requires a classified SQL action")
 
         self.adapter.apply_sql(branch, action.sql, action.dialect, classification.tables)
         run.executed = True
@@ -471,7 +564,7 @@ class Guard:
             run.invariants.extend(post)
             problems = [f"invariant {r.name}: {r.message}" for r in post if not r.passed]
         except Exception as err:  # unable to verify counts as failed verification
-            problems = [f"post-publish verification crashed: {type(err).__name__}: {err}"]
+            problems = [_clip(f"post-publish verification crashed: {type(err).__name__}: {err}")]
         if not problems:
             run.finish(Outcome.PUBLISHED)
             return
@@ -480,41 +573,45 @@ class Guard:
     def _roll_back(
         self, run: _Run, table: str, previous: int, published: int, problems: list[str]
     ) -> None:
-        reasons = [f"post-publish check failed: {p}" for p in problems]
-        if self.adapter.current_snapshot_id(table) != published:
+        run.reasons.extend(f"post-publish check failed: {p}" for p in problems)
+        try:
+            self.adapter.rollback(table, previous, expected_current=published)
+            restored = self.adapter.current_snapshot_id(table)
+        except BranchDiverged as err:
+            run.error = _clip(str(err))
             run.finish(
                 Outcome.ROLLBACK_BLOCKED,
-                *reasons,
                 "main has moved since the publish, so it was not rolled back automatically",
             )
             return
-        try:
-            self.adapter.rollback(table, previous)
-            restored = self.adapter.current_snapshot_id(table)
-        except ExecutionError as err:
-            run.error = str(err)
-            run.finish(Outcome.ROLLBACK_FAILED, *reasons, f"rollback failed: {err}")
+        except Exception as err:  # whatever fails here, main still holds unverified data
+            run.error = _clip(f"{type(err).__name__}: {err}")
+            run.finish(Outcome.ROLLBACK_FAILED, f"rollback failed: {run.error}")
             return
         run.after[table] = restored
         if restored != previous:
-            run.finish(Outcome.ROLLBACK_FAILED, *reasons, "main is not at the previous snapshot")
+            run.finish(Outcome.ROLLBACK_FAILED, "main is not at the previous snapshot")
             return
         run.published = False
         run.rolled_back = True
-        run.finish(Outcome.ROLLED_BACK, *reasons, f"main restored to snapshot {previous}")
+        run.finish(Outcome.ROLLED_BACK, f"main restored to snapshot {previous}")
 
     # -- audit -----------------------------------------------------------------------------------
 
-    def _record(self, run: _Run) -> GuardResult:
-        record = {
-            "action": _describe_action(run.action),
+    def _body(self, run: _Run, phase: str) -> dict[str, Any]:
+        return {
+            "id": run.audit_id,
+            "phase": phase,
+            "action": _describe_action(run.action, self._redact),
             "task_scope": _describe_scope(run.scope),
             "classification": _describe_classification(run.classification),
             "class": run.klass,
             "decision": run.decision,
-            "reasons": run.reasons,
+            "reasons": [_clip(r) for r in run.reasons],
             "approval": run.approval,
-            "outcome": run.outcome,
+            "approver": run.approver_id,
+            "outcome": run.outcome if phase == "completed" else None,
+            "needs_attention": run.outcome in _ATTENTION_OUTCOMES,
             "executed": run.executed,
             "published": run.published,
             "rolled_back": run.rolled_back,
@@ -528,13 +625,29 @@ class Guard:
             "snapshots_after": run.after,
             "error": run.error,
         }
-        audit_id = self.audit.append(record)
+
+    def _intent(self, run: _Run) -> None:
+        """Record what is about to be attempted; failing here stops the action before it runs."""
+        self.audit.append(self._body(run, "started"))
+
+    def _complete(self, run: _Run) -> GuardResult:
+        body = self._body(run, "completed")
+        audit_error: str | None = None
+        try:
+            self.audit.append(body)
+        except AuditError as err:
+            audit_error = _clip(str(err))
+            _log.critical(
+                "audit completion record could not be written (%s): %s",
+                audit_error,
+                self.audit.render(body),
+            )
         return GuardResult(
             decision=run.decision,
             outcome=run.outcome,
             klass=run.klass,
             reasons=tuple(run.reasons),
-            audit_id=audit_id,
+            audit_id=run.audit_id,
             executed=run.executed,
             published=run.published,
             rolled_back=run.rolled_back,
@@ -545,6 +658,7 @@ class Guard:
             snapshots_before=dict(run.before),
             snapshots_after=dict(run.after),
             error=run.error,
+            audit_error=audit_error,
         )
 
 
@@ -583,9 +697,40 @@ def _retention_violations(plan: MaintenancePlan, rule: RetentionRule, now: datet
     return problems
 
 
-def _describe_action(action: Action) -> dict[str, Any]:
+def _clip(text: str, limit: int = _ERROR_TEXT_LIMIT) -> str:
+    """Engine error text can echo table values; keep only the start."""
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _approver_id(approver: Approver) -> str | None:
+    """Optional identity: an `approver_id` string attribute on the approver callable."""
+    identity = getattr(approver, "approver_id", None)
+    return identity if isinstance(identity, str) and identity else None
+
+
+def redact_sql(sql: str, dialect: str) -> str:
+    """`sql` with every string/number literal replaced by `?`; unparseable SQL is not stored."""
+    try:
+        trees = [t for t in sqlglot.parse(sql, dialect=dialect) if t is not None]
+        redacted = []
+        for tree in trees:
+            for node in list(tree.find_all(*_LITERAL_NODES)):
+                node.replace(exp.Placeholder())
+            redacted.append(tree.sql(dialect=dialect))
+        return "; ".join(redacted)
+    except Exception:
+        return "<unparseable SQL not stored>"
+
+
+def _describe_action(action: Action, redact: bool) -> dict[str, Any]:
     if isinstance(action, SqlAction):
-        return {"type": "sql", "sql": action.sql, "dialect": action.dialect}
+        return {
+            "type": "sql",
+            "sql": redact_sql(action.sql, action.dialect) if redact else action.sql,
+            "sql_sha256": hashlib.sha256(action.sql.encode("utf-8")).hexdigest(),
+            "redacted": redact,
+            "dialect": action.dialect,
+        }
     return {"type": type(action).__name__, **asdict(action)}
 
 
@@ -617,6 +762,8 @@ def _plan_for_audit(plan: MaintenancePlan | None) -> dict[str, object] | None:
         return None
     summary = plan.to_dict()
     files = summary["orphan_files"]
-    assert isinstance(files, list)
+    if not isinstance(files, list):
+        raise TypeError("plan.to_dict()['orphan_files'] must be a list")
     summary["orphan_files"] = files[:_AUDIT_FILE_LIST_LIMIT]
+    summary["orphan_files_truncated"] = len(files) > _AUDIT_FILE_LIST_LIMIT
     return summary
