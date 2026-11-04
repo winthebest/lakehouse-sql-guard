@@ -60,3 +60,7 @@ Known gaps (a leak can be missed statically; replay may still catch it):
     demos. The Spark adapter uses the engine's own procedures.
 19. `expire_snapshots` removes time travel but keeps data files; a following
     `remove_orphan_files` deletes them physically. Both are irreversible and require approval.
+20. The guard protects data from being changed or destroyed, not from being read. A
+    `SELECT` on a protected table inside the task scope is allowed; keeping sensitive
+    columns away from an agent is the job of the catalog's access control. `EXPLAIN` is
+    allowed only for read-only queries (`EXPLAIN ANALYZE` runs the statement).

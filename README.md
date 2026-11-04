@@ -168,7 +168,7 @@ See [docs/limitations.md](docs/limitations.md). The main ones: static analysis d
 normalize every way of writing a time comparison (it fails closed: such queries are
 flagged, not passed); time-split cutoffs must be literal timestamps; replay needs snapshot
 history and enough rows to conclude; the guard cannot tell which in-scope table an
-ambiguous request meant; the DuckDB executor is for small tables and DML only.
+ambiguous request meant, and it stops changes, not reads, of protected tables; the DuckDB executor is for small tables and DML only.
 
 ## Related work
 
