@@ -44,9 +44,14 @@ from sqlguard.safety.actions import (
 )
 
 if TYPE_CHECKING:
-    from sqlguard.safety.executor.base import MaintenancePlan
+    from sqlguard.safety.executor.base import MaintenancePlan, SchemaPlan
 
-SCHEMA_VERSION = 2  # 1 lacked owner, lease_until, drop_pending (and the display fields in the hash)
+# `ActionRecord.kind` of a column drop or rename: no branch and no row diff
+ALTER_KIND = "alter_table"
+# 1 lacked owner, lease_until, drop_pending (and the display fields in the hash); 2 lacked the
+# `alter_table` kind. 3 has the same columns as 2, but a build that does not know the kind must
+# not open a store that may hold such a row, so it refuses the file.
+SCHEMA_VERSION = 3
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"  # fixed width, so text order is time order
 
 
@@ -164,6 +169,11 @@ def plan_digest(plan: MaintenancePlan) -> str:
     )
 
 
+def schema_plan_digest(plan: SchemaPlan) -> str:
+    """Fingerprint of a schema change and the state it was planned on, for re-plan equivalence."""
+    return digest(plan.to_dict())
+
+
 def _stamp(moment: datetime) -> str:
     aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
     return aware.astimezone(UTC).strftime(_TS_FORMAT)
@@ -181,7 +191,8 @@ class ActionRecord:
     created_at: datetime
     expires_at: datetime
     state: ActionState
-    kind: str  # "sql", or the maintenance action name (expire_snapshots, rollback, ...)
+    # "sql", `ALTER_KIND`, or the maintenance action name (expire_snapshots, rollback, ...)
+    kind: str
     dialect: str
     sql_normalized: str | None  # erased at a terminal state
     sql_redacted: str
@@ -367,7 +378,8 @@ class ActionStore:
         Version 1 is upgraded by adding the lease and branch-drop columns; its pending
         actions keep their rows but were hashed without the display fields, so they no longer
         match their `action_hash` and `resolve` ends them as `stale` (nothing is re-blessed
-        by an upgrade). A store written by a newer build is refused.
+        by an upgrade). Version 2 only needs its version stamp raised (no column changed). A
+        store written by a newer build is refused.
         """
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         has_actions = (

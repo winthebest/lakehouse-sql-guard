@@ -88,6 +88,44 @@ def test_an_action_page_shows_the_statement_the_reasons_the_impact_and_the_diff(
     assert "No invariants are configured" in page
 
 
+def test_a_column_change_page_shows_the_schema_and_says_it_was_not_rehearsed(
+    client, pguard, orders, scope
+):
+    result = queue(pguard, scope, "ALTER TABLE orders RENAME COLUMN customer TO buyer")
+    page = client.get(f"/a/{result.action_id}").text
+    assert "Not rehearsed" in page and "<h2>Schema change</h2>" in page
+    assert "rename column customer to buyer" in page
+    assert "<b>buyer</b> (renamed)" in page and "Row diff" not in page
+    assert "None" not in page  # there is no branch head to show
+    assert forms_of(page).disabled[f"/a/{result.action_id}/approve"] is False
+
+
+def test_approving_a_column_change_applies_it_and_a_moved_main_blocks_it(
+    client, pguard, orders, scope
+):
+    first = queue(pguard, scope, "ALTER TABLE orders RENAME COLUMN customer TO buyer")
+    second = queue(pguard, scope, "ALTER TABLE orders DROP COLUMN amount")
+    reply = post(client, f"/a/{first.action_id}/approve", decide_form(client, first.action_id))
+    assert reply.status_code == 303
+    assert "Approved: the change was published" in client.get(reply.headers["location"]).text
+    assert [f.name for f in orders.table("orders").schema().fields] == ["id", "buyer", "amount"]
+    # the first change moved the schema, so the second no longer matches what its reviewer saw
+    page = client.get(f"/a/{second.action_id}").text
+    assert "columns differ from the ones that were reviewed" in page
+    assert forms_of(page).disabled[f"/a/{second.action_id}/approve"] is True
+
+
+def test_a_write_reviewed_before_a_column_change_is_blocked_once_the_columns_changed(
+    client, pguard, orders, scope
+):
+    update = queue(pguard, scope, "UPDATE orders SET amount = amount + 100 WHERE id <= 15")
+    alter = queue(pguard, scope, "ALTER TABLE orders DROP COLUMN amount")
+    post(client, f"/a/{alter.action_id}/approve", decide_form(client, alter.action_id))
+    page = client.get(f"/a/{update.action_id}").text
+    assert "columns changed after the review" in page
+    assert forms_of(page).disabled[f"/a/{update.action_id}/approve"] is True
+
+
 def test_the_diff_is_paged(client, pguard, orders, scope):
     orders.create_table("big", pa.table({"id": pa.array(range(100), pa.int64())}))
     result = pguard.submit(SqlAction("DELETE FROM big WHERE id < 80"), scope)

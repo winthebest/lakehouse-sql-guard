@@ -24,6 +24,11 @@ Conditions:
              scripted approver (`Guard.resolve`), then scores the tables. An action that went
              stale because an earlier one changed the table counts as what it is: not applied.
 
+A live run (or `--pilot`) on any split but `dev` (`holdout`, `holdout_v3` ..., or a file with
+any other name) refuses to start unless the classifier, policy and harness are exactly those of
+the matching `policy-frozen-v<N>` tag (the newest one for an unfamiliar name) and the prompt file
+was committed after it (see `bench/safety/freeze.py`); `--replay` is not held to that.
+
 `--policy PATH` picks the policy file for every condition (default `config/policy.example.yaml`);
 a replay must be given the policy the transcripts were recorded with. `--pilot` plays one prompt
 of each label once and prints what the whole run would cost, without running it; `--budget USD`
@@ -38,7 +43,7 @@ import json
 import re
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,12 +65,16 @@ from bench.safety.agent import (
     system_prompt,
 )
 from bench.safety.fixtures import POLICY_PATH, SIM_NOW, World, capture_state, temp_world
+from bench.safety.freeze import FrozenPolicyError, require_frozen_policy
 from bench.safety.prompt_spec import (
     LABELS,
+    REVIEWER_SCRIPTED,
+    REVIEWERS,
     Prompt,
     PromptError,
     ScriptedApprover,
     load_prompts,
+    prompt_path,
 )
 from bench.safety.scorer import RunEvidence, RunScore, ScoredRun, ToolEvent, score_run, summarize
 from bench.safety.state import StateSnapshot
@@ -100,11 +109,13 @@ class ReplayError(RuntimeError):
     """A transcript cannot be replayed (unreadable, truncated, or its prompt changed)."""
 
 
-def make_backend(condition: str, world: World, prompt: Prompt) -> ToolBackend:
+def make_backend(
+    condition: str, world: World, prompt: Prompt, reviewer: str = REVIEWER_SCRIPTED
+) -> ToolBackend:
     if condition == "raw":
         return RawBackend(world.catalog)
     if condition == "guarded":
-        approver = ScriptedApprover(prompt.id, prompt.approve)
+        approver = ScriptedApprover(prompt.id, prompt.approve, reviewer)
         return GuardedBackend(world.guard(), prompt.task_scope.to_scope(), approver)
     if condition == PENDING:
         # as in the MCP server: a store, a fixed requester, no approver and no proof verifier
@@ -153,18 +164,23 @@ class Resolution:
 
 
 def settle_pending(
-    condition: str, world: World, prompt: Prompt, results: Sequence[ToolResult]
+    condition: str,
+    world: World,
+    prompt: Prompt,
+    results: Sequence[ToolResult],
+    reviewer: str = REVIEWER_SCRIPTED,
 ) -> list[Resolution]:
     """Decide the actions the agent left pending, in the order it submitted them.
 
     The decision is the scripted approver's: approve exactly what `expected.approve` lists,
-    reject the rest. Nothing is decided for any other condition.
+    reject the rest (`reviewer` swaps it for a reviewer that approves or rejects everything, to
+    bound a result offline). Nothing is decided for any other condition.
     """
     if condition != PENDING:
         return []
     store = _store(world)
-    approver = ScriptedApprover(prompt.id, prompt.approve)
-    reviewer = world.guard(store=store, proof_verifier=_ScriptedProofs(), requester=_AGENT)
+    approver = ScriptedApprover(prompt.id, prompt.approve, reviewer)
+    judge = world.guard(store=store, proof_verifier=_ScriptedProofs(), requester=_AGENT)
     resolutions: list[Resolution] = []
     seen: set[str] = set()
     for result in results:
@@ -184,7 +200,7 @@ def settle_pending(
         )
         decision = "approve" if approver.decides(action, tables) else "reject"
         try:
-            decided = reviewer.resolve(
+            decided = judge.resolve(
                 action_id,
                 decision,  # type: ignore[arg-type]
                 approver.approver_id,
@@ -395,6 +411,7 @@ def play(
     final_text: str,
     source: str = "",
     policy: Path | str = POLICY_PATH,
+    reviewer: str = REVIEWER_SCRIPTED,
 ) -> tuple[RunScore, list[ToolEvent], list[str]]:
     """Execute tool calls on a fresh warehouse and score the result.
 
@@ -407,7 +424,7 @@ def play(
     ids: dict[str, str] = {}  # action id in the recording -> action id in this replay
     with temp_world(prompt.setup, policy) as world:
         before = capture_state(world, prompt.probes())
-        backend = make_backend(condition, world, prompt)
+        backend = make_backend(condition, world, prompt, reviewer)
         for call in calls:
             arguments = call["input"]
             if call["name"] == "get_action_status" and isinstance(arguments, dict):
@@ -430,7 +447,7 @@ def play(
                     f"{source} step {call.get('step')} {call['name']}: recorded "
                     f"{recorded}/{recorded_outcome}, replayed {event.status}/{event.guard_outcome}"
                 )
-        resolutions = settle_pending(condition, world, prompt, [r for r, _ in results])
+        resolutions = settle_pending(condition, world, prompt, [r for r, _ in results], reviewer)
         after = capture_state(world, prompt.probes())
         events = events_with_resolutions(results, resolutions)
         score = _score(prompt, world, events, final_text, before, after)
@@ -442,6 +459,7 @@ def replay_run(
     prompts: dict[str, Prompt],
     source: str,
     policy: Path = POLICY_PATH,
+    reviewer: str = REVIEWER_SCRIPTED,
 ) -> tuple[ScoredRun, list[str], dict[str, Any]]:
     """Re-execute the recorded tool_use calls on a fresh warehouse and score the outcome.
 
@@ -481,7 +499,7 @@ def replay_run(
             raise ReplayError(f"{source}: tool call {record['call_id']} has no tool_use block")
         calls.append({**record, "name": block["name"], "input": block["input"]})
     score, events, drift = play(
-        prompt, condition, calls, end.get("final_text") or "", source, policy
+        prompt, condition, calls, end.get("final_text") or "", source, policy, reviewer
     )
     recorded_policy = start.get("policy_sha256")
     if recorded_policy and recorded_policy != _sha256(policy.read_text(encoding="utf-8")):
@@ -562,16 +580,21 @@ def write_results(
     drift: list[str],
     source: str,
     split: str,
+    settlements: Mapping[str, Sequence[ScoredRun]] | None = None,
 ) -> tuple[Path, Path, str]:
+    """Write the report of `runs`. `settlements` are the same transcripts scored again under the
+    other reviewers (replay only); they are reported next to the primary result."""
     summaries = summarize(runs)
     meta = _meta(split, prompts, runs, starts, reported, drift, source)
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path, md_path = out_dir / f"{stem}.json", out_dir / f"{stem}.md"
+    others = {name: summarize(alt) for name, alt in (settlements or {}).items()}
     json_path.write_text(
-        json.dumps(report.to_json(summaries, runs, meta), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(report.to_json(summaries, runs, meta, others), indent=2, ensure_ascii=False)
+        + "\n",
         encoding="utf-8",
     )
-    markdown = report.to_markdown(summaries, runs, meta)
+    markdown = report.to_markdown(summaries, runs, meta, others)
     md_path.write_text(markdown, encoding="utf-8")
     return json_path, md_path, markdown
 
@@ -582,24 +605,41 @@ def replay(
     split: str,
     out_dir: Path,
     policy: Path = POLICY_PATH,
+    reviewers: Sequence[str] = (REVIEWER_SCRIPTED,),
 ) -> tuple[Path, Path, str, list[str]]:
+    """Re-score recorded transcripts. The result is the scripted reviewer's; every other
+    reviewer in `reviewers` (`approve-all`, `reject-all`) settles the same recorded tool calls
+    again, which brackets how much of S and U depends on the person. Only `guarded-pending`
+    transcripts qualify: there the agent finished before anyone decided. In `guarded` the agent
+    saw each answer and chose its next call accordingly, so a different answer is not a replay
+    of the same run."""
     files = sorted(transcript_dir.rglob("*.jsonl"))
     if not files:
         raise ReplayError(f"no .jsonl transcripts under {transcript_dir}")
     by_id = {p.id: p for p in prompts}
     runs, starts, drift = [], [], []
     reported: dict[str, set[str]] = defaultdict(set)
+    settlements: dict[str, list[ScoredRun]] = {
+        r: [] for r in REVIEWERS if r != REVIEWER_SCRIPTED and r in reviewers
+    }
     for path in files:
         records = read_transcript(path)
-        scored, run_drift, start = replay_run(
-            records, by_id, str(path.relative_to(transcript_dir)), policy
-        )
+        source = str(path.relative_to(transcript_dir))
+        scored, run_drift, start = replay_run(records, by_id, source, policy)
         runs.append(scored)
         starts.append(start)
         drift += run_drift
+        if scored.condition == PENDING:  # only here does every decision come after the last call
+            for name, alt in settlements.items():
+                alt.append(replay_run(records, by_id, source, policy, name)[0])
         for record in records:
             if record.get("type") == "run_end":
                 reported[scored.model].update(record.get("reported_models") or ())
+    if settlements and not any(settlements.values()):
+        raise ReplayError(
+            "--settlements all needs guarded-pending transcripts: in the guarded condition the "
+            "reviewer answers during the run, so the agent's later calls depend on the answer"
+        )
     json_path, md_path, markdown = write_results(
         out_dir,
         f"{split}-{transcript_dir.name}-replay",
@@ -610,6 +650,7 @@ def replay(
         drift,
         transcript_dir.name,
         split,
+        settlements,
     )
     return json_path, md_path, markdown, drift
 
@@ -814,7 +855,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="both = raw + guarded (default); all = raw + guarded + guarded-pending",
     )
     parser.add_argument("--runs", type=int, default=3, help="runs per prompt and condition")
-    parser.add_argument("--split", default="dev", help="prompt split (dev, holdout) or a YAML path")
+    parser.add_argument(
+        "--split", default="dev", help="prompt split (dev, holdout, holdout_v2 ...) or a YAML path"
+    )
     parser.add_argument(
         "--only", action="append", metavar="PROMPT_ID", help="run only these prompts"
     )
@@ -845,6 +888,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="appended to the run's tag (lowercase letters, digits, dashes), so cells started in "
         "the same second, or that differ only by policy, never share results or transcripts",
     )
+    parser.add_argument(
+        "--settlements",
+        choices=["scripted", "all"],
+        default="scripted",
+        help="replay only: `all` also settles the guarded-pending transcripts with a reviewer "
+        "that approves everything and one that rejects everything, and reports S and U under each",
+    )
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
     parser.add_argument("--transcripts-dir", type=Path, default=TRANSCRIPT_DIR)
     return parser
@@ -874,7 +924,12 @@ def main(
     if args.replay is not None:
         try:
             json_path, md_path, markdown, drift = replay(
-                args.replay, prompts, split, args.results_dir, args.policy
+                args.replay,
+                prompts,
+                split,
+                args.results_dir,
+                args.policy,
+                REVIEWERS if args.settlements == "all" else (REVIEWER_SCRIPTED,),
             )
         except ReplayError as err:
             print(f"replay failed: {err}", file=sys.stderr)
@@ -887,6 +942,12 @@ def main(
 
     if not args.model:
         parser.error("--model is required for a live run")
+    try:  # a held-out split is only scored on the state that was frozen before it was written
+        require_frozen_policy(args.split, args.policy, prompt_path(args.split))
+    except FrozenPolicyError as err:
+        parser.error(str(err))
+    if args.settlements != "scripted":
+        parser.error("--settlements applies to --replay only")
     if args.runs < 1 or args.max_tool_calls < 1:
         parser.error("--runs and --max-tool-calls must be at least 1")
     if args.budget is not None and args.budget <= 0:

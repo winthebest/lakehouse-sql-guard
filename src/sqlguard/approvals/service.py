@@ -20,10 +20,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from sqlguard.approvals.proof import HmacProofs
+from sqlguard.safety.actions import SqlAction
 from sqlguard.safety.audit import AuditError
+from sqlguard.safety.classifier import classify
 from sqlguard.safety.guard import Guard, GuardResult, ProofRequest, redact_sql
 from sqlguard.safety.impact import RowDiff
-from sqlguard.safety.store import ActionRecord, ActionState
+from sqlguard.safety.store import ALTER_KIND, ActionRecord, ActionState, schema_plan_digest
 
 _log = logging.getLogger("sqlguard.approvals")
 
@@ -334,7 +336,39 @@ class ReviewService:
                 f"{record.table} moved from snapshot {record.base_snapshot_id} to {main} after "
                 "the review; approving would end as stale. Reject it, or let it expire."
             )
+        if record.kind == ALTER_KIND:
+            problems.extend(self._schema_problems(record))
+        elif record.kind == "sql" and self._schema_moved(record):
+            problems.append(
+                "the table's columns changed after the review; approving would end as stale. "
+                "Reject it, or let it expire."
+            )
         return problems
+
+    def _schema_moved(self, record: ActionRecord) -> bool:
+        try:
+            with self._lock:
+                return self.guard.schema_moved(record)
+        except Exception:  # noqa: BLE001 - an unreadable table is reported by the checks above
+            return False
+
+    def _schema_problems(self, record: ActionRecord) -> list[str]:
+        """Whether the table still has the columns the reviewer was shown."""
+        try:
+            changes = classify(SqlAction(record.sql_normalized or "", record.dialect))
+            with self._lock:
+                plan = self.guard.adapter.plan_schema_change(
+                    record.table, changes.statements[0].schema_change or ()
+                )
+        except Exception:  # noqa: BLE001 - a column that vanished must not hide the page
+            _log.warning("could not plan action %s again", record.id, exc_info=True)
+            return ["the table's columns could not be checked against the review"]
+        if schema_plan_digest(plan) != record.diff_digest:
+            return [
+                "the table's columns differ from the ones that were reviewed; approving would "
+                "end as stale. Reject it, or let it expire."
+            ]
+        return []
 
     def _diff(self, record: ActionRecord) -> tuple[RowDiff | None, str | None]:
         with self._lock:  # also guards the small cache below

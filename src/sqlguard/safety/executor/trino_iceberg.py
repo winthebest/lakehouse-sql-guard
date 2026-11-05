@@ -52,6 +52,7 @@ from sqlglot import exp
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
 from sqlguard.core.parsing import DEFAULT_DIALECT, Explain, SqlParseError, parse
 from sqlguard.safety.actions import (
+    ColumnChange,
     ExpireSnapshots,
     MaintenanceAction,
     RemoveOrphanFiles,
@@ -67,6 +68,7 @@ from sqlguard.safety.executor.base import (
     MaintenancePlan,
     MaintenanceResult,
     PublishResult,
+    SchemaPlan,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import (
@@ -87,6 +89,7 @@ _REF_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _READ_ONLY = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe)
 _ERROR_LIMIT = 600
 
+_NO_SCHEMA_CHANGES = "this engine does not apply schema changes; use the PyIceberg executor"
 _NO_BRANCH_WRITES = (
     "Trino cannot create branches or write to them; use a write engine (PyIceberg or Spark)"
 )
@@ -467,6 +470,12 @@ class TrinoIcebergAdapter:
 
     def drop_branch(self, branch: BranchHandle) -> None:
         raise UnsupportedAction(_NO_BRANCH_WRITES)
+
+    def plan_schema_change(self, table: str, changes: Sequence[ColumnChange]) -> SchemaPlan:
+        raise UnsupportedAction(_NO_SCHEMA_CHANGES)
+
+    def apply_schema_change(self, plan: SchemaPlan) -> None:
+        raise UnsupportedAction(_NO_SCHEMA_CHANGES)
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         """Measure a branch written by another engine, reading both sides through Trino.

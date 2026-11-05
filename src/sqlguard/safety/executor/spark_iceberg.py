@@ -63,6 +63,7 @@ from sqlglot import exp
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
 from sqlguard.core.parsing import DEFAULT_DIALECT, Explain, SqlParseError, parse
 from sqlguard.safety.actions import (
+    ColumnChange,
     FastForward,
     MaintenanceAction,
     RemoveOrphanFiles,
@@ -77,6 +78,7 @@ from sqlguard.safety.executor.base import (
     MaintenancePlan,
     MaintenanceResult,
     PublishResult,
+    SchemaPlan,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import (
@@ -106,6 +108,9 @@ _WARNING_EXPIRE = (
     "Spark deletes the data and manifest files that no remaining snapshot needs; the expired "
     "history cannot be rebuilt."
 )
+
+
+_NO_SCHEMA_CHANGES = "this engine does not apply schema changes; use the PyIceberg executor"
 
 
 class SparkSessionLike(Protocol):
@@ -456,6 +461,12 @@ class SparkIcebergAdapter:
 
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         return self._meta.diff(branch, key)
+
+    def plan_schema_change(self, table: str, changes: Sequence[ColumnChange]) -> SchemaPlan:
+        raise UnsupportedAction(_NO_SCHEMA_CHANGES)
+
+    def apply_schema_change(self, plan: SchemaPlan) -> None:
+        raise UnsupportedAction(_NO_SCHEMA_CHANGES)
 
     def publish(self, branch: BranchHandle, expected_head: int) -> PublishResult:
         try:

@@ -40,6 +40,7 @@ def test_capabilities_are_frozen_and_opt_in():
         "expire",
         "orphan_cleanup",
         "changelog",
+        "schema_change",
     ]
     with pytest.raises(dataclasses.FrozenInstanceError):
         nothing.branch_write = True  # type: ignore[misc]
@@ -55,6 +56,7 @@ def test_shipped_adapters_declare_what_they_do(orders):
         assert caps.branch_write and caps.publish and caps.rollback
         assert caps.expire and caps.orphan_cleanup
         assert not caps.changelog  # neither adapter reads a change feed
+        assert caps.schema_change == (engine == "duckdb")  # only the PyIceberg executor alters
 
 
 @pytest.mark.parametrize(

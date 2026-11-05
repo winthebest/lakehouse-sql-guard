@@ -1955,7 +1955,7 @@ def test_a_new_store_is_stamped_with_the_current_schema_version(store_path):
 
     ActionStore(store_path)
     conn = sqlite3.connect(store_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
     conn.close()
 
 

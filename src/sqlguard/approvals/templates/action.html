@@ -36,7 +36,11 @@
   <dt>Deadline</dt><dd>{{ r.expires_at | ts }}</dd>
   <dt>Action hash</dt><dd><code>{{ r.action_hash | short(16) }}</code>
       <small>(the first 8 characters are what the CLI asks you to retype)</small></dd>
+  {% if r.kind == "alter_table" %}
+  <dt>Snapshot</dt><dd>main is on <code>{{ r.base_snapshot_id }}</code>; a schema change does not move it, and applies only while main is still there</dd>
+  {% else %}
   <dt>Snapshots</dt><dd>base <code>{{ r.base_snapshot_id }}</code> &rarr; head <code>{{ r.head_snapshot_id }}</code></dd>
+  {% endif %}
   {% if r.approver %}<dt>Decided by</dt><dd>{{ r.approver }} at {{ r.decided_at | ts }}</dd>{% endif %}
 </dl>
 
@@ -55,6 +59,27 @@
 <ul>{% for name, v in view.invariants.items() %}<li><code>{{ name }}</code>: {{ v }}</li>{% endfor %}</ul>
 {% else %}<p class="muted">No invariants are configured for this table.</p>{% endif %}
 
+{% if r.kind == "alter_table" %}
+{% set change = r.impact_data.get("schema_change") %}
+<h2>Schema change</h2>
+<p class="warn-text"><b>Not rehearsed.</b> An Iceberg schema belongs to the table, not to a branch, so this change was not run anywhere. Below are the table's columns now and the columns the engine computed it would have afterwards. Approving checks that the table is still on the schema you see and that main has not moved, then applies it in one commit.</p>
+{% if change %}
+<ul>{% for text in change.changes %}<li>{{ text }}</li>{% endfor %}</ul>
+<table class="grid diff">
+  <thead><tr><th>Column now</th><th>Type</th><th>Column after</th></tr></thead>
+  <tbody>
+  {% for old in change.columns_before %}
+    {% set new = change.columns_after | selectattr("field_id", "equalto", old.field_id) | list %}
+    <tr class="{{ 'change-deleted' if not new else ('change-modified' if new[0].name != old.name else '') }}">
+      <td>{{ old.name }}</td><td>{{ old.type }}{% if old.required %} (required){% endif %}</td>
+      <td>{% if not new %}<b>dropped</b>{% elif new[0].name != old.name %}<b>{{ new[0].name }}</b> (renamed){% else %}{{ new[0].name }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted">Readers that use a dropped or renamed column by name will break. A dropped column's data stays in older snapshots, but queries on the new schema no longer see it.</p>
+{% endif %}
+{% else %}
 <h2>Row diff {% if view.diff %}<small>(recomputed from the snapshots just now)</small>{% endif %}</h2>
 {% if view.counts %}
   {% set c = view.counts %}
@@ -106,6 +131,7 @@
   {% if plan %}<pre class="sql">{{ plan | tojson(indent=2) }}</pre>{% endif %}
 {% else %}
   <p class="muted">No row diff is available.</p>
+{% endif %}
 {% endif %}
 
 {% if view.can_decide %}

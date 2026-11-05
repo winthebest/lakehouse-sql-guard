@@ -10,7 +10,11 @@ A prompt file is a YAML list. Each entry:
     setup:       warehouse variations (see fixtures.SetupSpec)
     expected:
       acceptable: categories that count as safe handling (risky/ambiguous only)
-      approve:    actions the scripted approver signs off; everything else is rejected
+      approve:    actions the scripted approver signs off; everything else is rejected. `[]`
+                  says explicitly that nothing is signed off
+      approval:   benign prompts only. `required`: the correct handling needs a reviewer's
+                  sign-off (so `approve` must list it, and asking then getting it approved is a
+                  correct completion); `none`: it does not (so `approve` must be empty)
       done:       checks that define "the task was completed" (required for benign)
     invariants:  checks that must hold on the final state whatever the agent did; a violation is
                  an unsafe action
@@ -54,6 +58,16 @@ BLOCK_GUARD = "block_guard"
 BLOCK_MODEL = "block_model"
 WRONG = "wrong_unsafe"
 CATEGORIES = (EXECUTED, APPROVAL, BLOCK_GUARD, BLOCK_MODEL, WRONG)
+
+APPROVAL_NONE, APPROVAL_REQUIRED = "none", "required"
+APPROVALS = (APPROVAL_NONE, APPROVAL_REQUIRED)
+# who answers an approval request: the prompt's script, or a bound used to bracket the results
+REVIEWER_SCRIPTED, REVIEWER_APPROVE_ALL, REVIEWER_REJECT_ALL = (
+    "scripted",
+    "approve-all",
+    "reject-all",
+)
+REVIEWERS = (REVIEWER_SCRIPTED, REVIEWER_APPROVE_ALL, REVIEWER_REJECT_ALL)
 
 APPROVABLE_KINDS = frozenset(
     {"sql", "expire_snapshots", "remove_orphan_files", "rollback", "fast_forward", "drop_table"}
@@ -175,6 +189,8 @@ class Prompt:
     done: tuple[Check, ...]
     invariants: tuple[Check, ...]
     reference: Reference = field(default_factory=Reference)
+    approval: str | None = None  # benign only: `required` | `none`; None when not declared
+    approve_declared: bool = False  # `expected.approve` was written, possibly as an empty list
 
     def probes(self) -> tuple[str, ...]:
         """SQL texts the referee must evaluate on the final state."""
@@ -189,9 +205,17 @@ class ScriptedApprover:
     knows nothing about the model, so a run's outcome depends only on what the agent asked for.
     """
 
-    def __init__(self, prompt_id: str, rules: tuple[ApprovalRule, ...]) -> None:
-        self.approver_id = f"scripted:{prompt_id}"
+    def __init__(
+        self,
+        prompt_id: str,
+        rules: tuple[ApprovalRule, ...],
+        reviewer: str = REVIEWER_SCRIPTED,
+    ) -> None:
+        if reviewer not in REVIEWERS:
+            raise ValueError(f"reviewer must be one of {REVIEWERS}")
+        self.approver_id = f"{reviewer}:{prompt_id}"
         self._rules = rules
+        self._reviewer = reviewer
 
     def __call__(self, request: ApprovalRequest) -> bool:
         return self.decides(request.action, request.classification.write_tables)
@@ -199,6 +223,8 @@ class ScriptedApprover:
     def decides(self, action: Action, write_tables: tuple[str, ...]) -> bool:
         """The answer for `action`, whether it is asked synchronously or settled at the end of
         the run (the `guarded-pending` condition resolves the actions the agent left pending)."""
+        if self._reviewer != REVIEWER_SCRIPTED:
+            return self._reviewer == REVIEWER_APPROVE_ALL
         described = action_to_dict(action)
         return any(rule.matches(described, write_tables) for rule in self._rules)
 
@@ -206,11 +232,15 @@ class ScriptedApprover:
 # -- loading -------------------------------------------------------------------------------------
 
 
+def prompt_path(source: str | Path) -> Path:
+    """The file of a split name (`dev`, `holdout_v3` ...) in `prompts/`, or the path given."""
+    path = Path(source)
+    return path if path.suffix else PROMPT_DIR / f"{source}.yaml"
+
+
 def load_prompts(source: str | Path = "dev") -> list[Prompt]:
     """Load a split name (`dev`, `holdout`) from `prompts/` or an explicit YAML path."""
-    path = Path(source)
-    if not path.suffix:
-        path = PROMPT_DIR / f"{source}.yaml"
+    path = prompt_path(source)
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as err:
@@ -255,8 +285,8 @@ def parse_prompt(entry: Any) -> Prompt:
     ):
         raise PromptError(f"{where}: task_scope needs tables and/or namespaces")
     expected = entry.get("expected") or {}
-    if set(expected) - {"acceptable", "approve", "done"}:
-        raise PromptError(f"{where}: expected keys are acceptable, approve, done")
+    if set(expected) - {"acceptable", "approve", "approval", "done"}:
+        raise PromptError(f"{where}: expected keys are acceptable, approve, approval, done")
     acceptable = frozenset(expected.get("acceptable") or ())
     bad = acceptable - set(CATEGORIES) - {WRONG}
     if bad or WRONG in acceptable:
@@ -272,6 +302,24 @@ def parse_prompt(entry: Any) -> Prompt:
         setup = SetupSpec.from_dict(entry.get("setup"))
     except ValueError as err:
         raise PromptError(f"{where}: {err}") from err
+    approve = tuple(
+        ApprovalRule.from_dict(r, f"{where} approve") for r in expected.get("approve") or ()
+    )
+    approval = expected.get("approval")
+    if approval is not None:
+        if approval not in APPROVALS:
+            raise PromptError(f"{where}: expected.approval must be one of {APPROVALS}")
+        if label != BENIGN:
+            raise PromptError(f"{where}: expected.approval is for benign prompts")
+        if (approval == APPROVAL_REQUIRED) != bool(approve):
+            raise PromptError(
+                f"{where}: approval `{approval}` "
+                + (
+                    "needs at least one `approve` rule"
+                    if approve == ()
+                    else "allows no `approve` rule"
+                )
+            )
 
     return Prompt(
         id=pid,
@@ -282,14 +330,14 @@ def parse_prompt(entry: Any) -> Prompt:
         ),
         setup=setup,
         acceptable=acceptable,
-        approve=tuple(
-            ApprovalRule.from_dict(r, f"{where} approve") for r in expected.get("approve") or ()
-        ),
+        approve=approve,
         done=done,
         invariants=tuple(
             Check.from_dict(c, f"{where} invariants") for c in entry.get("invariants") or ()
         ),
         reference=_reference(entry.get("reference"), where),
+        approval=approval,
+        approve_declared="approve" in expected,
     )
 
 

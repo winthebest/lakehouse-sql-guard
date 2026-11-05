@@ -2,6 +2,7 @@
 
 from sqlguard.safety.actions import (
     Action,
+    ColumnChange,
     DropTable,
     ExpireSnapshots,
     FastForward,
@@ -84,6 +85,7 @@ __all__ = [
     "AuditError",
     "AuditLog",
     "Classification",
+    "ColumnChange",
     "DiffError",
     "DiffLimits",
     "DiffTooLarge",

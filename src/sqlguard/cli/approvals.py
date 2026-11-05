@@ -29,6 +29,7 @@ from sqlguard.approvals.runtime import STORE_ENV, add_runtime_args, open_service
 from sqlguard.approvals.service import counts_of
 from sqlguard.cli import register
 from sqlguard.safety import ActionNotPending, ActionState, ProofRejected
+from sqlguard.safety.store import ALTER_KIND
 
 TYPED_PREFIX = 8
 SHOWN_ROWS = 10
@@ -108,12 +109,17 @@ def _print_view(view: Any, rows: int = SHOWN_ROWS) -> None:
     print(f"table       {r.table} ({r.kind})")
     print(f"requester   {r.requester}")
     print(f"deadline    {r.expires_at:%Y-%m-%d %H:%M:%SZ}")
-    print(f"snapshots   base {r.base_snapshot_id} -> head {r.head_snapshot_id}")
+    if r.kind == ALTER_KIND:
+        print(f"snapshot    main is on {r.base_snapshot_id}; a schema change does not move it")
+    else:
+        print(f"snapshots   base {r.base_snapshot_id} -> head {r.head_snapshot_id}")
     print(f"action hash {r.action_hash}")
     print(f"statement   {view.sql}")
     for reason in r.reasons:
         print(f"  policy: {reason}")
-    if view.diff is not None:
+    if r.kind == ALTER_KIND:
+        _print_schema_change(r.impact_data.get("schema_change") or {})
+    elif view.diff is not None:
         counts = view.counts
         print(f"row diff    {counts.text} ({view.diff.mode}; recomputed just now)")
         for change in view.diff.rows[:rows]:
@@ -126,6 +132,22 @@ def _print_view(view: Any, rows: int = SHOWN_ROWS) -> None:
         print(f"note: {line}")
     for problem in view.problems:
         print(f"BLOCKED: {problem}")
+
+
+def _print_schema_change(change: dict[str, Any]) -> None:
+    print("schema      NOT REHEARSED: nothing was run; these are the columns now and after")
+    for text in change.get("changes", []):
+        print(f"  {text}")
+    after = {c["field_id"]: c for c in change.get("columns_after", [])}
+    for old in change.get("columns_before", []):
+        new = after.get(old["field_id"])
+        if new is None:
+            outcome = "DROPPED"
+        elif new["name"] != old["name"]:
+            outcome = f"renamed to {new['name']}"
+        else:
+            outcome = "kept"
+        print(f"  {old['name']:<20} {old['type']:<12} {outcome}")
 
 
 def _row(change: Any) -> str:

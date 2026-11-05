@@ -55,7 +55,7 @@ from sqlguard.safety.actions import (
     qualify_table_name,
 )
 from sqlguard.safety.classifier import Classification, ReversibilityClass, classify
-from sqlguard.safety.executor.base import ExecutionError, ExecutorAdapter
+from sqlguard.safety.executor.base import ExecutionError, ExecutorAdapter, schema_line
 from sqlguard.safety.executor.duckdb_iceberg import DuckDBIcebergAdapter
 from sqlguard.safety.guard import ApprovalRequest, Approver, Guard, GuardResult, Outcome
 from sqlguard.safety.policy import TaskScope
@@ -799,6 +799,8 @@ class GuardedBackend(_Backend):
                 payload["impact"] = [_impact(t.to_dict()) for t in result.impact.tables]
             if result.plan is not None:
                 payload["plan"] = _plan_summary(result.plan.to_dict())
+            if result.schema is not None:
+                payload["schema_change"] = _schema_summary(result.schema.to_dict())
             if result.outcome is Outcome.MAINTENANCE_DONE:
                 payload["snapshots_after"] = result.snapshots_after
         else:
@@ -810,6 +812,8 @@ class GuardedBackend(_Backend):
                 payload["error"] = _clip(result.error)
             if result.plan is not None:
                 payload["plan"] = _plan_summary(result.plan.to_dict())
+            if result.schema is not None:
+                payload["schema_change"] = _schema_summary(result.schema.to_dict())
             if result.impact is not None:
                 payload["impact"] = [_impact(t.to_dict()) for t in result.impact.tables]
         return payload
@@ -829,8 +833,14 @@ class GuardedBackend(_Backend):
             "expires_at": record.expires_at.isoformat() if record is not None else None,
             "summary": _summary(result),
             "message": (
-                "Not applied: the change was rehearsed and is waiting for a reviewer's approval; "
-                "nothing has changed. Tell the user its action_id and summary so they can review "
+                (
+                    "Not applied: a schema change cannot be rehearsed, so it was not run; it is "
+                    "waiting for a reviewer's approval and nothing has changed."
+                    if result.schema is not None
+                    else "Not applied: the change was rehearsed and is waiting for a reviewer's "
+                    "approval; nothing has changed."
+                )
+                + " Tell the user its action_id and summary so they can review "
                 "and decide it, and do not retry or reword the action to get around the check. "
                 "It applies only if nothing has changed when they approve."
             ),
@@ -916,6 +926,8 @@ def _summary(result: GuardResult) -> str:
     """One line: what the held action would do, as measured on the rehearsal."""
     if result.plan is not None:
         return _plan_line(result.plan.to_dict())
+    if result.schema is not None:
+        return result.schema.summary()
     if result.impact is not None:
         return "; ".join(_impact_line(t.to_dict()) for t in result.impact.tables)
     return f"{result.klass.value} action"
@@ -923,6 +935,9 @@ def _summary(result: GuardResult) -> str:
 
 def _record_summary(record: ActionRecord) -> str:
     data = record.impact_data
+    schema = data.get("schema_change")
+    if isinstance(schema, Mapping):
+        return schema_line(schema["table"], schema["changes"])
     plan = data.get("plan")
     if isinstance(plan, Mapping):
         return _plan_line(plan)
@@ -951,6 +966,12 @@ def _plan_line(plan: Mapping[str, Any]) -> str:
     if plan.get("target_snapshot_id") is not None:
         detail.append(f"to snapshot {plan['target_snapshot_id']}")
     return f"{plan['kind']} on {plan['table']}" + (": " + ", ".join(detail) if detail else "")
+
+
+def _schema_summary(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """What the agent is told about a column change: what it does, and that it was not rehearsed."""
+    keys = ("table", "changes", "removed", "renamed", "rehearsed")
+    return {k: schema[k] for k in keys if k in schema}
 
 
 def _plan_summary(plan: Mapping[str, Any]) -> dict[str, Any]:

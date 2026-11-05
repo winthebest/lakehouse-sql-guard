@@ -47,6 +47,7 @@ def test_capabilities_are_the_union_by_role(composite: CompositeAdapter) -> None
         expire=True,
         orphan_cleanup=True,  # the write engine's: Trino has no orphan dry run
         changelog=True,  # the read engine's
+        schema_change=True,  # the write engine's
     )
 
 
@@ -61,6 +62,7 @@ def test_write_abilities_never_come_from_the_read_engine() -> None:
         "expire": False,
         "orphan_cleanup": False,
         "changelog": True,
+        "schema_change": False,
     }
 
 

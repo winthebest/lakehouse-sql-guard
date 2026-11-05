@@ -321,13 +321,24 @@ def test_invariants_stop_a_wipe_even_when_approval_would_be_given(world):
     assert rows(world, "db.orders") == 200
 
 
-def test_guarded_schema_change_is_not_executed(world):
-    result = guarded(world, approver=lambda request: True).call(
-        "run_sql", {"sql": "ALTER TABLE orders DROP COLUMN region"}
-    )
-    assert result.status == "error" and result.guard["outcome"] == "unsupported"
-    assert result.klass == "schema_breaking"
+def test_guarded_schema_change_is_applied_only_when_the_reviewer_approves(world):
+    sql = {"sql": "ALTER TABLE orders DROP COLUMN region"}
+    refused = guarded(world, approver=lambda request: False).call("run_sql", sql)
+    assert refused.status == "approval_rejected" and refused.klass == "schema_breaking"
     assert "region" in capture_state(world).table("db.orders").columns
+
+    approved = guarded(world, approver=lambda request: True).call("run_sql", sql)
+    assert approved.status == "ok" and approved.guard["outcome"] == "published"
+    assert approved.payload["schema_change"]["rehearsed"] is False
+    assert "region" not in capture_state(world).table("db.orders").columns
+
+
+def test_guarded_type_change_is_denied_with_the_forms_that_work(world):
+    result = guarded(world, approver=lambda request: True).call(
+        "run_sql", {"sql": "ALTER TABLE orders ALTER COLUMN amount SET DATA TYPE DECIMAL(10, 2)"}
+    )
+    assert result.status == "blocked" and result.guard["outcome"] == "denied"
+    assert any("RENAME COLUMN" in r for r in result.payload["reasons"])
 
 
 def test_guarded_rollback_to_first_snapshot_is_stopped_by_invariants(world):

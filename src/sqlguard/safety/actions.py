@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from sqlguard.core.parsing import DEFAULT_DIALECT
 
@@ -73,6 +74,22 @@ class DropTable(MaintenanceAction):
     """Drop a table; `purge=True` also deletes its data files."""
 
     purge: bool = False
+
+
+@dataclass(frozen=True)
+class ColumnChange:
+    """One top-level column change of an `ALTER TABLE`: `drop` it or `rename` it to `new_name`."""
+
+    op: Literal["drop", "rename"]
+    column: str
+    new_name: str | None = None
+
+    def describe(self) -> str:
+        return (
+            f"drop column {self.column}"
+            if self.op == "drop"
+            else f"rename column {self.column} to {self.new_name}"
+        )
 
 
 type Action = SqlAction | MaintenanceAction

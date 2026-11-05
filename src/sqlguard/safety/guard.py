@@ -15,6 +15,10 @@ Pipeline for every submission:
       ASK                   -> nothing runs without an approver; SQL writes are first rehearsed on
                                a branch so the approver sees the measured impact
       IRREVERSIBLE actions  -> need an approver, and the live retention check must pass first
+      SCHEMA CHANGES        -> `ALTER TABLE ... DROP/RENAME COLUMN` always needs an approver; a
+                               branch cannot hold a schema, so nothing is rehearsed: the approver
+                               sees the columns before and after, and on approval the change is
+                               committed only if main is still on the snapshot it was reviewed on
 
 With a durable `ActionStore` (`Guard(store=...)`) and no approver, an ASK is not dropped: the
 write is rehearsed on a branch that is kept, the action is saved as `pending` with the digests of
@@ -22,7 +26,10 @@ the live state, the policy and the row diff that were measured, and the caller g
 `Guard.resolve` later applies a decision, but only after proof of approval is verified and the
 live table, the policy and the diff are checked to be what was reviewed (see `docs/architecture.md`,
 "Pending actions"). `Guard.reconcile` settles actions a crash left half-way, and
-`Guard.expire_pending` retires the ones nobody decided on.
+`Guard.expire_pending` retires the ones nobody decided on. A pending schema change has no branch
+and no row diff (`ActionRecord.kind` is `alter_table`): its record binds the statement, the table,
+main's snapshot, the schema id and the old and new column lists, and `resolve` applies it only if
+all of them are still what was reviewed.
 
 Main is never written directly: a SQL write reaches main only through `publish`, which moves the
 main pointer to the snapshot that was measured and verified (not to whatever the branch holds by
@@ -60,18 +67,21 @@ from sqlglot import exp
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.core.findings import Decision
 from sqlguard.core.parsing import explained, parse
-from sqlguard.safety.actions import Action, SqlAction
+from sqlguard.safety.actions import Action, ColumnChange, SqlAction
 from sqlguard.safety.audit import AuditError, AuditLog
 from sqlguard.safety.classifier import Classification, ReversibilityClass, classify
 from sqlguard.safety.executor.base import (
     BranchDiverged,
     BranchHandle,
     Capabilities,
+    ColumnInfo,
     ExecutionError,
     ExecutorAdapter,
     MaintenancePlan,
     PublishMismatch,
     PublishStateUnknown,
+    SchemaChangeRefused,
+    SchemaPlan,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.duckdb_iceberg import AUDIT_BRANCH_PREFIX, DuckDBIcebergAdapter
@@ -96,6 +106,7 @@ from sqlguard.safety.invariants import (
 )
 from sqlguard.safety.policy import Policy, PolicyDecision, RetentionRule, TaskScope
 from sqlguard.safety.store import (
+    ALTER_KIND,
     ActionRecord,
     ActionState,
     ActionStore,
@@ -107,12 +118,17 @@ from sqlguard.safety.store import (
     encode_action,
     maintenance_kind,
     plan_digest,
+    schema_plan_digest,
     sha256_hex,
 )
 
 C = ReversibilityClass
 _POINTER_MOVES = frozenset({"rollback", "fast_forward"})
 _DML_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
+_NOT_REHEARSED = (
+    "a schema change cannot be rehearsed on a branch, so it was not run; the reviewer sees the "
+    "table's columns before and after, not rows, and it always needs approval"
+)
 _AUDIT_FILE_LIST_LIMIT = 100
 _ERROR_TEXT_LIMIT = 300
 _LITERAL_NODES = tuple(
@@ -168,6 +184,7 @@ class ApprovalRequest:
     decision: PolicyDecision
     impact: ImpactReport | None = None  # measured on a branch (SQL writes)
     plan: MaintenancePlan | None = None  # what maintenance would remove or move
+    schema: SchemaPlan | None = None  # a column change: the columns before and after (not run)
 
 
 # Returns True to approve. An approver that raises is treated as having declined.
@@ -189,6 +206,7 @@ class GuardResult:
     impact: ImpactReport | None = None
     invariants: tuple[InvariantResult, ...] = ()
     plan: MaintenancePlan | None = None
+    schema: SchemaPlan | None = None  # the column change that was planned (never rehearsed)
     data: pa.Table | None = None  # rows returned by a read
     snapshots_before: dict[str, int | None] = field(default_factory=dict)
     snapshots_after: dict[str, int | None] = field(default_factory=dict)
@@ -226,6 +244,7 @@ class GuardResult:
             "impact": self.impact.to_dict() if self.impact else None,
             "invariants": [r.to_dict() for r in self.invariants],
             "plan": self.plan.to_dict() if self.plan else None,
+            "schema_change": self.schema.to_dict() if self.schema else None,
             "rows_returned": self.data.num_rows if self.data is not None else None,
             "snapshots_before": self.snapshots_before,
             "snapshots_after": self.snapshots_after,
@@ -325,6 +344,7 @@ class _Run:
     impact: ImpactReport | None = None
     invariants: list[InvariantResult] = field(default_factory=list)
     plan: MaintenancePlan | None = None
+    schema: SchemaPlan | None = None
     maintenance_result: dict[str, Any] | None = None
     data: pa.Table | None = None
     before: dict[str, int | None] = field(default_factory=dict)
@@ -541,6 +561,19 @@ class Guard:
             if len(classification.statements) == 1
             else None
         )
+        unsupported_alter = _unsupported_alter(classification)
+        if unsupported_alter:
+            run.decision = Decision.DENY
+            run.finish(Outcome.DENIED, unsupported_alter)
+            return
+        schema_change = (
+            classification.statements[0].schema_change
+            if len(classification.statements) == 1
+            else None
+        )
+        if schema_change is not None:
+            self._run_schema_change(run, decided, schema_change, approver)
+            return
         if (
             maintenance is None
             and classification.klass is not C.READ
@@ -730,6 +763,11 @@ class Guard:
             runnable = statement.verb in _DML_VERBS or (
                 statement.verb == "SELECT" and statement.klass is C.READ
             )
+            if statement.verb == "ALTER":
+                return (
+                    "only ALTER TABLE ... DROP COLUMN or RENAME COLUMN, as the only statement of "
+                    "a call, can be applied"
+                )
             if not runnable:
                 return f"{statement.verb} statements cannot be executed on a branch"
         return None
@@ -888,6 +926,102 @@ class Guard:
         run.published = False
         run.rolled_back = True
         run.finish(Outcome.ROLLED_BACK, f"main restored to snapshot {previous}")
+
+    # -- schema changes --------------------------------------------------------------------------
+
+    def _run_schema_change(
+        self,
+        run: _Run,
+        decided: PolicyDecision,
+        changes: Sequence[ColumnChange],
+        approver: Approver | None,
+    ) -> None:
+        """Plan a column drop or rename, get it approved, apply it (or queue it for a person).
+
+        Nothing is rehearsed, so whatever the policy says short of deny, a person decides.
+        """
+        classification = run.classification
+        if classification is None:
+            raise RuntimeError("schema change requires a classified action")
+        if not self._capabilities.schema_change:
+            run.decision = Decision.DENY
+            run.finish(
+                Outcome.DENIED,
+                f"{self._engine} cannot apply schema changes, so nothing was run; "
+                "use an executor that can",
+            )
+            return
+        table = classification.write_tables[0]
+        if not self.catalog.has_table(table):
+            run.finish(Outcome.EXECUTION_FAILED, f"table {table} does not exist")
+            return
+        try:
+            plan = self.adapter.plan_schema_change(table, changes)
+        except SchemaChangeRefused as err:
+            run.decision = Decision.DENY
+            run.finish(Outcome.DENIED, str(err))
+            return
+        run.schema = plan
+        run.decision = Decision.ASK
+        run.reasons.append(_NOT_REHEARSED)
+        if self.store is not None and approver is None:
+            self._queue_schema_change(run, plan)
+            return
+        asking = replace(decided, decision=Decision.ASK, reasons=tuple(run.reasons))
+        if self._approved(run, approver, self._request(run, asking, schema=plan)):
+            self._apply_schema_change(run, plan)
+
+    def _apply_schema_change(self, run: _Run, plan: SchemaPlan) -> None:
+        """Commit an approved change: only if main and the schema are still as planned."""
+        table = plan.table
+        run.before[table] = self.adapter.current_snapshot_id(table)
+        self._intent(run)
+        try:
+            if run.before_commit is not None:
+                run.before_commit()
+            self.adapter.apply_schema_change(plan)
+        except BranchDiverged as err:
+            run.finish(
+                Outcome.REFUSED_DIVERGED,
+                f"{err}; nothing was changed, re-submit against the current state",
+            )
+            return
+        except (PublishMismatch, PublishStateUnknown) as err:
+            run.error = _clip(str(err))
+            run.finish(
+                Outcome.PUBLISH_UNCONFIRMED,
+                f"schema change outcome needs attention: {run.error}; the table was left as it is",
+            )
+            return
+        run.executed = run.published = True
+        run.after[table] = self.adapter.current_snapshot_id(table)
+        run.finish(Outcome.PUBLISHED)
+
+    def _queue_schema_change(self, run: _Run, plan: SchemaPlan) -> None:
+        """Save a planned schema change as pending. Approval re-plans it and must find the same."""
+        store, action = self.store, run.action
+        if store is None or not isinstance(action, SqlAction):
+            raise RuntimeError("only SQL schema changes with a store can be queued here")
+        if self._pending_full(run):
+            return
+        redacted = redact_sql(action.sql, action.dialect)
+        record = self._seal(
+            run,
+            kind=ALTER_KIND,
+            dialect=action.dialect,
+            sql_normalized=normalize_sql(action),
+            sql_redacted=redacted,
+            sql_sha256=sha256_hex(redacted),
+            maintenance_json=None,
+            table=plan.table,
+            base_snapshot_id=plan.base_snapshot_id,
+            head_snapshot_id=None,
+            branch=None,
+            diff_digest=schema_plan_digest(plan),
+            impact_json=canonical_json({"schema_change": plan.to_dict()}),
+        )
+        store.insert(record)
+        self._mark_pending(run, record)
 
     # -- pending actions: queue ------------------------------------------------------------------
 
@@ -1198,7 +1332,11 @@ class Guard:
             run.claimed = True
             run.before_commit = self._renew_or_abort(record.id, run.owner)
             with self._heartbeat(record.id, run.owner):
-                if prepared is None:  # maintenance
+                if record.kind == ALTER_KIND:
+                    if run.schema is None:
+                        raise RuntimeError("the schema change was not verified")
+                    self._apply_schema_change(run, run.schema)
+                elif prepared is None:  # maintenance
                     maintenance, plan = self._prepared_maintenance(run)
                     self._apply_maintenance(run, maintenance, record.table, plan)
                 else:
@@ -1399,6 +1537,8 @@ class Guard:
         try:
             if record.maintenance_json is not None:
                 return self._verify_maintenance(run, record, now), None
+            if record.kind == ALTER_KIND:
+                return self._verify_schema_change(run, record, now), None
             return self._verify_write(run, record, now)
         except DiffError as err:  # its message is written to be shown
             return [f"the live state could not be checked: {err}"], None
@@ -1432,6 +1572,8 @@ class Guard:
             return [
                 f"main moved from snapshot {record.base_snapshot_id} to {main} since the review"
             ], None
+        if self.schema_moved(record):
+            return ["the table's columns changed since the review"], None
         key = self.policy.invariants.for_table(record.table).unique_key
         handle = BranchHandle(
             record.table, record.branch, record.base_snapshot_id, record.head_snapshot_id
@@ -1467,6 +1609,49 @@ class Guard:
         if rows.digest != record.diff_digest:
             return ["the row diff differs from the one that was reviewed"], None
         return [], _Prepared(diff, invariants, tuple(key))
+
+    def _verify_schema_change(self, run: _Run, record: ActionRecord, now: datetime) -> list[str]:
+        """Why a pending column change can no longer be applied as reviewed (empty when it can)."""
+        action = run.action
+        if not isinstance(action, SqlAction) or not action.sql:
+            return ["the stored action is incomplete"]
+        classification = classify(action, self.catalog)
+        run.classification = classification
+        decided = self.policy.decide(classification, run.scope, now)
+        run.set_decision(decided)
+        if decided.decision is Decision.DENY:
+            return ["the current policy now denies this action: " + "; ".join(decided.reasons)]
+        statement = classification.statements[0]
+        if (
+            len(classification.statements) != 1
+            or statement.schema_change is None
+            or classification.write_tables != (record.table,)
+        ):
+            return ["the stored statement no longer classifies as the same schema change"]
+        if not self._capabilities.schema_change:
+            return [f"{self._engine} cannot apply schema changes"]
+        main = self.adapter.current_snapshot_id(record.table)
+        if main != record.base_snapshot_id:
+            return [
+                f"main moved from snapshot {record.base_snapshot_id} to {main} since the review"
+            ]
+        plan = self.adapter.plan_schema_change(record.table, statement.schema_change)
+        if schema_plan_digest(plan) != record.diff_digest:
+            return ["the table's columns differ from the ones that were reviewed"]
+        run.schema = plan
+        return []
+
+    def schema_moved(self, record: ActionRecord) -> bool:
+        """Whether the table's schema is no longer the one a rehearsed write was measured on.
+
+        A schema change moves no snapshot, so main's snapshot alone cannot tell. The rehearsed
+        head carries the schema it was written with.
+        """
+        if record.head_snapshot_id is None:
+            return False
+        iceberg = self.catalog.table(record.table)
+        head = iceberg.snapshot_by_id(record.head_snapshot_id)
+        return head is not None and head.schema_id != iceberg.schema().schema_id
 
     def _verify_maintenance(self, run: _Run, record: ActionRecord, now: datetime) -> list[str]:
         classification = classify(run.action, self.catalog)
@@ -1702,6 +1887,8 @@ class Guard:
         """(state, reason, keep the branch) for a publishing row nobody owns any more."""
         base, head, table = record.base_snapshot_id, record.head_snapshot_id, record.table
         attention = ActionState.NEEDS_ATTENTION
+        if record.kind == ALTER_KIND:
+            return self._judge_schema_change(record, owner_status)
         if record.maintenance_json is not None and record.kind not in _POINTER_MOVES:
             return (
                 attention,
@@ -1744,6 +1931,30 @@ class Guard:
             state, reason = self._verify_landed(record, rollback=False)
             return state, reason, state is attention
         return attention, f"main is on snapshot {main}, which is neither {base} nor {head}", True
+
+    def _judge_schema_change(
+        self, record: ActionRecord, owner_status: str
+    ) -> tuple[ActionState, str, bool]:
+        """A schema change moves no snapshot, so the table's columns tell whether it landed."""
+        recorded = record.impact_data.get("schema_change") or {}
+        after, before = recorded.get("columns_after"), recorded.get("columns_before")
+        now = [c.to_dict() for c in _live_columns(self.catalog.table(record.table))]
+        if now == after:
+            return ActionState.PUBLISHED, "the schema change had landed", False
+        if now == before and owner_status == "dead":
+            return ActionState.FAILED, "the table still has its old columns; nothing applied", False
+        if now == before:
+            return (
+                ActionState.NEEDS_ATTENTION,
+                "the table still has its old columns, but the publisher cannot be proven gone "
+                "and its commit may still land",
+                True,
+            )
+        return (
+            ActionState.NEEDS_ATTENTION,
+            "the table's columns are neither the reviewed ones nor the planned ones",
+            True,
+        )
 
     @staticmethod
     def _ancestry(iceberg: Any, snapshot_id: int | None) -> list[int]:
@@ -1847,6 +2058,7 @@ class Guard:
             "impact": run.impact.to_dict() if run.impact else None,
             "invariants": [r.to_dict() for r in run.invariants],
             "maintenance_plan": _plan_for_audit(run.plan),
+            **({"schema_change": run.schema.to_dict()} if run.schema else {}),
             "maintenance_result": run.maintenance_result,
             "rows_returned": run.data.num_rows if run.data is not None else None,
             "snapshots_before": run.before,
@@ -1883,6 +2095,7 @@ class Guard:
             impact=run.impact,
             invariants=tuple(run.invariants),
             plan=run.plan,
+            schema=run.schema,
             data=run.data,
             snapshots_before=dict(run.before),
             snapshots_after=dict(run.after),
@@ -1926,6 +2139,33 @@ def _retention_violations(plan: MaintenancePlan, rule: RetentionRule, now: datet
                 f"{rule.min_orphan_age_days:g} days"
             )
     return problems
+
+
+def _unsupported_alter(classification: Classification) -> str | None:
+    """Why a schema-breaking ALTER the executors do not apply is refused (None: not such a case).
+
+    A harmless but unsupported ALTER (ADD COLUMN) keeps reporting `unsupported`: the engine
+    cannot run it, and the guard has no objection. One the policy would send to a reviewer must
+    not end in a dead end, so it is a plain denial that names what can be applied.
+    """
+    for statement in classification.statements:
+        if (
+            statement.verb == "ALTER"
+            and statement.schema_change is None
+            and statement.klass is C.SCHEMA_BREAKING
+        ):
+            return (
+                "this ALTER TABLE form cannot be applied: only DROP COLUMN and RENAME COLUMN "
+                "(one statement per call) can; nothing was run"
+            )
+    return None
+
+
+def _live_columns(iceberg: Any) -> tuple[ColumnInfo, ...]:
+    return tuple(
+        ColumnInfo(f.field_id, f.name, str(f.field_type), f.required)
+        for f in iceberg.schema().fields
+    )
 
 
 _RAN_OFF_PLAN = "the action ran, but the table is not in the approved state; a person must look: "

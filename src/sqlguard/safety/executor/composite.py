@@ -5,9 +5,9 @@ each call by role:
 
   * read role: `current_snapshot_id`, `snapshots`, `read`, `query` and `diff`. The data an approver
     is shown and the impact numbers are produced by the read engine, from the branch head it sees.
-  * write role: `create_branch`, `apply_sql`, `drop_branch`, `publish`, `rollback` and all
-    maintenance. These are the operations that change the table, so they go to the engine that
-    can do them with the catalog's compare-and-swap.
+  * write role: `create_branch`, `apply_sql`, `drop_branch`, `publish`, `rollback`, schema
+    changes and all maintenance. These are the operations that change the table, so they go to
+    the engine that can do them with the catalog's compare-and-swap.
 
 `capabilities` is the union by role: the write engine decides whether the combination can
 rehearse a write, publish, roll back, expire or clean orphans; the read engine adds the changelog
@@ -25,7 +25,7 @@ import pyarrow as pa
 
 from sqlguard.core.catalog import SnapshotInfo
 from sqlguard.core.parsing import DEFAULT_DIALECT
-from sqlguard.safety.actions import MaintenanceAction
+from sqlguard.safety.actions import ColumnChange, MaintenanceAction
 from sqlguard.safety.executor.base import (
     BranchDiff,
     BranchHandle,
@@ -34,6 +34,7 @@ from sqlguard.safety.executor.base import (
     MaintenancePlan,
     MaintenanceResult,
     PublishResult,
+    SchemaPlan,
     UnsupportedAction,
 )
 
@@ -110,6 +111,12 @@ class CompositeAdapter:
 
     def rollback(self, table: str, snapshot_id: int, expected_current: int | None = None) -> None:
         self.write_engine.rollback(table, snapshot_id, expected_current)
+
+    def plan_schema_change(self, table: str, changes: Sequence[ColumnChange]) -> SchemaPlan:
+        return self.write_engine.plan_schema_change(table, changes)
+
+    def apply_schema_change(self, plan: SchemaPlan) -> None:
+        self.write_engine.apply_schema_change(plan)
 
     def plan_maintenance(self, action: MaintenanceAction) -> MaintenancePlan:
         return self.write_engine.plan_maintenance(action)

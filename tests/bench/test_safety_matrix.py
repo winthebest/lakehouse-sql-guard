@@ -55,6 +55,13 @@ class Quiet:
         )
 
 
+@pytest.fixture(autouse=True)
+def not_a_held_out_run(monkeypatch):
+    """These cells run a stand-in model on a copy of dev prompts that only borrows the held-out
+    file name; the frozen-state check has its own tests."""
+    monkeypatch.setattr(runner, "require_frozen_policy", lambda *args, **kwargs: None)
+
+
 @pytest.fixture
 def prompt_file(tmp_path) -> Path:
     dev = yaml.safe_load((PROMPT_DIR / "dev.yaml").read_text(encoding="utf-8"))

@@ -99,6 +99,19 @@ def test_show_prints_the_hash_the_statement_and_the_recomputed_diff(pguard, scop
     assert "proof" not in out
 
 
+def test_show_prints_the_columns_of_a_schema_change_and_says_it_was_not_rehearsed(
+    pguard, scope, run, argv
+):
+    result = queue(pguard, scope, "ALTER TABLE orders RENAME COLUMN customer TO buyer")
+    code, out, _ = run("approvals", *argv("show", result.action_id))
+    assert code == 0 and "NOT REHEARSED" in out and "head None" not in out
+    assert "rename column customer to buyer" in out
+    assert "customer" in out and "renamed to buyer" in out and "amount" in out and "kept" in out
+    dropped = queue(pguard, scope, "ALTER TABLE orders DROP COLUMN amount")
+    _, out, _ = run("approvals", *argv("show", dropped.action_id))
+    assert "DROPPED" in out
+
+
 def test_an_id_prefix_works_when_it_is_unique_and_long_enough(pguard, scope, run, argv):
     result = queue(pguard, scope)
     assert run("approvals", *argv("show", result.action_id[:6]))[0] == 0

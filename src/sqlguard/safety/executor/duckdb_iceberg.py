@@ -23,6 +23,13 @@ the pointer; `expire_snapshots` removes metadata only, so Parquet files stay on 
 `remove_orphan_files` runs; rolling back to an expired snapshot raises
 "Cannot roll back to unknown snapshot id".
 
+Schema changes (`plan_schema_change` / `apply_schema_change`) drop or rename top-level columns
+through PyIceberg's schema update. A branch cannot hold a schema of its own, so they are never
+rehearsed: the plan is the old and new column lists, and the apply is one transaction that
+asserts main is still on the planned snapshot and (through the schema update itself) that the
+table's schema is still the planned one. Neither moves a snapshot. Afterwards the schema is read
+back and must be the planned one.
+
 Limits: tables must already have a snapshot (a branch needs something to be cut from), and one
 action may write one table.
 """
@@ -38,13 +45,16 @@ from datetime import UTC, datetime
 
 import duckdb
 import pyarrow as pa
-from pyiceberg.exceptions import CommitFailedException, NoSuchTableError
+from pyiceberg.exceptions import CommitFailedException, NoSuchTableError, ValidationError
+from pyiceberg.schema import Schema
 from pyiceberg.table import Table
+from pyiceberg.table.update import AssertRefSnapshotId
 from sqlglot import exp
 
 from sqlguard.core.catalog import LakehouseCatalog, SnapshotInfo
 from sqlguard.core.parsing import DEFAULT_DIALECT, SqlParseError, explained, parse
 from sqlguard.safety.actions import (
+    ColumnChange,
     DropTable,
     ExpireSnapshots,
     FastForward,
@@ -57,6 +67,7 @@ from sqlguard.safety.executor.base import (
     BranchDiverged,
     BranchHandle,
     Capabilities,
+    ColumnInfo,
     ExecutionError,
     MaintenancePlan,
     MaintenanceResult,
@@ -64,6 +75,8 @@ from sqlguard.safety.executor.base import (
     PublishMismatch,
     PublishResult,
     PublishStateUnknown,
+    SchemaChangeRefused,
+    SchemaPlan,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.orphan_files import (
@@ -72,7 +85,7 @@ from sqlguard.safety.executor.orphan_files import (
     find_orphans,
     locations_overlap,
 )
-from sqlguard.safety.impact import compute_table_impact, quote_ident
+from sqlguard.safety.impact import compute_table_impact, project_on_current_schema, quote_ident
 
 MAIN = "main"
 AUDIT_BRANCH_PREFIX = "sqlguard-"  # branches the guard creates; never valid publish targets
@@ -83,6 +96,12 @@ _READ_ONLY = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe)
 
 def _describe(error: Exception | None) -> str:
     return "no error" if error is None else f"{type(error).__name__}: {str(error)[:200]}"
+
+
+def _columns(schema: Schema) -> tuple[ColumnInfo, ...]:
+    return tuple(
+        ColumnInfo(f.field_id, f.name, str(f.field_type), f.required) for f in schema.fields
+    )
 
 
 def _millis(moment: datetime) -> int:
@@ -111,7 +130,12 @@ def _connect(tables: dict[str, pa.Table], default_namespace: str) -> duckdb.Duck
 class DuckDBIcebergAdapter:
     engine = "duckdb"
     capabilities = Capabilities(
-        branch_write=True, publish=True, rollback=True, expire=True, orphan_cleanup=True
+        branch_write=True,
+        publish=True,
+        rollback=True,
+        expire=True,
+        orphan_cleanup=True,
+        schema_change=True,
     )
 
     def __init__(self, catalog: LakehouseCatalog) -> None:
@@ -136,8 +160,14 @@ class DuckDBIcebergAdapter:
         return self.catalog.snapshots(table)
 
     def read(self, table: str, snapshot_id: int | None = None) -> pa.Table:
-        self._load(table)
-        return self.catalog.read(table, snapshot_id)
+        return self._read_projected(table, snapshot_id)
+
+    def _read_projected(self, table: str, snapshot_id: int | None) -> pa.Table:
+        """A snapshot with the columns the table has now (see `project_on_current_schema`)."""
+        iceberg = self._load(table)
+        return project_on_current_schema(
+            iceberg, snapshot_id, self.catalog.read(table, snapshot_id)
+        )
 
     def query(self, sql: str, tables: Sequence[str], dialect: str = DEFAULT_DIALECT) -> pa.Table:
         statements = self._statements(sql, dialect, allowed=_READ_ONLY)
@@ -185,7 +215,7 @@ class DuckDBIcebergAdapter:
         statements = self._statements(sql, dialect, allowed=(*_RUNNABLE, *_READ_ONLY))
         iceberg = self._load(branch.table)
         head = self._branch_head(iceberg, branch)
-        before = self.catalog.read(branch.table, head)
+        before = self._read_projected(branch.table, head)
 
         loaded = {
             self._qualified(t): self.read(t)
@@ -222,8 +252,8 @@ class DuckDBIcebergAdapter:
     def diff(self, branch: BranchHandle, key: Sequence[str] = ()) -> BranchDiff:
         iceberg = self._load(branch.table)
         head = self._branch_head(iceberg, branch)  # read once: the data and the id must agree
-        before = self.catalog.read(branch.table, branch.base_snapshot_id)
-        after = self.catalog.read(branch.table, head)
+        before = self._read_projected(branch.table, branch.base_snapshot_id)
+        after = self._read_projected(branch.table, head)
         return BranchDiff(
             before,
             after,
@@ -332,6 +362,138 @@ class DuckDBIcebergAdapter:
             raise BranchDiverged(f"main of {table} changed during rollback: {err}") from err
         except ValueError as err:
             raise ExecutionError(str(err)) from err
+
+    # -- schema changes --------------------------------------------------------------------------
+
+    def plan_schema_change(self, table: str, changes: Sequence[ColumnChange]) -> SchemaPlan:
+        iceberg = self._load(table)
+        before = iceberg.schema()
+        resolved = self._validate_schema_changes(iceberg, changes)
+        update = iceberg.update_schema()  # staged only; nothing is committed here
+        try:
+            self._stage_schema_changes(update, resolved)
+            after = update._apply()  # validates the staged changes without committing them
+        except ValueError as err:
+            raise ExecutionError(str(err)) from err
+        if not after.fields:
+            raise SchemaChangeRefused(f"{table} would be left without columns")
+        return SchemaPlan(
+            table=table,
+            changes=resolved,
+            schema_id=before.schema_id,
+            base_snapshot_id=self._current_id(iceberg),
+            before=_columns(before),
+            after=_columns(after),
+        )
+
+    @staticmethod
+    def _validate_schema_changes(
+        iceberg: Table, changes: Sequence[ColumnChange]
+    ) -> tuple[ColumnChange, ...]:
+        """The changes with the column names the table spells them with, or a refusal.
+
+        SQL names are matched without regard to case (an unquoted name is not case-sensitive);
+        a name that two columns share only up to case must be written exactly. A column that the
+        partition spec, the sort order or the identifier fields use cannot be dropped or renamed
+        away from them, a new name must not collide with a column (also up to case), and a
+        change that changes nothing is refused.
+        """
+        if not changes:
+            raise ExecutionError("no column change given")
+        schema = iceberg.schema()
+        # data files written under an older spec still carry its partition values
+        used = {
+            f.source_id: "a partition spec of the table"
+            for spec in iceberg.specs().values()
+            for f in spec.fields
+        }
+        used |= {f.source_id: "the sort order" for f in iceberg.sort_order().fields}
+        used |= dict.fromkeys(schema.identifier_field_ids, "the identifier fields")
+        taken = {f.name.lower() for f in schema.fields}
+        resolved = []
+        for change in changes:
+            matches = [f for f in schema.fields if f.name == change.column] or [
+                f for f in schema.fields if f.name.lower() == change.column.lower()
+            ]
+            if len(matches) != 1:
+                raise ExecutionError(
+                    f"Could not find field with name {change.column}"
+                    if not matches
+                    else f"column {change.column} is ambiguous: write its exact name"
+                )
+            field = matches[0]
+            if change.op == "drop" and field.field_id in used:
+                raise SchemaChangeRefused(
+                    f"column {field.name} is used by {used[field.field_id]} and cannot be dropped"
+                )
+            if change.op == "rename":
+                new = change.new_name or ""
+                if new == field.name:
+                    raise SchemaChangeRefused(f"renaming {field.name} to itself changes nothing")
+                if new.lower() in taken and new.lower() != field.name.lower():
+                    raise SchemaChangeRefused(
+                        f"the name {new} is already taken by a column (names are compared "
+                        "without regard to case)"
+                    )
+                taken.add(new.lower())
+            resolved.append(ColumnChange(change.op, field.name, change.new_name))
+        return tuple(resolved)
+
+    @staticmethod
+    def _stage_schema_changes(update, changes: Sequence[ColumnChange]) -> None:
+        for change in changes:
+            if change.op == "rename":
+                update.rename_column(change.column, change.new_name or "")
+            else:
+                update.delete_column(change.column)
+
+    def apply_schema_change(self, plan: SchemaPlan) -> None:
+        iceberg = self._load(plan.table)
+        main_id, schema_id = self._current_id(iceberg), iceberg.schema().schema_id
+        if main_id != plan.base_snapshot_id or schema_id != plan.schema_id:
+            raise BranchDiverged(
+                f"{plan.table} changed since the schema change was planned (snapshot "
+                f"{plan.base_snapshot_id} -> {main_id}, schema {plan.schema_id} -> {schema_id})"
+            )
+        cause: Exception | None = None
+        try:
+            with iceberg.transaction() as transaction:
+                # the catalog checks this atomically with the commit; the schema update adds
+                # its own assertion on the current schema id
+                transaction._apply(
+                    (), (AssertRefSnapshotId(ref=MAIN, snapshot_id=plan.base_snapshot_id),)
+                )
+                update = transaction.update_schema()
+                self._stage_schema_changes(update, plan.changes)
+                update.commit()
+        except CommitFailedException as err:
+            raise BranchDiverged(f"{plan.table} changed during the schema change: {err}") from err
+        except (ValueError, ValidationError) as err:  # rejected before anything was written
+            raise ExecutionError(str(err)) from err
+        except Exception as err:  # noqa: BLE001 - unknown state: timeout, 5xx, lost connection
+            cause = err
+        self._settle_schema_change(plan, cause)
+
+    def _settle_schema_change(self, plan: SchemaPlan, cause: Exception | None) -> None:
+        """Decide from the table's actual schema whether the change landed; never undo anything."""
+        iceberg = self._read_back(plan.table)
+        if iceberg is None:
+            raise PublishStateUnknown(
+                f"could not read {plan.table} back after the schema change "
+                f"({_describe(cause)}); it may or may not hold it"
+            ) from cause
+        columns = _columns(iceberg.schema())
+        if columns == plan.after:
+            return
+        if cause is not None and columns == plan.before:
+            raise PublishStateUnknown(
+                f"the schema change of {plan.table} failed ({_describe(cause)}) and the schema "
+                "reads as unchanged, but the commit may still land"
+            ) from cause
+        raise PublishMismatch(
+            f"{plan.table} does not have the planned schema after the schema change",
+            self._current_id(iceberg),
+        )
 
     # -- maintenance -----------------------------------------------------------------------------
 

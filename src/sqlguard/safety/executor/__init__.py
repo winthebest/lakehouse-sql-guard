@@ -5,6 +5,7 @@ from sqlguard.safety.executor.base import (
     BranchDiverged,
     BranchHandle,
     Capabilities,
+    ColumnInfo,
     ExecutionError,
     ExecutorAdapter,
     MaintenancePlan,
@@ -13,6 +14,8 @@ from sqlguard.safety.executor.base import (
     PublishMismatch,
     PublishResult,
     PublishStateUnknown,
+    SchemaChangeRefused,
+    SchemaPlan,
     UnsupportedAction,
 )
 from sqlguard.safety.executor.composite import CompositeAdapter
@@ -36,6 +39,7 @@ __all__ = [
     "BranchDiverged",
     "BranchHandle",
     "Capabilities",
+    "ColumnInfo",
     "CompositeAdapter",
     "DuckDBIcebergAdapter",
     "ExecutionError",
@@ -50,6 +54,8 @@ __all__ = [
     "PublishResult",
     "PublishStateUnknown",
     "RollbackNeedsAttention",
+    "SchemaChangeRefused",
+    "SchemaPlan",
     "SparkIcebergAdapter",
     "TrinoIcebergAdapter",
     "UnsupportedAction",

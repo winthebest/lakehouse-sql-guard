@@ -602,6 +602,35 @@ def _row_change(
 # -- reading snapshots, with caps -----------------------------------------------------------------
 
 
+def project_on_current_schema(table: Table, snapshot_id: int | None, data: pa.Table) -> pa.Table:
+    """`data`, read from a snapshot, with the columns the table has now.
+
+    A scan uses the schema its snapshot was written with, and a schema change moves no snapshot,
+    so after a column is renamed or dropped main's head still has the old names. Columns are
+    matched by field id: renamed ones take their new name, dropped ones go, and a column added
+    since is null. Without this a write built on that snapshot cannot be cast to the table.
+
+    A scan of a specific snapshot is the only one that uses that snapshot's schema; a scan with no
+    snapshot id already uses the table's current schema, so `data` is returned as it is.
+    """
+    if snapshot_id is None:
+        return data
+    snapshot = table.snapshot_by_id(snapshot_id)
+    current = table.schema()
+    old = table.schemas().get(snapshot.schema_id) if snapshot is not None else None
+    if old is None or old == current:
+        return data
+    names = {f.field_id: f.name for f in old.fields}
+    target = current.as_arrow()
+    columns = [
+        data.column(names[f.field_id])
+        if f.field_id in names
+        else pa.nulls(data.num_rows, type=target.field(f.name).type)
+        for f in current.fields
+    ]
+    return pa.table(columns, names=[f.name for f in current.fields])
+
+
 def _read_snapshot(table: Table, snapshot_id: int, limits: DiffLimits) -> pa.Table:
     if table.snapshot_by_id(snapshot_id) is None:
         raise DiffError(f"snapshot {snapshot_id} of {'.'.join(table.name())} no longer exists")
@@ -623,7 +652,7 @@ def _read_snapshot(table: Table, snapshot_id: int, limits: DiffLimits) -> pa.Tab
             f"table too large to diff: snapshot {snapshot_id} read as {data.num_rows} rows / "
             f"{data.nbytes} bytes (limits {limits.max_rows} rows / {limits.max_bytes} bytes)"
         )
-    return data
+    return project_on_current_schema(table, snapshot_id, data)
 
 
 def compute_row_diff(

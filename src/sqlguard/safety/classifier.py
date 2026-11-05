@@ -18,6 +18,7 @@ from sqlguard.core.catalog import DEFAULT_NAMESPACE
 from sqlguard.core.parsing import ParsedStatement, explained, parse
 from sqlguard.safety.actions import (
     Action,
+    ColumnChange,
     DropTable,
     ExpireSnapshots,
     FastForward,
@@ -90,6 +91,9 @@ class StatementClass:
     has_where: bool | None = None
     sql: str = ""
     maintenance: MaintenanceAction | None = None
+    # the column changes of an `ALTER TABLE ... DROP/RENAME COLUMN` the executors can apply; None
+    # for any other statement, including every other form of ALTER
+    schema_change: tuple[ColumnChange, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -235,6 +239,9 @@ def _classify_statement(
         write_tables=write_tables,
         has_where=all(where_flags) if where_flags else None,
         sql=statement.sql,
+        schema_change=_schema_change(ast, write_tables)
+        if klass is not ReversibilityClass.UNKNOWN
+        else None,
     )
 
 
@@ -368,6 +375,53 @@ def _alter_effect(node: exp.Alter) -> _Effect:
         )
     effects = [_alter_action_effect(a) for a in actions]
     return max(effects, key=lambda e: e.klass.rank)
+
+
+def alter_column_changes(node: exp.Alter) -> tuple[ColumnChange, ...] | None:
+    """The `DROP COLUMN` / `RENAME COLUMN` actions of `node`, or None unless it has only those.
+
+    Anything else (ADD COLUMN, a type change, RENAME TO, IF EXISTS, a qualified column name or
+    a nested path) is a form the executors do not apply, so it yields None.
+    """
+    if str(node.args.get("kind") or "").upper() != "TABLE" or node.args.get("exists"):
+        return None
+    changes: list[ColumnChange] = []
+    for action in node.args.get("actions") or []:
+        if isinstance(action, exp.RenameColumn) and not action.args.get("exists"):
+            old, new = action.this, action.args.get("to")
+            if _plain_column(old) and _plain_column(new):
+                changes.append(ColumnChange("rename", old.name, new.name))
+                continue
+        elif (
+            isinstance(action, exp.Drop)
+            and str(action.args.get("kind") or "").upper() == "COLUMN"
+            and not action.args.get("exists")
+        ):
+            targets = action.args.get("tables") or []
+            if targets and all(_plain_column(c) for c in targets):
+                changes.extend(ColumnChange("drop", c.name) for c in targets)
+                continue
+        return None
+    return tuple(changes) or None
+
+
+def _plain_column(node: exp.Expression | None) -> bool:
+    """A bare top-level column name: no table qualifier, no nested path."""
+    return (
+        isinstance(node, exp.Column)
+        and isinstance(node.this, exp.Identifier)
+        and not node.args.get("table")
+        and "." not in node.name
+        and bool(node.name)
+    )
+
+
+def _schema_change(
+    ast: exp.Expression, write_tables: tuple[str, ...]
+) -> tuple[ColumnChange, ...] | None:
+    if not isinstance(ast, exp.Alter) or len(write_tables) != 1:
+        return None
+    return alter_column_changes(ast)
 
 
 def _alter_action_effect(action: exp.Expression) -> _Effect:

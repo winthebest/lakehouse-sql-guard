@@ -25,7 +25,7 @@ import pyarrow as pa
 
 from sqlguard.core.catalog import SnapshotInfo
 from sqlguard.core.parsing import DEFAULT_DIALECT
-from sqlguard.safety.actions import MaintenanceAction
+from sqlguard.safety.actions import ColumnChange, MaintenanceAction
 from sqlguard.safety.executor.orphan_files import OrphanFile
 from sqlguard.safety.impact import TableImpact
 
@@ -36,6 +36,13 @@ class ExecutionError(RuntimeError):
 
 class UnsupportedAction(ExecutionError):
     """The adapter cannot execute this kind of action."""
+
+
+class SchemaChangeRefused(ExecutionError):
+    """A column change the table must not take (a key column, a name clash, a no-op ...).
+
+    The Guard reports it as a denial with this reason, not as an engine failure.
+    """
 
 
 class BranchDiverged(ExecutionError):
@@ -72,10 +79,12 @@ class Capabilities:
     expire: bool = False  # expire snapshots
     orphan_cleanup: bool = False  # remove orphan files
     changelog: bool = False  # row-level change feed between snapshots
+    # apply a column drop or rename as one catalog commit that fails if main or the schema moved
+    schema_change: bool = False
 
     @classmethod
     def full(cls) -> Capabilities:
-        return cls(True, True, True, True, True, True)
+        return cls(True, True, True, True, True, True, True)
 
 
 @dataclass(frozen=True)
@@ -170,6 +179,79 @@ class MaintenanceResult:
     deleted_files: tuple[str, ...] = ()
 
 
+def schema_line(table: str, changes: Sequence[str]) -> str:
+    return (
+        f"alter_table on {table}: {', '.join(changes)} (not rehearsed; shows the schema, not rows)"
+    )
+
+
+@dataclass(frozen=True)
+class ColumnInfo:
+    """A column as the schema holds it (the field id tells a renamed column from a new one)."""
+
+    field_id: int
+    name: str
+    type: str
+    required: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "field_id": self.field_id,
+            "name": self.name,
+            "type": self.type,
+            "required": self.required,
+        }
+
+
+@dataclass(frozen=True)
+class SchemaPlan:
+    """A read-only preview of a column change: the table's columns now and after the change.
+
+    A schema change cannot be rehearsed on a branch (Iceberg keeps one schema per table, not per
+    branch), so nothing about it has been run: `after` is what the engine computed the new schema
+    would be, and the apply step checks that the table ends up exactly there. It is tied to the
+    state it was planned on: the snapshot main was on and the id of the schema.
+    """
+
+    table: str
+    changes: tuple[ColumnChange, ...]
+    schema_id: int
+    base_snapshot_id: int | None
+    before: tuple[ColumnInfo, ...]
+    after: tuple[ColumnInfo, ...]
+
+    @property
+    def removed(self) -> tuple[str, ...]:
+        kept = {c.field_id for c in self.after}
+        return tuple(c.name for c in self.before if c.field_id not in kept)
+
+    @property
+    def renamed(self) -> tuple[tuple[str, str], ...]:
+        names = {c.field_id: c.name for c in self.after}
+        return tuple(
+            (c.name, names[c.field_id])
+            for c in self.before
+            if c.field_id in names and names[c.field_id] != c.name
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "table": self.table,
+            "changes": [c.describe() for c in self.changes],
+            "schema_id": self.schema_id,
+            "base_snapshot_id": self.base_snapshot_id,
+            "columns_before": [c.to_dict() for c in self.before],
+            "columns_after": [c.to_dict() for c in self.after],
+            "removed": list(self.removed),
+            "renamed": [list(pair) for pair in self.renamed],
+            "rehearsed": False,
+        }
+
+    def summary(self) -> str:
+        """One line for a person or an agent: what changes, and that it was not rehearsed."""
+        return schema_line(self.table, [c.describe() for c in self.changes])
+
+
 class ExecutorAdapter(Protocol):
     engine: str  # name used in reasons shown to users, e.g. "duckdb"
     capabilities: Capabilities
@@ -227,4 +309,18 @@ class ExecutorAdapter(Protocol):
         self, action: MaintenanceAction, plan: MaintenancePlan
     ) -> MaintenanceResult:
         """Execute exactly the items of `plan` that are still valid."""
+        ...
+
+    def plan_schema_change(self, table: str, changes: Sequence[ColumnChange]) -> SchemaPlan:
+        """Read-only: the schema the table would have after `changes`. Raises ExecutionError when
+        a change cannot be applied (no such column, the new name is taken, a key column ...)."""
+        ...
+
+    def apply_schema_change(self, plan: SchemaPlan) -> None:
+        """Apply `plan` in one catalog commit that fails if main or the schema is not as planned.
+
+        Raises BranchDiverged when it is not (nothing changed), PublishStateUnknown when the
+        commit's outcome cannot be established, and PublishMismatch when the table ends up with
+        a schema other than the planned one.
+        """
         ...
