@@ -155,3 +155,44 @@ def test_rows_without_a_threshold_are_not_reported():
     assert "v1_static" not in report["detectors"]
     report = evaluate(scored, {d: 0.5 for d in (*DETECTORS, "v1_static")})
     assert report["detectors"]["v1_static"]["recall"] == 1.0
+
+
+def test_row_a_unreadable_cases_are_broken_down_by_truth_with_the_raw_l7_result():
+    from bench.leakage.run import Scored, evaluate
+    from bench.leakage.v1_runner import V1Score, apply_v1_taxonomy
+
+    def scored_case(name, truth, v1):
+        v1 = apply_v1_taxonomy(v1, truth)
+        scores = {d: 0.0 for d in DETECTORS} | {"v1_static": v1.static, "v1_combined": v1.combined}
+        return Scored(case(name, "SELECT 1", truth), scores, [], {}, {}, {}, v1)
+
+    unparsed = V1Score.not_detected("v1 cannot parse the query: x")
+    seen = V1Score(0.9, 0.9, {}, ["L1"])
+    scored = [
+        scored_case("clean-read", "clean", V1Score(0.0, 0.0, {}, [])),
+        scored_case("clean-unread", "clean", unparsed),
+        scored_case("l1", "L1", seen),
+        scored_case("l7-flagged", "L7", seen),
+        scored_case("l7-missed", "L7", V1Score(0.1, 0.1, {}, [])),
+    ]
+    cut = {d: 0.5 for d in (*DETECTORS, "v1_static", "v1_combined")}
+    reading = evaluate(scored, cut)["v1_reading"]
+    assert reading["unreadable_by_truth"] == {"L7": 2, "clean": 1}
+    assert reading["clean_credited_unread"] == 1
+    assert {u["case_id"] for u in reading["unreadable_cases"]} == {
+        "clean-unread",
+        "l7-flagged",
+        "l7-missed",
+    }
+    static = reading["v1_static"]
+    assert static["recall"] == pytest.approx(1 / 3, abs=1e-3)  # L1 only: L7 is forced to 0
+    assert static["recall_if_unnamed_types_were_read"] == pytest.approx(2 / 3, abs=1e-3)
+    assert (static["forced_to_not_detected"], static["of_which_flagged_by_v1_raw"]) == (2, 1)
+
+    split = {
+        **split_stub(),
+        "v1_reading": reading,
+        "detectors": {"static": split_stub()["detectors"]["static"]},
+    }
+    text = markdown({**result_for("dev"), "splits": {"dev": split}, "in_sample_splits": ["dev"]})
+    assert "could not read: L7 2, clean 1" in text and "v1 did not earn" in text

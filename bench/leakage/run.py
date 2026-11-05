@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +56,7 @@ from bench.leakage.cases import (
     load_templates,
     render,
 )
+from bench.leakage.freeze import frozen_hashes, frozen_mismatches
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.splits import load_splits, seen_splits
 from bench.leakage.v1_runner import (
@@ -100,6 +102,19 @@ class Scored:
     seconds: dict[str, float]
     verdicts: dict[str, str] = field(default_factory=dict)  # detector -> "unverifiable" if so
     reasons: dict[str, str] = field(default_factory=dict)  # detector -> why it is unverifiable
+    v1: V1Score | None = None  # what v1 said, with the score it gave before "not detected"
+
+
+# Written into the pre-registration, so a result that matches them is reported as anticipated.
+EXPECTATIONS = (
+    "Static-only recall on SCD2 (plan_history) L4 templates is expected to be near zero: the "
+    "static rules do not know which column closes a version, so every use of valid_to (the as-of "
+    "lookup valid_to >= t, tenure features, counts of closed versions) is statically clean. "
+    "Replay catches them; the combined detector's recall on them is the number that matters.",
+    "A cutoff read as MAX(label_ts) over the whole spine, and a label counted final exactly "
+    "`horizon` old, are leaky under the label audit's strict conventions; the detector treats a "
+    "dataset-level time split as legitimate. Disagreements on such templates are expected.",
+)
 
 
 def git_sha() -> tuple[str, bool]:
@@ -168,10 +183,11 @@ def score_cases(
                 "v2v1_static": unverifiable_reason(static_b),
                 "v2v1_combined": unverifiable_reason(combined_b),
             }
+        v1_applied = None
         if v1_scores is not None:
-            v1 = apply_v1_taxonomy(v1_scores[position], case.leak_type)
-            scores |= {"v1_static": v1.static, "v1_combined": v1.combined}
-            reasons |= {f"v1_{d}": r for d, r in v1.reasons.items()}
+            v1_applied = apply_v1_taxonomy(v1_scores[position], case.leak_type)
+            scores |= {"v1_static": v1_applied.static, "v1_combined": v1_applied.combined}
+            reasons |= {f"v1_{d}": r for d, r in v1_applied.reasons.items()}
         reasons = {d: r for d, r in reasons.items() if r}
         scored.append(
             Scored(
@@ -181,6 +197,7 @@ def score_cases(
                 seconds,
                 {d: "unverifiable" for d in reasons},
                 reasons,
+                v1_applied,
             )
         )
     return scored
@@ -227,6 +244,8 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
             if d in ("baseline", "static", "replay")
             else None,
         }
+    if any(s.v1 is not None for s in scored):
+        report["v1_reading"] = v1_reading(scored, cut)
     detected = [s for s in scored if s.case.is_leaky and s.scores["combined"] >= cut["combined"]]
     typed = [s for s in detected if s.case.leak_type in s.leak_types]
     report["attribution_accuracy"] = round(len(typed) / len(detected), 4) if detected else None
@@ -259,6 +278,48 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
 
 def world_dir(root: Path, seed: int) -> Path:
     return root / f"synthetic-{seed}"
+
+
+def v1_reading(scored: list[Scored], cut: dict[str, float]) -> dict:
+    """What row (a) could not read, by truth label, and what it would have said had it read L7.
+
+    An unreadable clean case scores "not detected", a true negative that v1 did not earn; a leaky
+    one is a miss. `raw` is the score v1 gave before that rule: for the L7 cases it is v1 judging
+    them by its own six rules.
+    """
+    unreadable = [s for s in scored if s.v1 is not None and s.v1.unreadable]
+    by_truth = Counter(s.case.leak_type for s in unreadable)
+    result: dict = {
+        "unreadable_by_truth": dict(sorted(by_truth.items())),
+        "clean_credited_unread": by_truth["clean"],
+        "unreadable_cases": [
+            {"case_id": s.case.case_id, "truth": s.case.leak_type, "reason": s.v1.reasons["static"]}
+            for s in unreadable
+            if s.v1 is not None
+        ],
+    }
+    leaky = [s for s in scored if s.case.is_leaky and s.v1 is not None]
+    for row in V1_ROWS:
+        if row not in cut or not leaky:
+            continue
+        which = row.removeprefix("v1_")
+        raw = {
+            s.case.case_id: (getattr(s.v1, f"raw_{which}") if s.v1.raw_static is not None else None)
+            for s in leaky
+        }
+        forced = [s for s in leaky if raw[s.case.case_id] is not None]
+        hits = sum(s.scores[row] >= cut[row] for s in leaky)
+        hits_raw = sum(
+            (raw[s.case.case_id] if raw[s.case.case_id] is not None else s.scores[row]) >= cut[row]
+            for s in leaky
+        )
+        result[row] = {
+            "recall": round(hits / len(leaky), 4),
+            "recall_if_unnamed_types_were_read": round(hits_raw / len(leaky), 4),
+            "forced_to_not_detected": len(forced),
+            "of_which_flagged_by_v1_raw": sum(raw[s.case.case_id] >= cut[row] for s in forced),
+        }
+    return result
 
 
 def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
@@ -343,6 +404,8 @@ def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
             name: len(list((TEMPLATES_DIR / name).glob("*.sql"))) for name in manifest
         },
         "v1": {"tag": V1_TAG, "commit": tag_commit()} if with_v1 else None,
+        "frozen_files": frozen_hashes(),
+        "expectations": list(EXPECTATIONS),
         "max_fpr": MAX_FPR,
         # null = the detector cannot reach FPR <= max_fpr with any positive threshold
         "thresholds": {d: (None if t == float("inf") else t) for d, t in cut.items()},
@@ -365,11 +428,54 @@ def prereg(seed: int, warehouse: Path, out_dir: Path = RESULTS_DIR, with_v1: boo
     return path
 
 
+def load_prereg(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        raise SystemExit(f"cannot read the pre-registration {path}: {err}") from err
+
+
 def latest_prereg(out_dir: Path = RESULTS_DIR) -> dict:
-    files = sorted(out_dir.glob("prereg-*.json"), key=lambda p: p.stat().st_mtime)
-    if not files:
+    """The newest pre-registration by the time it records (never by file time). Only for runs on
+    splits that were already seen: a split nobody has seen needs an explicit `--prereg`."""
+    found = [load_prereg(p) for p in out_dir.glob("prereg-*.json")]
+    if not found:
         raise SystemExit("no pre-registration found; run `sqlguard-bench leakage prereg` first")
-    return json.loads(files[-1].read_text(encoding="utf-8"))
+    return max(found, key=lambda pre: pre.get("created_at", ""))
+
+
+def require_frozen_run(
+    held_out: list[str],
+    pre: dict,
+    prereg_path: Path | None,
+    *,
+    with_v1: bool,
+    root: Path | None = None,
+) -> None:
+    """Refuse a run on a split nobody has seen unless everything it relies on is as it was frozen.
+
+    It needs an explicit pre-registration, a clean working tree, the recorded hashes of the frozen
+    files unchanged, and a threshold for every row it reports (row (a) only if `with_v1`).
+    """
+    names = ", ".join(held_out)
+    if prereg_path is None:
+        raise SystemExit(f"a run on unseen split(s) {names} needs an explicit --prereg PATH")
+    _, dirty = git_sha()
+    if dirty:
+        raise SystemExit("commit or stash your changes first: a held-out run needs a clean tree")
+    recorded = pre.get("frozen_files")
+    if not recorded:
+        raise SystemExit(f"{prereg_path} records no frozen_files hashes; write it with `prereg`")
+    problems = frozen_mismatches(recorded, root) if root else frozen_mismatches(recorded)
+    if problems:
+        shown = "; ".join(problems[:8])
+        raise SystemExit(f"the frozen files changed since {prereg_path.name}: {shown}")
+    rows = [*DETECTORS, *V1_SPEC_ROWS, *(V1_ROWS if with_v1 else ())]
+    missing = [row for row in rows if row not in pre["thresholds"]]
+    if missing:
+        raise SystemExit(
+            f"{prereg_path.name} has no threshold for {missing}; refusing to drop rows"
+        )
 
 
 def _real(seed: int, warehouse: Path, cut: dict[str, float]) -> dict | None:
@@ -395,17 +501,23 @@ def run(
     *,
     with_v1: bool = True,
     with_fixes: bool = False,
+    prereg_path: Path | None = None,
 ) -> Path:
     """Score the template `splits` with the pre-registered thresholds and write the report.
 
     Row (a) needs the v1 virtualenv and a pre-registration that has its thresholds; `with_v1=False`
-    leaves it out. `with_fixes` adds the fix-suggestion rates by verification level.
+    leaves it out. `with_fixes` adds the fix-suggestion rates by verification level. A split nobody
+    has seen needs `prereg_path` and passes `require_frozen_run`; runs on seen splits take the
+    newest pre-registration when none is given and leave out rows it has no threshold for.
     """
     unknown = [name for name in splits if not load_templates(name)]
     if not splits or unknown:
         raise SystemExit(f"no templates for split(s) {unknown or splits}; known: {SPLITS}")
     started = time.perf_counter()
-    pre = latest_prereg(out_dir)
+    pre = load_prereg(prereg_path) if prereg_path else latest_prereg(out_dir)
+    held_out = [name for name in splits if name not in seen_splits(pre)]
+    if held_out:
+        require_frozen_run(held_out, pre, prereg_path, with_v1=with_v1)
     cut = {d: float("inf") if t is None else t for d, t in pre["thresholds"].items()}
     with_v1 = with_v1 and all(d in cut for d in V1_ROWS)
     catalog = synthetic_world(warehouse, seed)
@@ -426,6 +538,8 @@ def run(
         "dirty": dirty,
         "seed": seed,
         "prereg_sha": pre["git_sha"],
+        "prereg_file": str(prereg_path) if prereg_path else None,
+        "held_out_run_checked": bool(held_out),
         "thresholds": pre["thresholds"],
         "splits": results,
         "in_sample_splits": [name for name in splits if name in seen_splits(pre)],
@@ -502,6 +616,9 @@ def markdown(result: dict) -> str:
                 f"{m['fpr']:.2f} {_ci(m, 'fpr')} | "
                 f"{m['precision']:.2f} | {m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
             )
+        reading = split.get("v1_reading")
+        if reading:
+            lines += ["", _v1_reading_lines(reading)]
         types = sorted({t for m in split["detectors"].values() for t in m["recall_by_type"]})
         lines += ["", "| recall by type | " + " | ".join(types) + " |"]
         lines.append("|---" * (len(types) + 1) + "|")
@@ -553,6 +670,24 @@ def markdown(result: dict) -> str:
     for name, g in gap.items():
         lines.append(f"| {name} | {g['offline_auc']:.3f} | {g['real_auc']:.3f} | {g['gap']:+.3f} |")
     return "\n".join(lines) + "\n"
+
+
+def _v1_reading_lines(reading: dict) -> str:
+    unread = ", ".join(f"{t} {n}" for t, n in reading["unreadable_by_truth"].items()) or "none"
+    lines = [
+        f"Row (a) could not read: {unread} (by truth label). The {reading['clean_credited_unread']}"
+        " clean ones score as true negatives v1 did not earn."
+    ]
+    for row in V1_ROWS:
+        if row in reading:
+            r = reading[row]
+            lines.append(
+                f"{ROW_NAMES[row]}: recall {r['recall']:.2f}; had v1 been scored on the "
+                f"{r['forced_to_not_detected']} cases of a type it has no name for by its own "
+                f"rules, {r['recall_if_unnamed_types_were_read']:.2f} "
+                f"({r['of_which_flagged_by_v1_raw']} of them flagged)."
+            )
+    return "\n\n".join(lines)
 
 
 def _ci(metrics: dict, key: str) -> str:
@@ -617,6 +752,11 @@ def main(argv: list[str] | None = None) -> None:
         help="template splits to score (default: dev dev_v1b)",
     )
     parser.add_argument(
+        "--prereg",
+        type=Path,
+        help="the pre-registration to use (required for a split nobody has seen)",
+    )
+    parser.add_argument(
         "--skip-v1", action="store_true", help="leave out row (a), the v1 detector (no virtualenv)"
     )
     parser.add_argument(
@@ -635,6 +775,7 @@ def main(argv: list[str] | None = None) -> None:
             tuple(args.splits),
             with_v1=not args.skip_v1,
             with_fixes=args.fixes,
+            prereg_path=args.prereg,
         )
         print(f"results written to {path}")
 

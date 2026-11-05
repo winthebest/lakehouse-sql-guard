@@ -2,6 +2,7 @@
 
 sqlguard-bench leakage prereg --seed 42     # thresholds fit on dev only
 sqlguard-bench leakage run --seed 42 [--real] [--splits dev dev_v1b] [--skip-v1] [--fixes]
+                           [--prereg PATH]   # PATH is required for a split nobody has seen
 sqlguard-bench leakage duplicates --candidate holdout_v2 [--counts]   # or --candidate-dir DIR
 sqlguard-bench leakage audit-labels --candidate holdout_v2   # or --candidate-dir DIR [--points N]
 sqlguard-bench safety tier1
@@ -31,6 +32,9 @@ def main(argv: list[str] | None = None) -> None:
         default=list(DEFAULT_SPLITS),
         choices=SPLITS,
         help="template splits to score (run only)",
+    )
+    leakage.add_argument(
+        "--prereg", type=Path, help="pre-registration to use (required for an unseen split)"
     )
     leakage.add_argument("--skip-v1", action="store_true", help="leave out the v1 detector row")
     leakage.add_argument(
@@ -64,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
                 splits=tuple(args.splits),
                 with_v1=not args.skip_v1,
                 with_fixes=args.fixes,
+                prereg_path=args.prereg,
             )
             print(f"results written to {path}")
     elif args.action == "agent":

@@ -1,0 +1,54 @@
+"""The files a pre-registration freezes, and the check that a run still sees them unchanged.
+
+The pre-registration records the SHA-256 of every file that decides a verdict: the leakage rules and
+weights, the dbt inlining, the specs, the split manifest and the world generator. A run on a split
+nobody has seen compares the working tree with that record, so a rule edited after the freeze is
+caught even when the edit never reached a commit.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Mapping
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+FROZEN_GLOBS = (
+    "src/sqlguard/leakage/**/*",
+    "src/sqlguard/dbt/**/*",
+    "bench/leakage/spec.yaml",
+    "bench/leakage/spec_holdout_v2.yaml",
+    "bench/leakage/splits.yaml",
+    "bench/leakage/world.py",
+)
+_IGNORED = ("__pycache__", ".pyc")
+
+
+def _files(root: Path) -> list[Path]:
+    found = {
+        p
+        for pattern in FROZEN_GLOBS
+        for p in root.glob(pattern)
+        if p.is_file() and not any(part in str(p) for part in _IGNORED)
+    }
+    return sorted(found)
+
+
+def frozen_hashes(root: Path = ROOT) -> dict[str, str]:
+    """`{path relative to the repository: sha256}` for every frozen file."""
+    return {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in _files(root)
+    }
+
+
+def frozen_mismatches(recorded: Mapping[str, str], root: Path = ROOT) -> list[str]:
+    """What differs between the record and the tree: changed, missing and added files."""
+    now = frozen_hashes(root)
+    problems = [
+        f"changed: {name}"
+        for name in sorted(recorded)
+        if name in now and now[name] != recorded[name]
+    ]
+    problems += [f"missing: {name}" for name in sorted(set(recorded) - set(now))]
+    problems += [f"added: {name}" for name in sorted(set(now) - set(recorded))]
+    return problems
