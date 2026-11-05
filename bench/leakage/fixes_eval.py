@@ -19,7 +19,8 @@ repaired query that loses a row the original returned needs a `rows may drop:` c
 gains rows or repeats them differently needs a row caveat, and a `preserved` fix may not change
 the rows at all. This is checked on both CLI paths, with and without replay.
 
-`dev` and `dev_v1b` were both seen while the rewrites were written, so the rates are in-sample.
+Each split is checked with the spec `splits.yaml` gives it. `dev` and `dev_v1b` were both seen while
+the rewrites were written, so their rates are in-sample.
 
 Usage: python -m bench.leakage.fixes_eval --splits dev dev_v1b --out-dir <dir>
 """
@@ -33,7 +34,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from bench.leakage.cases import SPLITS, LeakCase, generate_cases
-from bench.leakage.run import SYNTHETIC_SPEC, synthetic_world
+from bench.leakage.splits import load_splits
+from bench.leakage.world import synthetic_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.fixes import Semantics, Verification, key_counts, suggest_fix
 from sqlguard.leakage.replay import Replayer
@@ -232,14 +234,20 @@ def markdown(result: dict) -> str:
 
 
 def run(seed: int, warehouse: Path, out_dir: Path, splits: tuple[str, ...]) -> Path:
-    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    manifest = load_splits()
     catalog = synthetic_world(warehouse, seed)
     started = time.perf_counter()
     result = {
         "seed": seed,
         "weights": Weights.load().rules,
         "splits": {
-            split: evaluate(generate_cases(seed, (split,)), catalog, spec, seed) for split in splits
+            split: evaluate(
+                generate_cases(seed, (split,)),
+                catalog,
+                LeakageSpec.from_yaml(manifest[split].spec),
+                seed,
+            )
+            for split in splits
         },
     }
     result["runtime_seconds"] = round(time.perf_counter() - started, 1)

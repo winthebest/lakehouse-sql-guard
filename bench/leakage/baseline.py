@@ -8,11 +8,14 @@ targets.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import duckdb
 
-from sqlguard.leakage.spec import LeakageSpec
+if TYPE_CHECKING:
+    from sqlguard.leakage.spec import LeakageSpec
 
 
 def baseline_score(conn: duckdb.DuckDBPyConnection, sql: str, spec: LeakageSpec) -> float:
@@ -35,3 +38,30 @@ def baseline_score(conn: duckdb.DuckDBPyConnection, sql: str, spec: LeakageSpec)
         ):
             violations += 1
     return violations / len(rows)
+
+
+def bind_relations(conn: duckdb.DuckDBPyConnection, spec: LeakageSpec) -> None:
+    """Expose the spec's qualified relation names (`db.schema.model`) on `conn`.
+
+    Each name becomes a view over the bare catalog table it maps to, so the baseline can run the
+    queries that name tables the way a dbt project does. A spec without `relations` changes nothing.
+    """
+    bind_relation_map(conn, spec.relations)
+
+
+def bind_relation_map(conn: duckdb.DuckDBPyConnection, relations: Mapping[str, str]) -> None:
+    """`bind_relations` for a plain mapping of qualified name -> catalog table."""
+    for name, target in relations.items():
+        parts = [p.replace('"', '""') for p in name.split(".")]
+        quoted = [f'"{p}"' for p in parts]
+        if len(parts) == 3:
+            attached = {
+                row[0]
+                for row in conn.execute("SELECT database_name FROM duckdb_databases()").fetchall()
+            }
+            if parts[0] not in attached:
+                conn.execute(f"ATTACH ':memory:' AS {quoted[0]}")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {'.'.join(quoted[:-1])}")
+        source = target.rsplit(".", 1)[-1].replace('"', '""')
+        view = ".".join(quoted)
+        conn.execute(f'CREATE OR REPLACE VIEW {view} AS SELECT * FROM temp.main."{source}"')

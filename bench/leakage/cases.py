@@ -11,6 +11,9 @@ Every combination of parameter values becomes one case. Splits are by template:
 - `dev`: tuned on; the rules and thresholds were developed against these.
 - `dev_v1b`: the v1 held-out templates. They were seen while the rules were extended, so they are
   development data now and a result on them is in-sample.
+- `holdout_v2`: written by independent authors after the rules were frozen.
+
+`splits.yaml` lists the splits, the spec each is checked with, and which were seen.
 
 Usage: python -m bench.leakage.cases --seed 42 --split dev --out bench/leakage/cases.jsonl
 """
@@ -18,15 +21,19 @@ Usage: python -m bench.leakage.cases --seed 42 --split dev --out bench/leakage/c
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import random
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from bench.leakage.splits import load_splits
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-SPLITS = ("dev", "dev_v1b")
+SPLITS = tuple(load_splits())
+DEFAULT_SPLITS = tuple(name for name, split in load_splits().items() if split.seen)
 LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6", "L7")
 _HEADER = re.compile(r"^--\s*(leak|param\s+(\w+))\s*:\s*(.*)$")
 
@@ -38,6 +45,9 @@ class Template:
     leak_type: str
     params: dict[str, list[str]]
     body: str
+    # SHA-256 of the file's bytes as they were read to parse it, so what a result reports about a
+    # template is what was scored, not what the file holds when the run ends
+    sha256: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True)
@@ -49,6 +59,7 @@ class LeakCase:
     leak_type: str  # "clean" | "L1".."L7"
     params: dict[str, str]
     sql: str
+    template_sha256: str = field(default="", compare=False)  # of the template file it came from
 
     @property
     def is_leaky(self) -> bool:
@@ -57,7 +68,8 @@ class LeakCase:
 
 def load_template(path: Path, split: str) -> Template:
     leak_type, params, body = None, {}, []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    raw = path.read_bytes()
+    for line in raw.decode("utf-8").splitlines():
         match = _HEADER.match(line.strip())
         if match and not body:
             if match.group(1) == "leak":
@@ -68,7 +80,14 @@ def load_template(path: Path, split: str) -> Template:
             body.append(line)
     if leak_type not in LEAK_TYPES:
         raise ValueError(f"{path}: missing or invalid '-- leak:' header ({leak_type!r})")
-    return Template(path.stem, split, leak_type, params, "\n".join(body).strip())
+    return Template(
+        path.stem,
+        split,
+        leak_type,
+        params,
+        "\n".join(body).strip(),
+        hashlib.sha256(raw).hexdigest(),
+    )
 
 
 def load_templates(split: str, root: Path = TEMPLATES_DIR) -> list[Template]:
@@ -90,6 +109,7 @@ def render(template: Template) -> list[LeakCase]:
                 leak_type=template.leak_type,
                 params=binding,
                 sql=template.body.format(**binding),
+                template_sha256=template.sha256,
             )
         )
     return cases

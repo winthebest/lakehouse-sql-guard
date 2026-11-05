@@ -7,6 +7,12 @@ Timeline semantics (all timestamps naive UTC):
 - `entities` is static and committed before the world starts.
 - `labels` (the prediction spine) and `user_outcomes` (facts observed after churn) are
   committed at the end, so they were never visible at prediction time.
+- `plan_history` is a slowly changing dimension (SCD2): one row per version of a user's plan,
+  `valid_from` (when the plan took effect) and `valid_to` (when the next one did; NULL while open),
+  and `ingested_at` (the night the row was first loaded). A nightly job loads new versions and, in
+  the same commit, closes the previous version of the same user, so `valid_to` becomes visible
+  only when the superseding version does. It is generated after every other table from its own
+  random stream: the other tables do not depend on it.
 
 Each commit stores its logical time in the snapshot summary (`LOGICAL_TS_PROPERTY`), which
 lets point-in-time replay map a prediction timestamp to the snapshot that was visible then.
@@ -17,12 +23,14 @@ from __future__ import annotations
 import json
 import math
 import random
+import shutil
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pyarrow as pa
+from pyiceberg.expressions import In
 
 from sqlguard.core.catalog import LOGICAL_TS_PROPERTY, LakehouseCatalog
 
@@ -61,7 +69,20 @@ SCHEMAS = {
             ("days_to_churn", pa.int64()),
         ]
     ),
+    # keep last: tables are created in this order and nothing above depends on it
+    "plan_history": pa.schema(
+        [
+            ("user_id", pa.int64()),
+            ("plan", pa.string()),
+            ("monthly_fee", pa.float64()),
+            ("valid_from", pa.timestamp("us")),
+            ("valid_to", pa.timestamp("us")),
+            ("ingested_at", pa.timestamp("us")),
+        ]
+    ),
 }
+
+PLAN_FEES = {"free": 0.0, "basic": 9.0, "pro": 29.0}  # in ladder order, cheapest first
 
 
 @dataclass(frozen=True)
@@ -77,6 +98,10 @@ class WorldConfig:
     horizon_days: int = 14
     fade_days: int = 10
     late_max_days: int = 7  # a late event arrives 1..late_max_days nights after the usual night
+    plan_change_rate: float = 0.02  # chance per day that a user's plan changes
+    plan_churn_change_rate: float = 0.2  # the same, in the `plan_churn_days` before churning
+    plan_churn_days: int = 8  # a churner tends to downgrade in this window before leaving
+    plan_initial_age_days: int = 6  # plans loaded at the start began up to this many days earlier
 
 
 def declared_spec_fields(config: WorldConfig | None = None) -> dict[str, object]:
@@ -91,6 +116,19 @@ def declared_spec_fields(config: WorldConfig | None = None) -> dict[str, object]
         "max_ingest_delay": {"events": f"{cfg.late_max_days + 1} days"},
         "label_known_after": f"{cfg.horizon_days} days",
     }
+
+
+def declared_plan_history_fields(config: WorldConfig | None = None) -> dict[str, object]:
+    """The `plan_history` spec values this world's parameters guarantee.
+
+    A version is loaded the night after it took effect, or up to `late_max_days` nights later
+    (never before the version it replaces), and the versions in place at the start began at most
+    `plan_initial_age_days` earlier, so `ingested_at - valid_from` stays below the larger of the
+    two delays.
+    """
+    cfg = config or WorldConfig()
+    days = max(cfg.late_max_days + 1, cfg.plan_initial_age_days + 1)
+    return {"max_ingest_delay": {"plan_history": f"{days} days"}}
 
 
 @dataclass(frozen=True)
@@ -127,6 +165,119 @@ def _commit(catalog: LakehouseCatalog, table: str, rows: list[dict], logical: da
     catalog.table(table).append(
         data, snapshot_properties={LOGICAL_TS_PROPERTY: logical.isoformat()}
     )
+
+
+@dataclass(frozen=True)
+class PlanVersion:
+    """One row of `plan_history` with the times the generator knows for it."""
+
+    user_id: int
+    plan: str
+    monthly_fee: float
+    valid_from: datetime  # when the plan took effect
+    ingested_at: datetime  # the night the row was first loaded: from then on it is knowable
+    valid_to: datetime | None  # when the next version took effect; None while this one is open
+    closed_at: datetime | None  # the night the next version was loaded: `valid_to` is knowable
+
+    def as_row(self, now: datetime) -> dict:
+        """The row as the table holds it after the load of night `now`."""
+        closed = self.closed_at is not None and self.closed_at <= now
+        return {
+            "user_id": self.user_id,
+            "plan": self.plan,
+            "monthly_fee": self.monthly_fee,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to if closed else None,
+            "ingested_at": self.ingested_at,
+        }
+
+
+def generate_plan_versions(cfg: WorldConfig, churn_day: dict[int, int | None]) -> list[PlanVersion]:
+    """Every plan version that is loaded before the world ends, from a stream of its own.
+
+    A user starts on a plan that began up to `plan_initial_age_days` before the world, changes
+    plan on random days (more often, and downwards, shortly before churning), and each change is
+    loaded the night after it took effect or, for `late_rate` of them, up to `late_max_days`
+    nights later. A version is never loaded before the one it replaces. Changes still unloaded
+    when the world ends are not part of the table.
+    """
+    rng = random.Random(f"plan_history/{cfg.seed}")
+    ladder = list(PLAN_FEES)
+    versions: list[PlanVersion] = []
+    for user in range(1, cfg.n_users + 1):
+        plan = rng.choices(ladder, weights=[0.5, 0.35, 0.15])[0]
+        taken = [
+            (plan, START - timedelta(seconds=rng.randint(1, cfg.plan_initial_age_days * 86_400)), 0)
+        ]
+        last_ingest = 0
+        churn = churn_day.get(user)
+        for day in range(cfg.n_days):
+            if churn is not None and day >= churn:
+                break
+            leaving = churn is not None and churn - day <= cfg.plan_churn_days
+            if rng.random() >= (cfg.plan_churn_change_rate if leaving else cfg.plan_change_rate):
+                continue
+            rung = ladder.index(plan)
+            options = [r for r in (rung - 1, rung + 1) if 0 <= r < len(ladder)]
+            if leaving:
+                options = [r for r in options if r < rung]
+            if not options:
+                continue
+            plan = ladder[rng.choice(options)]
+            started = _midnight(day) + timedelta(seconds=rng.randint(0, 86_399))
+            late = rng.random() < cfg.late_rate
+            ingest_day = max(
+                day + 1 + (rng.randint(1, cfg.late_max_days) if late else 0), last_ingest
+            )
+            if ingest_day > cfg.n_days:
+                break  # in flight when the world ends, and so is everything after it
+            last_ingest = ingest_day
+            taken.append((plan, started, ingest_day))
+        for k, (name, started, ingest_day) in enumerate(taken):
+            after = taken[k + 1] if k + 1 < len(taken) else None
+            versions.append(
+                PlanVersion(
+                    user_id=user,
+                    plan=name,
+                    monthly_fee=PLAN_FEES[name],
+                    valid_from=started,
+                    ingested_at=_midnight(ingest_day),
+                    valid_to=after[1] if after else None,
+                    closed_at=_midnight(after[2]) if after else None,
+                )
+            )
+    return versions
+
+
+def _commit_plan_history(catalog: LakehouseCatalog, versions: list[PlanVersion], n_days: int):
+    """Load the versions night by night, closing a user's open version in the load of the next.
+
+    Closing a version changes a row that is already stored, so the nightly commit replaces the rows
+    of the users it touches (an Iceberg overwrite: a delete snapshot and an append snapshot that
+    carry the same logical time, and become visible together).
+    """
+    by_night: dict[datetime, list[PlanVersion]] = defaultdict(list)
+    for v in versions:
+        by_night[v.ingested_at].append(v)
+    history: dict[int, list[PlanVersion]] = defaultdict(list)
+    for night in range(n_days + 1):
+        now = _midnight(night)
+        loaded = by_night.get(now, [])
+        if not loaded:
+            continue
+        for v in loaded:
+            history[v.user_id].append(v)
+        touched = sorted({v.user_id for v in loaded})
+        rows = [v.as_row(now) for u in touched for v in history[u]]
+        data = pa.Table.from_pylist(rows, schema=SCHEMAS["plan_history"])
+        table = catalog.table("plan_history")
+        properties = {LOGICAL_TS_PROPERTY: now.isoformat()}
+        if table.current_snapshot() is None:
+            table.append(data, snapshot_properties=properties)
+        else:
+            table.overwrite(
+                data, overwrite_filter=In("user_id", touched), snapshot_properties=properties
+            )
 
 
 def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) -> WorldSummary:
@@ -228,6 +379,8 @@ def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) ->
     _commit(catalog, "labels", labels, world_end)
     _commit(catalog, "user_outcomes", outcomes, world_end)
 
+    _commit_plan_history(catalog, generate_plan_versions(cfg, churn_day), cfg.n_days)
+
     return WorldSummary(
         n_events=sum(len(rows) for rows in by_ingest_day.values()),
         n_late_events=n_late,
@@ -235,6 +388,70 @@ def build_world(catalog: LakehouseCatalog, config: WorldConfig | None = None) ->
         churn_rate=sum(r["churned"] for r in labels) / len(labels),
         snapshots={name: len(catalog.snapshots(name)) for name in SCHEMAS},
     )
+
+
+# --- ground truth for `plan_history`, from the times the generator wrote ---------------------
+# A version is knowable at prediction time `t` once its `ingested_at` is before `t`; the question
+# "which plan was in effect" has a second, event-time answer that can differ from it. Labels for
+# queries over this table follow from the two, never from replaying snapshots.
+
+
+def plan_versions(catalog: LakehouseCatalog) -> list[PlanVersion]:
+    """The generator's versions, read back from the finished table (final `valid_to` included)."""
+    rows = sorted(
+        catalog.read("plan_history").to_pylist(), key=lambda r: (r["user_id"], r["valid_from"])
+    )
+    versions = []
+    for k, row in enumerate(rows):
+        following = (
+            rows[k + 1] if k + 1 < len(rows) and rows[k + 1]["user_id"] == row["user_id"] else None
+        )
+        versions.append(
+            PlanVersion(
+                user_id=row["user_id"],
+                plan=row["plan"],
+                monthly_fee=row["monthly_fee"],
+                valid_from=row["valid_from"],
+                ingested_at=row["ingested_at"],
+                valid_to=row["valid_to"],
+                closed_at=following["ingested_at"] if following else None,
+            )
+        )
+    return versions
+
+
+def known_plans(versions: list[PlanVersion], t: datetime) -> dict[int, PlanVersion]:
+    """Per user, the newest version loaded strictly before `t`: what a model could read at `t`."""
+    known: dict[int, PlanVersion] = {}
+    for v in sorted(versions, key=lambda v: v.valid_from):
+        if v.ingested_at < t:
+            known[v.user_id] = v
+    return known
+
+
+def effective_plans(versions: list[PlanVersion], t: datetime) -> dict[int, PlanVersion]:
+    """Per user, the version in effect just before `t` by event time, loaded yet or not."""
+    effective: dict[int, PlanVersion] = {}
+    for v in sorted(versions, key=lambda v: v.valid_from):
+        if v.valid_from < t:
+            effective[v.user_id] = v
+    return effective
+
+
+def late_plan_users(versions: list[PlanVersion], t: datetime) -> set[int]:
+    """Users whose plan in effect at `t` was not yet loaded: an event-time-only lookup leaks."""
+    known = known_plans(versions, t)
+    return {user for user, v in effective_plans(versions, t).items() if known.get(user) != v}
+
+
+def open_versions_at(versions: list[PlanVersion], t: datetime) -> list[PlanVersion]:
+    """Versions in effect at `t` that the finished table closes later (a helper for tenure-style
+    features: their final `valid_to` is a change nobody knew of at `t`).
+
+    It does not cover the versions the as-of lookup loses: those whose successor took effect before
+    `t` but was loaded at or after it. For that, compare with `known_plans`.
+    """
+    return [v for v in versions if v.valid_from < t and v.valid_to is not None and v.valid_to >= t]
 
 
 def write_timeline(catalog: LakehouseCatalog, path: Path) -> None:
@@ -251,3 +468,23 @@ def write_timeline(catalog: LakehouseCatalog, path: Path) -> None:
 
 def summary_dict(summary: WorldSummary) -> dict:
     return {**asdict(summary), "late_rate": round(summary.late_rate, 4)}
+
+
+def world_dir(root: Path, seed: int) -> Path:
+    return root / f"synthetic-{seed}"
+
+
+def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
+    """The synthetic world for `seed` under `root`, generated on first use.
+
+    A directory generated before a table was added to the world lacks it, so it is regenerated
+    (the other tables come out the same: the generator is deterministic).
+    """
+    path = world_dir(root, seed)
+    catalog = LakehouseCatalog.local(path)
+    if set(catalog.table_names()) != set(SCHEMAS):
+        if catalog.table_names():
+            shutil.rmtree(path)
+            catalog = LakehouseCatalog.local(path)
+        build_world(catalog, WorldConfig(seed=seed))
+    return catalog

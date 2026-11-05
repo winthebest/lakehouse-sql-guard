@@ -839,6 +839,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--replay", type=Path, metavar="TRANSCRIPT_DIR", help="re-score; needs no credentials"
     )
+    parser.add_argument(
+        "--label",
+        metavar="TEXT",
+        help="appended to the run's tag (lowercase letters, digits, dashes), so cells started in "
+        "the same second, or that differ only by policy, never share results or transcripts",
+    )
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
     parser.add_argument("--transcripts-dir", type=Path, default=TRANSCRIPT_DIR)
     return parser
@@ -897,7 +903,9 @@ def main(
         policy=args.policy,
         budget_usd=args.budget,
     )
-    tag = f"{split}-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
+    if args.label is not None and not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", args.label):
+        parser.error("--label may only hold lowercase letters, digits and single dashes")
+    tag = f"{split}-{datetime.now(UTC):%Y%m%dT%H%M%SZ}" + (f"-{args.label}" if args.label else "")
     if args.pilot:
         try:
             result = run_pilot(
