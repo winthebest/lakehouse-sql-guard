@@ -1,6 +1,6 @@
-# LeakageSpec for the held-out v2 templates over the synthetic churn world (bench/leakage/world.py).
-# It extends spec.yaml with the SCD2 table `plan_history` and with the warehouse's qualified
-# relation names (dbt-style `database.schema.model`), which `relations` maps to catalog tables.
+# Spec for the synthetic churn world of the held-out v2 templates: which table is the label
+# spine, which columns carry time, and how long data takes to arrive. Qualified relation names
+# (dbt-style `database.schema.model`) are mapped to the warehouse tables by `relations`.
 label_table: labels
 entity_keys: [user_id]
 prediction_ts: label_ts
@@ -13,8 +13,7 @@ availability_columns:
   events: ingested_at
   plan_history: ingested_at
 boundary: strict
-# Both follow from the world generator's parameters (see world.declared_spec_fields and
-# world.declared_plan_history_fields): a row is loaded less than this long after it happened.
+# A row is loaded less than this long after it happened (a guarantee of the data generator).
 max_ingest_delay:
   events: 8 days
   plan_history: 8 days
