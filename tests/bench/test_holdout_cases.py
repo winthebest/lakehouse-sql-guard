@@ -51,12 +51,27 @@ def _relations(split: str) -> dict[str, str]:
     return spec.get("relations") or {}
 
 
-def test_the_seen_splits_are_independent_of_each_other():
-    """Sanity of the check itself: v1's held-out templates and the dev templates were written
-    separately, and none is a copy of the other."""
-    dev, v1b = load_templates("dev"), {"dev_v1b": load_templates("dev_v1b")}
-    assert duplicates.find_duplicates(dev, v1b) == []
-    assert duplicates.find_duplicates(load_templates("dev_v1b"), {"dev": dev}) == []
+def test_independently_written_splits_share_only_three_known_shapes():
+    """The two seen splits were written separately. With constants, `INTERVAL` spellings and
+    wrappers ignored, three of v1's held-out templates are still copies of dev shapes (a lagged sum
+    with 10 days for 8, a matured target encoding with 14 days for 1, a FILTER over one window); the
+    other 43 are not. Sets the check flags here are returned for a person to read."""
+    dev, v1b = load_templates("dev"), load_templates("dev_v1b")
+    hits = duplicates.find_duplicates(v1b, {"dev": dev})
+    assert set(duplicates.one_per_template(hits)) == {
+        "hc07_target_encoding_matured",
+        "hc11_filter_two_windows",
+        "hc13_safe_event_lag",
+    }
+    back = duplicates.find_duplicates(dev, {"dev_v1b": v1b})
+    assert set(duplicates.one_per_template(back)) == {
+        "c03_window_agg_events",
+        "c17_event_lag_over_delay",
+        "l1_latest_prediction_only",
+        "l4_event_lag_short",
+        "l6_unmatured_target_encoding",
+    }
+    assert {d.kind for d in hits} == {"ast", "similar"}
 
 
 def test_a_split_compared_with_itself_is_all_duplicates():
@@ -187,3 +202,153 @@ def test_loading_a_template_directory_uses_the_repository_format():
     loaded = duplicates.load_directory(TEMPLATES_DIR / "dev")
     assert len(loaded) == len(load_templates("dev"))
     assert loaded[0] == load_template(sorted((TEMPLATES_DIR / "dev").glob("*.sql"))[0], "candidate")
+
+
+# --- single-edit variants of one shape -----------------------------------------------------------
+
+BASE = """SELECT l.user_id, l.label_ts, l.churned, SUM(e.amount) AS amount_7d
+FROM labels l
+LEFT JOIN events e ON e.user_id = l.user_id
+  AND e.event_ts < l.label_ts
+  AND e.event_ts >= l.label_ts - INTERVAL 7 DAY
+GROUP BY l.user_id, l.label_ts, l.churned"""
+CLOSED = BASE.replace("e.event_ts < l.label_ts", "e.event_ts <= l.label_ts")
+
+VARIANTS = {
+    "predicate order": BASE.replace(
+        "AND e.event_ts < l.label_ts\n  AND e.event_ts >= l.label_ts - INTERVAL 7 DAY",
+        "AND e.event_ts >= l.label_ts - INTERVAL 7 DAY\n  AND e.event_ts < l.label_ts",
+    ),
+    "flipped comparison": BASE.replace("e.event_ts < l.label_ts\n", "l.label_ts > e.event_ts\n"),
+    "select order": BASE.replace(
+        "SELECT l.user_id, l.label_ts, l.churned, SUM(e.amount) AS amount_7d",
+        "SELECT SUM(e.amount) AS amount_7d, l.churned, l.label_ts, l.user_id",
+    ),
+    "interval string": BASE.replace("INTERVAL 7 DAY", "INTERVAL '7 days'"),
+    "to_days": BASE.replace("INTERVAL 7 DAY", "to_days(7)"),
+    "changed constant": BASE.replace("INTERVAL 7 DAY", "INTERVAL 30 DAY"),
+    "group by all": BASE.replace("GROUP BY l.user_id, l.label_ts, l.churned", "GROUP BY ALL"),
+    "group by ordinals": BASE.replace(
+        "GROUP BY l.user_id, l.label_ts, l.churned", "GROUP BY 1, 2, 3"
+    ),
+    "right join, tables swapped": """SELECT l.user_id, l.label_ts, l.churned,
+               SUM(e.amount) AS amount_7d
+        FROM events e RIGHT JOIN labels l ON e.user_id = l.user_id
+          AND e.event_ts < l.label_ts AND e.event_ts >= l.label_ts - INTERVAL 7 DAY
+        GROUP BY l.user_id, l.label_ts, l.churned""",
+    "pass-through cte": BASE.replace("events e", "ev e").replace(
+        "SELECT l.", "WITH ev AS (SELECT * FROM events) SELECT l.", 1
+    ),
+    "pass-through subquery": BASE.replace(
+        "LEFT JOIN events e", "LEFT JOIN (SELECT * FROM events) e"
+    ),
+    "wrapped in select star": f"SELECT * FROM ({BASE}) w",
+    "wrapped in a cte": f"WITH q AS ({BASE}) SELECT * FROM q",
+    "extra feature column": BASE.replace(
+        "SUM(e.amount) AS amount_7d", "SUM(e.amount) AS amount_7d, COUNT(e.event_id) AS n_7d"
+    ),
+    "cast wrapper": BASE.replace("SUM(e.amount)", "SUM(CAST(e.amount AS DOUBLE))"),
+    "coalesce wrapper": BASE.replace("SUM(e.amount)", "COALESCE(SUM(e.amount), 0)"),
+    "inner join for left join": BASE.replace("LEFT JOIN events e", "JOIN events e"),
+    "renamed and qualified": BASE.replace("labels l", "analytics.marts.fct_training_spine sp")
+    .replace("l.", "sp.")
+    .replace("events e", "analytics.staging.stg_events ev")
+    .replace("e.", "ev."),
+}
+UNCAUGHT = {
+    "a date cast on a time bound": BASE.replace(
+        "e.event_ts < l.label_ts\n", "CAST(e.event_ts AS DATE) < CAST(l.label_ts AS DATE)\n"
+    ),
+    "a dead predicate": BASE.replace("AND e.event_ts <", "AND 1 = 1 AND e.event_ts <"),
+    "NOT of the opposite comparison": BASE.replace(
+        "e.event_ts < l.label_ts\n", "NOT (e.event_ts >= l.label_ts)\n"
+    ),
+    "join predicates moved to WHERE": """SELECT l.user_id, l.label_ts, l.churned,
+               SUM(e.amount) AS amount_7d
+        FROM labels l JOIN events e ON e.user_id = l.user_id
+        WHERE e.event_ts < l.label_ts AND e.event_ts >= l.label_ts - INTERVAL 7 DAY
+        GROUP BY l.user_id, l.label_ts, l.churned""",
+}
+
+
+def as_template(name: str, sql: str, label: str = "L4") -> Template:
+    return Template(name, "candidate", label, {}, sql)
+
+
+@pytest.mark.parametrize("name", VARIANTS)
+def test_a_single_edit_of_a_reference_shape_is_flagged(name):
+    reference = {"dev": [as_template("ref", BASE)]}
+    found = duplicates.find_duplicates(
+        [as_template("copy", VARIANTS[name])],
+        reference,
+        relations=RELATIONS
+        | {
+            "analytics.marts.fct_training_spine": "labels",
+            "analytics.staging.stg_events": "events",
+        },
+    )
+    assert found, name
+    assert {d.kind for d in found} <= {"ast", "similar"}
+
+
+def test_between_is_the_same_as_its_two_comparisons():
+    closed_between = CLOSED.replace(
+        "AND e.event_ts <= l.label_ts\n  AND e.event_ts >= l.label_ts - INTERVAL 7 DAY",
+        "AND e.event_ts BETWEEN l.label_ts - INTERVAL 7 DAY AND l.label_ts",
+    )
+    assert duplicates.ast_hash(CLOSED) == duplicates.ast_hash(closed_between)
+    # the strict bound is another query: BETWEEN is inclusive
+    assert duplicates.ast_hash(BASE) != duplicates.ast_hash(closed_between)
+
+
+def test_what_the_check_still_misses_is_listed_not_hidden():
+    """These rewrites change the query's parts enough to fall below the similarity bar. They are
+    the documented blind spots; if one becomes caught, move it to VARIANTS."""
+    reference = {"dev": [as_template("ref", BASE)]}
+    for name, sql in UNCAUGHT.items():
+        assert not duplicates.find_duplicates([as_template("copy", sql)], reference), name
+
+
+def test_a_date_cast_is_part_of_the_shape_but_a_numeric_cast_is_not():
+    day = "SELECT CAST(ts AS DATE) AS d FROM events"
+    assert duplicates.ast_hash(day) != duplicates.ast_hash("SELECT ts AS d FROM events")
+    cast = "SELECT CAST(amount AS DOUBLE) AS d FROM events"
+    assert duplicates.ast_hash(cast) == duplicates.ast_hash("SELECT amount AS d FROM events")
+
+
+# --- the candidate set against itself -------------------------------------------------------
+
+
+def test_padded_near_copies_do_not_count_toward_the_quotas():
+    templates = [
+        as_template("one", BASE, "clean"),
+        as_template("two", VARIANTS["predicate order"], "clean"),
+        as_template("three", VARIANTS["select order"], "clean"),
+        as_template("four", VARIANTS["extra feature column"], "clean"),
+        as_template("five", VARIANTS["to_days"], "clean"),
+    ]
+    pairs = duplicates.find_internal(templates)
+    named = {a for a, _, _, _ in pairs} | {b for _, b, _, _ in pairs}
+    assert named == {t.template_id for t in templates}
+    [kept] = duplicates.distinct_templates(templates)
+    assert kept.template_id == "five"  # the first by id of five near-copies
+    counts = duplicates.shape_counts([kept])
+    assert counts["templates"] == 1 and counts["per_type"]["clean"] == 1
+
+
+def test_a_clean_twin_of_a_leaky_shape_is_kept_apart():
+    leaky = as_template("leaky_twin", BASE, "L5")
+    clean = as_template("clean_twin", CLOSED.replace("<=", "<"), "clean")
+    assert duplicates.ast_hash(BASE) == duplicates.ast_hash(clean.body)
+    assert len(duplicates.distinct_templates([leaky, clean])) == 2
+
+
+def test_the_command_reports_collapsed_templates(tmp_path, capsys):
+    directory = tmp_path / "padded"
+    directory.mkdir()
+    for name, sql in (("one", BASE), ("two", VARIANTS["group by all"])):
+        (directory / f"{name}.sql").write_text(f"-- leak: clean\n{sql}\n", encoding="utf-8")
+    duplicates.main(["--candidate-dir", str(directory), "--counts"])
+    out = capsys.readouterr().out
+    assert "near-copies of each other" in out and "collapsed" in out
+    assert "distinct templates" in out

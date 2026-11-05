@@ -158,6 +158,9 @@ For a row with prediction time `t`, a fact is **known** when:
 - it is a label of an earlier spine row whose `label_ts` is at least 14 days before `t`
   (strictly: `label_ts + 14 days < t`); a younger label is not final yet;
 - it never comes from `user_outcomes`, and never from the row's own `churned`.
+- the spine itself is known only up to `t`: spine rows with a later `label_ts` do not exist yet, so a
+  value read from them (a cutoff taken as `MAX(label_ts)` over the whole table, the next prediction
+  time) depends on the future (label L1).
 
 The boundary is **strict**: a fact stamped exactly `t` is not known at `t`.
 
@@ -290,7 +293,21 @@ every leak type where it makes sense.
 - Your set will be compared structurally with other query sets. Near-copies of one another (the
   same query with renamed aliases or other constants) count as one template: do not pad.
 
-## 8. What to hand back
+## 8. How your labels are checked
+
+After you hand back, your labels are audited mechanically; you run nothing yourself. For every
+rendering of a clean or L1 to L5 template, the query is run on the final tables and again on the tables
+as they were knowable at a sample of prediction times (built from the data generator's own load times:
+events and plan versions loaded before `t`, stats stamped before `t`, the spine up to `t` with labels
+hidden unless final, no outcomes). If a feature differs for a row at `t`, the query used something
+unknown at `t`. A clean template must never differ; a leaky template must differ in at least one
+rendering. Templates the audit cannot decide (L6, L7, anything that reads the wall clock, anything
+that does not run or returns too few rows) are listed as such and are not checked this way.
+
+A disagreement is returned to you with the row where it shows. Labels are never changed by anyone but
+you, and only before any detector result has been seen.
+
+## 9. What to hand back
 
 1. The `.sql` files, in one directory.
 2. `notes.md`: one line per template, `<id>: <label>: <the reason the label is certain, in terms

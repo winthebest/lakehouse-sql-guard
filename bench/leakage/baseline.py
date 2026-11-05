@@ -8,6 +8,7 @@ targets.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 
 import duckdb
@@ -43,7 +44,12 @@ def bind_relations(conn: duckdb.DuckDBPyConnection, spec: LeakageSpec) -> None:
     Each name becomes a view over the bare catalog table it maps to, so the baseline can run the
     queries that name tables the way a dbt project does. A spec without `relations` changes nothing.
     """
-    for name, target in spec.relations.items():
+    bind_relation_map(conn, spec.relations)
+
+
+def bind_relation_map(conn: duckdb.DuckDBPyConnection, relations: Mapping[str, str]) -> None:
+    """`bind_relations` for a plain mapping of qualified name -> catalog table."""
+    for name, target in relations.items():
         parts = [p.replace('"', '""') for p in name.split(".")]
         quoted = [f'"{p}"' for p in parts]
         if len(parts) == 3:
@@ -55,6 +61,5 @@ def bind_relations(conn: duckdb.DuckDBPyConnection, spec: LeakageSpec) -> None:
                 conn.execute(f"ATTACH ':memory:' AS {quoted[0]}")
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {'.'.join(quoted[:-1])}")
         source = target.rsplit(".", 1)[-1].replace('"', '""')
-        conn.execute(
-            f'CREATE OR REPLACE VIEW {".".join(quoted)} AS SELECT * FROM temp.main."{source}"'
-        )
+        view = ".".join(quoted)
+        conn.execute(f'CREATE OR REPLACE VIEW {view} AS SELECT * FROM temp.main."{source}"')
