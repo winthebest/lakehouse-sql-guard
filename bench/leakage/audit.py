@@ -41,7 +41,7 @@ label is final only when `label_ts + horizon < t` (strictly).
 
 Policy: a disagreement goes back to the author. Labels are never changed here.
 
-Usage: python -m bench.leakage.audit --candidate holdout_v2 | --candidate-dir DIR [--points N]
+Usage: python -m bench.leakage.audit --candidate holdout_v3 | --candidate-dir DIR [--points N]
 """
 
 from __future__ import annotations
@@ -601,7 +601,7 @@ def _relations_of(split: str) -> dict[str, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m bench.leakage.audit", description=__doc__)
     where = parser.add_mutually_exclusive_group(required=True)
-    where.add_argument("--candidate", help="a split of the repository, e.g. holdout_v2")
+    where.add_argument("--candidate", help="a split of the repository, e.g. holdout_v3")
     where.add_argument("--candidate-dir", type=Path, help="a directory of template files")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--warehouse", type=Path, default=Path(".warehouse/bench"))
@@ -613,8 +613,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--relations-of",
-        default="holdout_v2",
-        help="the split whose spec's `relations` name the qualified tables (default: holdout_v2)",
+        default="holdout_v3",
+        help="the split whose spec's `relations` name the qualified tables (default: holdout_v3)",
     )
     parser.add_argument("--out", type=Path, help="write the full result as JSON")
     args = parser.parse_args(argv)

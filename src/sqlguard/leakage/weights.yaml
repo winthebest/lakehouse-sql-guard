@@ -1,6 +1,8 @@
 # Weights combine findings into a score in [0, 1]: score = 1 - prod(1 - w_i).
 # A report is "leaky" when score >= threshold. Tuned on the dev split only.
-# L4 (static) is a hint below the threshold on its own: replay has to confirm it.
+# L4 (static) is a hint below the threshold on its own: replay has to confirm it. When the spec
+# declares max_ingest_delay and the event-time bound leaves less margin than that, it is not a hint
+# but a finding (l4_declared_delay).
 rules:
   L1: 0.95
   L2: 0.90
@@ -9,5 +11,6 @@ rules:
   L5: 0.85
   L6: 0.95
   L7: 0.95
+l4_declared_delay: 0.90
 replay_mismatch: 0.90
 threshold: 0.5

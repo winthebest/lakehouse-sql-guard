@@ -4,6 +4,7 @@ author's output can be run through the same check before it is accepted."""
 from pathlib import Path
 
 import pytest
+import yaml
 
 from bench.leakage import duplicates
 from bench.leakage.cases import TEMPLATES_DIR, Template, load_template, load_templates
@@ -45,10 +46,31 @@ def test_every_held_out_template_differs_from_the_seen_splits():
 
 
 def _relations(split: str) -> dict[str, str]:
-    import yaml
-
     spec = yaml.safe_load(load_splits()[split].spec.read_text(encoding="utf-8"))
     return spec.get("relations") or {}
+
+
+def test_holdout_v2_is_a_reference_for_the_next_held_out_set(tmp_path, capsys):
+    """A split read and fixed against is in-sample: a new author's copy of one of its templates is
+    caught by default, and a split named as the candidate is not its own reference."""
+    source = TEMPLATES_DIR / "holdout_v2" / "hv2_clean_asof_stats_strict.sql"
+    copy = candidate_from(tmp_path, "my_template", source.read_text(encoding="utf-8"))
+    assert duplicates.main(["--candidate-dir", str(copy)]) == 1
+    assert "holdout_v2/hv2_clean_asof_stats_strict" in capsys.readouterr().out
+
+    duplicates.main(["--candidate", "holdout_v2"])
+    out = capsys.readouterr().out
+    assert "holdout_v2/" not in out and "dev, dev_v1b" in out
+
+
+def test_holdout_v3_starts_empty_with_the_spec_of_holdout_v2():
+    manifest = load_splits()
+    assert load_templates("holdout_v3") == [] and not manifest["holdout_v3"].seen
+    v2, v3 = (
+        yaml.safe_load(manifest[name].spec.read_text(encoding="utf-8"))
+        for name in ("holdout_v2", "holdout_v3")
+    )
+    assert v2 == v3
 
 
 def test_independently_written_splits_share_only_three_known_shapes():
@@ -135,10 +157,10 @@ FROM analytics.marts.fct_training_spine l
 
 def test_a_different_query_is_not_flagged(tmp_path):
     different = """-- leak: clean
-SELECT l.user_id, l.label_ts, l.churned, COUNT(e.event_id) AS n_events
+SELECT l.user_id, l.label_ts, l.churned,
+       (SELECT MAX(s.n_orders) - MIN(s.n_orders) FROM user_stats s
+         WHERE s.user_id = l.user_id AND s.updated_at < l.label_ts) AS order_range
 FROM labels l
-LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
-GROUP BY ALL
 """
     assert check(tmp_path, "fresh_idea", different) == []
 
@@ -167,7 +189,7 @@ def test_shape_counts_report_what_is_short_of_the_quotas():
     qualified = "SELECT l.user_id FROM marts.fct_training_spine l"
     chained = "WITH a AS (SELECT 1 x), b AS (SELECT 2 y), c AS (SELECT 3 z) SELECT * FROM a"
     scd2 = "SELECT user_id FROM plan_history"
-    templates = [template(f"c{i}", "clean", plain) for i in range(25)]
+    templates = [template(f"c{i}", "clean", plain) for i in range(duplicates.MIN_CLEAN)]
     for leak in ("L1", "L2", "L3", "L4", "L5", "L6", "L7"):
         templates += [template(f"{leak}-{i}", leak, plain) for i in range(8)]
     full = duplicates.shape_counts(templates)

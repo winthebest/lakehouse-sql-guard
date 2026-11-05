@@ -382,8 +382,9 @@ def test_the_sample_is_drawn_from_the_times_the_history_covers(tmp_path):
     catalog = history_from(tmp_path, first_day=5)
     result = Replayer(catalog, BASE, max_points=10, min_rows=1, min_points=1).run(sql())
     assert result.status is ReplayStatus.PASS
-    assert result.points_checked == 10
-    assert result.timestamps_compared == 10
+    # the whole budget is spent on covered times, plus the in-flight times added on top of it
+    assert 10 <= result.points_checked <= 10 + 10 // 3
+    assert result.timestamps_compared == result.points_checked
     # the default evidence thresholds are met by the resampled points
     default = Replayer(catalog, BASE).run(sql())
     assert default.status is ReplayStatus.PASS and "left out" in default.reason

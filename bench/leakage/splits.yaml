@@ -12,6 +12,12 @@ splits:
   dev_v1b:
     spec: spec.yaml
     seen: true
+  # Written by independent authors after the v2 rules were frozen, then read and fixed against.
   holdout_v2:
     spec: spec_holdout_v2.yaml
+    seen: true
+  # The next held-out set: written by new authors who never see holdout_v2. Its templates arrive
+  # after the rules are frozen again; until then the directory is empty.
+  holdout_v3:
+    spec: spec_holdout_v3.yaml
     seen: false

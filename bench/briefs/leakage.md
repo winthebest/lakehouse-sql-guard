@@ -22,7 +22,8 @@ depends on two things: your labels are right, and your queries are varied and re
 
 Write **template files** (format in section 5). Quotas:
 
-- at least **25 clean** templates;
+- at least **60 clean** templates (the share of clean queries a checker wrongly flags can be bounded
+  at 0.05 only with a set this large);
 - at least **8 leaky templates for each of L1 to L7** (so at least 56 leaky ones);
 - at least **30% of all templates must have a dbt-style shape** (defined in section 6).
 
@@ -84,6 +85,10 @@ How the data arrives:
   the next version was loaded. A version still open today has `valid_to IS NULL`. The oldest
   versions began a few days before the first load. A row is loaded less than 8 days after its
   `valid_from`.
+- **timestamps**: `events.ingested_at`, `plan_history.ingested_at` and `user_stats.updated_at` are
+  always exact midnights. `events.event_ts`, `plan_history.valid_from` and `labels.label_ts` carry a
+  time of day, except that about a third of the `label_ts` values are exact midnights, so ties
+  between a prediction time and a load or stats stamp happen.
 - **labels**: prediction times lie in a window of a few weeks, some exactly at midnight, some at
   other times of day. A label (`churned`) is final 14 days after its `label_ts`; before that it
   cannot be known. The spine and the outcomes were loaded long after the fact.
@@ -101,7 +106,7 @@ column of each table is its time column, which tables have an ingestion time, an
 take to arrive.
 
 ```yaml
-# Spec for the synthetic churn world of the held-out v2 templates: which table is the label
+# Spec for the synthetic churn world of the held-out v3 templates: which table is the label
 # spine, which columns carry time, and how long data takes to arrive. Qualified relation names
 # (dbt-style `database.schema.model`) are mapped to the warehouse tables by `relations`.
 label_table: labels
@@ -252,7 +257,7 @@ Labelling discipline:
 ## 5. Template format
 
 One file per template, named `<id>.sql`. The id is lowercase letters, digits and underscores, starts
-with `hv2_`, and is unique: for example `hv2_l4_scd2_event_time_lookup`, `hv2_clean_ingest_bounded_sum`.
+with `hv3_`, and is unique: for example `hv3_l4_scd2_event_time_lookup`, `hv3_clean_ingest_bounded_sum`.
 
 ```
 -- leak: clean | L1 | L2 | L3 | L4 | L5 | L6 | L7
@@ -293,6 +298,13 @@ every leak type where it makes sense.
   `QUALIFY`, set operations, `UNION`, `PIVOT`-like conditional aggregation, `FILTER`, `COALESCE`
   chains, derived tables.
 - Cover all of: `events`, `user_stats`, `plan_history`, `entities`, `labels`, `user_outcomes`.
+- Choose your own families of queries and vary them on purpose: different structure (joins,
+  subqueries, set operations, windows, aggregation), different layering (a flat query, a chain of
+  CTEs, a model read twice), different SQL features of DuckDB. For every family you choose, write
+  both clean and leaky versions, so that the family does not tell the label.
+- Include a stratum of leaks that are hard to see in the data: a leak that only a few rows of the
+  warehouse show (a narrow gap between the bound and the real cut-off, a rare late row, one user,
+  one prediction time). Label it leaky from section 3, not from whether the data happens to show it.
 - Clean templates should not all be small variants of one shape; include look-alikes of leaky
   shapes whose label is clean for a definite reason.
 - Your set will be compared structurally with other query sets. Near-copies of one another (the

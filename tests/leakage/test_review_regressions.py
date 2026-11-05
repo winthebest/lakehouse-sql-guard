@@ -1,6 +1,7 @@
 """Regression tests for analysis gaps found in review: each query here was once misjudged."""
 
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pyarrow as pa
@@ -629,6 +630,9 @@ def test_clean_side_is_at_least_as_large_as_the_leaky_side():
 # --- replay evidence and sampling ----------------------------------------------------------
 
 BENCH_SPEC = LeakageSpec.from_yaml("bench/leakage/spec.yaml")
+# The same world without the declared load-delay guarantee: an event-time bound is then only a
+# hint that replay has to settle (with the guarantee declared it is a finding on its own).
+HINT_SPEC = replace(BENCH_SPEC, max_ingest_delay={})
 EVENTS_14D = """
 SELECT l.user_id, l.label_ts, l.churned, SUM(e.amount) AS amt
 FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
@@ -643,6 +647,12 @@ def bench_world(tmp_path_factory):
     catalog = LakehouseCatalog.local(tmp_path_factory.mktemp("bench-world"))
     build_world(catalog, WorldConfig(seed=42))
     return catalog, Replayer(catalog, BENCH_SPEC, seed=42)
+
+
+@pytest.fixture(scope="module")
+def hint_world(bench_world):
+    catalog, _ = bench_world
+    return catalog, Replayer(catalog, HINT_SPEC, seed=42)
 
 
 def events_query(column: str, where: str = "") -> str:
@@ -675,15 +685,18 @@ def test_late_data_is_found_when_the_query_keeps_a_recent_slice(bench_world, whe
         ("WHERE l.label_ts > TIMESTAMP '2026-01-31 00:00'", "needs at least", False),
     ],
 )
-def test_replay_without_enough_evidence_never_passes(bench_world, where, reason, hinted):
+def test_replay_without_enough_evidence_never_passes(
+    bench_world, hint_world, where, reason, hinted
+):
     """Too little compared is never a PASS. It blocks a query whose static hint only replay can
     settle (event-time bound), and is only recorded for one that static analysis cleared."""
     catalog, replayer = bench_world
     if hinted:
         sql = events_query("event_ts", where)
-        result = replayer.run(sql)
+        _, hinting = hint_world
+        result = hinting.run(sql)
         assert result.status is ReplayStatus.UNVERIFIABLE and reason in result.reason
-        assert validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer).verdict == "unverifiable"
+        assert validate(sql, HINT_SPEC, catalog=catalog, replay=hinting).verdict == "unverifiable"
 
     cleared = events_query("ingested_at", where)
     report = validate(cleared, BENCH_SPEC, catalog=catalog, replay=replayer)
@@ -699,11 +712,15 @@ def test_replay_that_cannot_run_still_blocks_a_clean_query(bench_world):
     assert report.verdict == "unverifiable"
 
 
-def test_static_only_event_time_leak_is_not_cleared_by_an_empty_replay(bench_world):
+def test_static_only_event_time_leak_is_not_cleared_by_an_empty_replay(bench_world, hint_world):
     catalog, replayer = bench_world
+    _, hinting = hint_world
     sql = events_query("event_ts", "WHERE l.label_ts >= TIMESTAMP '2026-03-01'")
-    report = validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer)
+    report = validate(sql, HINT_SPEC, catalog=catalog, replay=hinting)
     assert report.leak_types == ["L4"] and report.verdict == "unverifiable"
+    # with the load delay declared the same query is leaky without anything for replay to settle
+    declared = validate(sql, BENCH_SPEC, catalog=catalog, replay=replayer)
+    assert declared.leak_types == ["L4"] and declared.verdict == "leaky"
 
 
 def test_enough_rows_and_times_still_pass(bench_world):

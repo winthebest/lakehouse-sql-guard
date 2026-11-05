@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import math
 import random
+from bisect import bisect_left
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -56,6 +58,11 @@ FULL_LABELS = "__labels_all"  # the whole label table, for uncorrelated cutoff s
 # prediction times, proves nothing about the other times it will run for.
 MIN_ROWS = 20
 MIN_POINTS = 3
+# A row in flight at a prediction time weighs (its age at that time / the longest delay) **
+# TAIL_EXPONENT: a leak that a short margin leaves open is made of rows loaded just inside the
+# longest delay, which are about one in a hundred, and a sum of young in-flight rows must not
+# outweigh a single old one. A row of half the longest delay weighs 0.06, one at 90% weighs 0.66.
+TAIL_EXPONENT = 4.0
 _ROW = "<row>"  # pseudo-column for rows present in only one of the two runs
 
 
@@ -80,6 +87,13 @@ class ReplayResult:
     timestamps_compared: int = 0  # distinct prediction times that had rows to compare
     # unverifiable only because too little was compared (not because replay could not run)
     insufficient_evidence: bool = False
+    # Per table the query reads, summed over the compared prediction times: the rows of the
+    # prediction rows' entities that the unpinned read has and the read pinned before the time
+    # does not (rows absent from the pinned snapshot). A leak through that table could only have
+    # shown in these rows, so a PASS with none of them says nothing about the table.
+    # `exposed_points` counts the times that had any. Information only: no score depends on it.
+    exposure: dict[str, int] = field(default_factory=dict)
+    exposed_points: dict[str, int] = field(default_factory=dict)
 
     @property
     def mismatch_rate(self) -> float:
@@ -97,13 +111,21 @@ def _normalize(value: object) -> object:
     return value
 
 
-def sample_points(stamps: Counter, max_points: int, seed: int) -> list[datetime]:
-    """Pick up to `max_points` prediction times.
+def sample_points(
+    stamps: Counter, max_points: int, seed: int, in_flight: Mapping[datetime, float] | None = None
+) -> list[datetime]:
+    """Pick up to `max_points` prediction times, plus the heaviest in-flight ones.
 
     Timestamps shared by several rows come first (up to half the budget): batch-aligned
     instants such as midnights are where boundary leaks concentrate. The rest of the budget is
     spread evenly over the time range, one seeded random pick per stratum, so that when every
     timestamp is unique the sample covers old and recent predictions alike.
+
+    With `in_flight` (a weight per time for rows that already happened but are not loaded yet, see
+    `Replayer._in_flight`) up to a third of `max_points` more times are added, the heaviest ones
+    not already picked: a late-arrival leak shows only at a time that has such a row for a
+    predicted entity, and the long delays that matter most are rare. They are added to the sample
+    above, never taken from it, so what a replay without weights would have found it still finds.
     """
     if len(stamps) <= max_points:
         return sorted(stamps)
@@ -115,7 +137,103 @@ def sample_points(stamps: Counter, max_points: int, seed: int) -> list[datetime]
     for i in range(budget):  # stratum i of `budget` equal slices of the remaining timestamps
         low, high = i * len(rest) // budget, (i + 1) * len(rest) // budget
         chosen.append(rest[rng.randrange(low, high)])
-    return sorted(chosen)
+    weights = in_flight or {}
+    flying = sorted(
+        (ts for ts in stamps if weights.get(ts, 0) > 0 and ts not in chosen),
+        key=lambda ts: (-weights[ts], ts),
+    )
+    return sorted(chosen + flying[: max_points // 3])
+
+
+MAX_FLIGHT_TIMES = 1024  # label times scored for rows in flight; more are thinned evenly
+
+
+def _naive_micros(column: pa.ChunkedArray) -> pa.ChunkedArray:
+    """A DATE or timestamp column (any unit, with or without a time zone) as naive-UTC
+    `timestamp[us]`; anything else is not a time and raises."""
+    kind = column.type
+    if not (pa.types.is_date(kind) or pa.types.is_timestamp(kind)):
+        raise TypeError(f"cannot read {kind} as a time")
+    if pa.types.is_timestamp(kind) and kind.tz is not None:
+        column = column.cast(pa.timestamp(kind.unit))  # the UTC wall time
+    return column.cast(pa.timestamp("us"))
+
+
+def flight_scores(
+    data: pa.Table,
+    time_column: str,
+    availability: str,
+    key: str | None,
+    labels: pa.Table,
+    prediction_ts: str,
+    stamps: Mapping[datetime, datetime],
+    max_times: int = MAX_FLIGHT_TIMES,
+) -> dict[datetime, float]:
+    """Weight, per label time, of the rows in flight then (see `Replayer._in_flight`).
+
+    `stamps` maps each naive-UTC label time to the label column's own representation of it. At
+    most `max_times` times are scored (an even, deterministic thinning of the sorted times). The
+    rows are sorted by time once; a row in flight at `t` happened in `[t - longest delay, t)`, so
+    each time looks at that slice only, found by binary search: the cost is O(n log n) once and
+    O(log n + rows in the window) per time, not O(times x rows).
+    """
+    if data.num_rows == 0:
+        return {}
+    # both columns in one unit (microseconds, naive UTC), whatever their arrow types
+    happened_all, loaded_all = (
+        _naive_micros(data.column(time_column)),
+        _naive_micros(data.column(availability)),
+    )
+    order = pc.sort_indices(happened_all)
+    happened = happened_all.take(order).combine_chunks()
+    loaded = loaded_all.take(order).combine_chunks()
+    seconds = pc.divide(pc.cast(happened, pa.int64()), 10**6)
+    longest = (
+        pc.max(
+            pc.divide(
+                pc.subtract(pc.cast(loaded, pa.int64()), pc.cast(happened, pa.int64())), 10**6
+            )
+        ).as_py()
+        or 0
+    )
+    if longest <= 0:
+        return {}
+    entities = data.column(key).take(order).combine_chunks() if key in data.column_names else None
+    users = labels.column(key) if key in labels.column_names else None
+    label_times = labels.column(prediction_ts)
+
+    def first_at_or_after(moment: int) -> int:
+        return bisect_left(range(len(seconds)), moment, key=lambda i: seconds[i].as_py())
+
+    times = sorted(stamps)
+    if len(times) > max_times:
+        times = [times[i * len(times) // max_times] for i in range(max_times)]
+    scores: dict[datetime, float] = {}
+    for naive in times:
+        original = stamps[naive]
+        try:
+            at = pa.scalar(naive, type=pa.timestamp("us"))
+            moment = int(naive.replace(tzinfo=UTC).timestamp())
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
+            continue
+        low, high = first_at_or_after(moment - longest), first_at_or_after(moment)
+        if high <= low:
+            continue
+        window = slice(low, high)
+        pending = pc.greater_equal(loaded.slice(low, high - low), at)
+        if users is not None and entities is not None:
+            predicted = users.filter(
+                pc.equal(label_times, pa.scalar(original, type=label_times.type))
+            )
+            pending = pc.and_(
+                pending, pc.is_in(entities.slice(low, high - low), value_set=predicted)
+            )
+        age = pc.subtract(pa.scalar(moment, pa.int64()), seconds[window])
+        weight = pc.power(pc.divide(pc.cast(age, pa.float64()), float(longest)), TAIL_EXPONENT)
+        total = pc.sum(pc.if_else(pending, weight, 0.0)).as_py() or 0.0
+        if total > 0:
+            scores[naive] = total
+    return scores
 
 
 class Replayer:
@@ -143,11 +261,15 @@ class Replayer:
         self.points: list[datetime] = sample_points(counts, max_points, seed)
         self._current: duckdb.DuckDBPyConnection | None = None
         self._pinned: dict[tuple[datetime, bool], duckdb.DuckDBPyConnection | HistoryGap] = {}
+        self._pinned_data: dict[tuple[datetime, bool], dict[str, pa.Table]] = {}
         # tables whose history starts after the pinned time (read as empty), by (time, history)
         self._late: dict[tuple[datetime, bool], dict[str, str]] = {}
         self._reads: dict[tuple[str, int | None], pa.Table] = {}
         self._predates: dict[tuple[str, datetime], bool] = {}
         self._schema: dict | None = None
+        self._flying: dict[str, dict[datetime, float]] = {}
+        self._flight_errors: dict[str, str] = {}  # why a table's in-flight scoring was skipped
+        self._counts: dict[tuple, dict[tuple, int]] = {}
         self._bound: dict[int, set[tuple[str, ...]]] = defaultdict(set)  # views made per connection
 
     def _read(self, table: str, snapshot_id: int | None) -> pa.Table:
@@ -265,6 +387,7 @@ class Replayer:
                 data[self.spec.label_table] = self._pinned_labels(ts, history)
                 data[FULL_LABELS] = self.labels
                 self._late[key] = late
+                self._pinned_data[key] = data
                 self._pinned[key] = connect(data)
             except HistoryGap as err:
                 self._pinned[key] = err
@@ -272,6 +395,74 @@ class Replayer:
         if isinstance(entry, HistoryGap):
             raise entry
         return entry
+
+    def _in_flight(self, table: str) -> dict[datetime, float]:
+        """Per label time `t` (naive UTC): how much of `table` had happened but was not yet loaded.
+
+        For a table with a declared availability column, each row of an entity predicted at `t`
+        whose time is before `t` and whose availability is at or after it counts
+        `(age at t / longest delay) ** TAIL_EXPONENT`. A row is a risk for an event-time margin
+        only while it is old and still unloaded, so the weight grows as the row nears its load
+        time and the rare long delays dominate. Tables without an availability column, and times
+        with nothing in flight, score zero.
+        """
+        if table not in self._flying:
+            scores: dict[datetime, float] = {}
+            availability = self.spec.availability_columns.get(table)
+            time_column = self.spec.time_columns.get(table)
+            key = self.spec.entity_keys[0] if len(self.spec.entity_keys) == 1 else None
+            try:
+                data = self._current_data(table) if table in self.tables else None
+                if (
+                    availability
+                    and data is not None
+                    and {time_column, availability} <= set(data.column_names)
+                ):
+                    scores = self._flight_scores(data, time_column, availability, key)
+            except Exception as err:  # noqa: BLE001 - sampling help must never abort a replay
+                self._flight_errors[table] = f"{type(err).__name__}: {err}"
+                scores = {}
+            self._flying[table] = scores
+        return self._flying[table]
+
+    def _flight_scores(
+        self, data: pa.Table, time_column: str, availability: str, key: str | None
+    ) -> dict[datetime, float]:
+        return flight_scores(
+            data,
+            time_column,
+            availability,
+            key,
+            self.labels,
+            self.spec.prediction_ts,
+            self._label_stamps,
+        )
+
+    def _exposed(self, table: str, ts: datetime, entities: set[tuple] | None) -> int:
+        """Rows of `table` the current read has that the read pinned before `ts` lacks (see
+        `ReplayResult.exposure`), for the given entity key tuples when the table has the keys.
+
+        The pinned spine keeps the rows at `ts` itself, so for the label table these are the
+        later rows only. A row that is stamped late but present in the pinned read is not hidden.
+        """
+        current = self.labels if table == self.spec.label_table else self._current_data(table)
+        pinned = self._pinned_data[(ts, True)][table]
+        keys = list(self.spec.entity_keys)
+        if entities is None or not all(k in current.column_names for k in keys):
+            return max(current.num_rows - pinned.num_rows, 0)
+        now = self._entity_counts(("current", table), current, keys)
+        then = self._entity_counts((ts, table), pinned, keys)
+        return sum(max(now.get(e, 0) - then.get(e, 0), 0) for e in entities)
+
+    def _entity_counts(self, key: tuple, table: pa.Table, keys: list[str]) -> dict[tuple, int]:
+        """Rows per entity key tuple, cached by what the table is (current, or pinned at a time)."""
+        if key not in self._counts:
+            grouped = table.group_by(keys).aggregate([(keys[0], "count")])
+            rows = zip(*(grouped.column(k).to_pylist() for k in keys), strict=True)
+            self._counts[key] = dict(
+                zip(rows, grouped.column(f"{keys[0]}_count").to_pylist(), strict=True)
+            )
+        return self._counts[key]
 
     def _pinned_labels(self, ts: datetime, history: bool) -> pa.Table:
         column = self.labels.column(self.spec.prediction_ts)
@@ -432,8 +623,17 @@ class Replayer:
         usable, excluded, excluded_why = self._within_history(read, usable)
         if excluded and not usable:
             return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=excluded_why)
+        flying = Counter()
+        flight_notes = []
+        for table in sorted(read):
+            flying.update(self._in_flight(table))
+            if table in self._flight_errors:  # fall back to the base sample, and say so
+                flight_notes.append(
+                    f"in-flight sampling skipped for {table!r}: {self._flight_errors[table]}"
+                )
         points = [
-            self._label_stamps[ts] for ts in sample_points(usable, self.max_points, self.seed)
+            self._label_stamps[ts]
+            for ts in sample_points(usable, self.max_points, self.seed, flying)
         ]
         if not points:
             return ReplayResult(
@@ -444,6 +644,8 @@ class Replayer:
 
         compared = mismatched = timestamps = 0
         columns: Counter[str] = Counter()
+        exposure: Counter[str] = Counter()
+        exposed_points: Counter[str] = Counter()
         skipped: list[str] = []  # why prediction times before a table's history were left out
         for ts in points:
             try:
@@ -467,6 +669,12 @@ class Replayer:
             now_rows = full_by_ts.get(naive_utc(ts), {})
             keys = now_rows.keys() | past_rows.keys()
             timestamps += bool(keys)
+            if keys:
+                entities = {tuple(k[:-1]) for k in keys}
+                for table in sorted(read & self._pinned_data[(ts, True)].keys()):
+                    seen = self._exposed(table, ts, entities)
+                    exposure[table] += seen
+                    exposed_points[table] += bool(seen)
             for key in keys:
                 compared += 1
                 now, past = now_rows.get(key), past_rows.get(key)
@@ -482,7 +690,7 @@ class Replayer:
 
         if len(skipped) == len(points):
             return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=skipped[0])
-        notes = []
+        notes = list(flight_notes)
         if skipped:
             notes.append(f"{len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}")
         if excluded:
@@ -505,6 +713,8 @@ class Replayer:
                 insufficient_evidence=(
                     status is ReplayStatus.UNVERIFIABLE if insufficient is None else insufficient
                 ),
+                exposure=dict(exposure),
+                exposed_points=dict(exposed_points),
             )
 
         if mismatched:

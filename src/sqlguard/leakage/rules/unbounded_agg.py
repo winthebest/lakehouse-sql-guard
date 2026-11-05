@@ -22,7 +22,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                     f"aggregate over {ref.describe()} has no upper bound at "
                     f"{analysis.spec.prediction_ts}; it sums the whole history",
                     ref.describe(),
-                    {"bounds": [b.sql for b in group]},
+                    {"bounds": [b.sql for b in group], "table": ref.table},
                 )
             )
             break
@@ -35,7 +35,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                     f"window aggregate over {issue.ref.describe()} spans the whole partition, "
                     "including rows after prediction time",
                     issue.ref.describe(),
-                    {"window": issue.sql},
+                    {"window": issue.sql, "table": issue.ref.table},
                 )
             )
     return findings

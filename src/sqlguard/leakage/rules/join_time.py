@@ -28,7 +28,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                         Severity.HIGH,
                         f"{ref.describe()} reads facts at or after prediction time",
                         ref.describe(),
-                        {"predicates": [b.sql for b in future]},
+                        {"predicates": [b.sql for b in future], "table": ref.table},
                     )
                 )
                 break
@@ -40,7 +40,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                         f"{ref.describe()} is joined without bounding "
                         f"{ref.time_column} before {spec.prediction_ts}",
                         ref.describe(),
-                        {"bounds": [b.sql for b in group]},
+                        {"bounds": [b.sql for b in group], "table": ref.table},
                     )
                 )
                 break
@@ -52,7 +52,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                     Severity.HIGH,
                     f"window over {issue.ref.describe()} looks at later rows",
                     issue.ref.describe(),
-                    {"window": issue.sql},
+                    {"window": issue.sql, "table": issue.ref.table},
                 )
             )
     return findings

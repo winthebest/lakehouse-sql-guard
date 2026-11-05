@@ -48,7 +48,7 @@ def embedded_spec() -> str:
 
 
 def test_the_spec_in_the_leakage_brief_is_the_file_the_run_uses():
-    path = load_splits()["holdout_v2"].spec
+    path = load_splits()["holdout_v3"].spec
     assert embedded_spec() == path.read_text(encoding="utf-8")
 
 

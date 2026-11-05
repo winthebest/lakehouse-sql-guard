@@ -54,7 +54,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                         f"{ref.describe()} admits facts stamped at or shortly after "
                         f"{spec.prediction_ts} (inclusive bound, offset, or timezone shift)",
                         ref.describe(),
-                        {"predicates": sorted({b.sql for b in loose})},
+                        {"predicates": sorted({b.sql for b in loose}), "table": ref.table},
                     )
                 )
                 break
@@ -70,7 +70,7 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                         f"{ref.table}.{bound.column} ({feature_type}) is compared with "
                         f"{spec.prediction_ts} ({label_type}): mixed timezone semantics",
                         ref.describe(),
-                        {"predicate": bound.sql},
+                        {"predicate": bound.sql, "table": ref.table},
                     )
                 )
                 break

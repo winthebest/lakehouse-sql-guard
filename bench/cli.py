@@ -1,10 +1,11 @@
 """`sqlguard-bench`: reproducible benchmarks.
 
 sqlguard-bench leakage prereg --seed 42     # thresholds fit on dev only
-sqlguard-bench leakage run --seed 42 [--real] [--splits dev dev_v1b] [--skip-v1] [--fixes]
-                           [--prereg PATH]   # PATH is required for a split nobody has seen
-sqlguard-bench leakage duplicates --candidate holdout_v2 [--counts]   # or --candidate-dir DIR
-sqlguard-bench leakage audit-labels --candidate holdout_v2   # or --candidate-dir DIR [--points N]
+sqlguard-bench leakage run --seed 42 [--real] [--splits dev dev_v1b holdout_v2]
+                           [--skip-v1] [--fixes] [--prereg PATH]
+                           # PATH is required for a split nobody has seen
+sqlguard-bench leakage duplicates --candidate holdout_v3 [--counts]   # or --candidate-dir DIR
+sqlguard-bench leakage audit-labels --candidate holdout_v3   # or --candidate-dir DIR [--points N]
 sqlguard-bench safety tier1
 sqlguard-bench safety agent --model <id> --condition both --runs 3 --split dev [--replay DIR]
 """

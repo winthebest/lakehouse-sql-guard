@@ -63,7 +63,14 @@ from bench.leakage.freeze import (
     is_ancestor,
     template_changes,
 )
-from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
+from bench.leakage.metrics import (
+    auc,
+    bootstrap_ci,
+    confusion,
+    roc_curve,
+    template_rates,
+    threshold_at_fpr,
+)
 from bench.leakage.splits import load_splits, seen_splits
 from bench.leakage.v1_runner import (
     V1_TAG,
@@ -240,6 +247,7 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
         report["detectors"][d] = {
             **c.as_dict(),
             "ci95": bootstrap_ci(labels, scores, cut[d], groups),
+            **template_rates(labels, scores, cut[d], groups, [d in s.verdicts for s in scored]),
             "threshold": None if cut[d] == float("inf") else cut[d],
             "auc": round(auc(roc_curve(labels, scores)), 4),
             "recall_by_type": by_type,
@@ -630,6 +638,7 @@ def markdown(result: dict) -> str:
                 f"{m['fpr']:.2f} {_ci(m, 'fpr')} | "
                 f"{m['precision']:.2f} | {m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
             )
+        lines += ["", *_template_rate_lines(split)]
         reading = split.get("v1_reading")
         if reading:
             lines += ["", _v1_reading_lines(reading)]
@@ -709,6 +718,28 @@ def _v1_reading_lines(reading: dict) -> str:
     return "\n\n".join(lines)
 
 
+def _template_rate_lines(split: dict) -> list[str]:
+    """Exact template-level rates on the clean templates: the unit of independence is the template,
+    so the interval is Clopper-Pearson on templates, not the bootstrap on cases above."""
+    rows = [(d, m) for d, m in split["detectors"].items() if "template_fpr" in m]
+    if not rows:
+        return []
+    lines = [
+        "| clean templates | flagged / n [95% exact CI] | blocked (flagged or unverifiable) / n "
+        "[95% exact CI] | clean cases flagged / blocked |",
+        "|---|---|---|---|",
+    ]
+    for d, m in rows:
+        f, b = m["template_fpr"], m["block_rate_clean"]
+        lines.append(
+            f"| {ROW_NAMES.get(d, d)} | {f['k']}/{f['n']} = {f['rate']:.2f} "
+            f"[{f['ci95'][0]:.2f}, {f['ci95'][1]:.2f}] | {b['k']}/{b['n']} = {b['rate']:.2f} "
+            f"[{b['ci95'][0]:.2f}, {b['ci95'][1]:.2f}] | "
+            f"{m['clean_cases_flagged']} / {m['clean_cases_blocked']} of {m['clean_cases']} |"
+        )
+    return lines
+
+
 def _ci(metrics: dict, key: str) -> str:
     lo, hi = metrics.get("ci95", {}).get(key, (None, None))
     return "" if lo is None or lo != lo else f"[{lo:.2f}, {hi:.2f}]"
@@ -768,7 +799,7 @@ def main(argv: list[str] | None = None) -> None:
         nargs="+",
         default=list(DEFAULT_SPLITS),
         choices=SPLITS,
-        help="template splits to score (default: dev dev_v1b)",
+        help="template splits to score (default: every split splits.yaml marks seen)",
     )
     parser.add_argument(
         "--prereg",

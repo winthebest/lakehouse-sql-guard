@@ -11,7 +11,11 @@ Every combination of parameter values becomes one case. Splits are by template:
 - `dev`: tuned on; the rules and thresholds were developed against these.
 - `dev_v1b`: the v1 held-out templates. They were seen while the rules were extended, so they are
   development data now and a result on them is in-sample.
-- `holdout_v2`: written by independent authors after the rules were frozen.
+- `holdout_v2`: written by independent authors after the v2 rules were frozen. A result was read
+  and the rules were fixed against it, so it is development data now and a result on it is
+  in-sample.
+- `holdout_v3`: written by new authors who never saw `holdout_v2`, after the v3 rules are frozen.
+  Empty until then.
 
 `splits.yaml` lists the splits, the spec each is checked with, and which were seen.
 

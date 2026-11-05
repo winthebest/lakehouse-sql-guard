@@ -400,7 +400,7 @@ def test_run_refuses_an_unseen_split_without_a_prereg(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(run, "load_templates", lambda name: [object()])
     with pytest.raises(SystemExit, match="explicit --prereg"):
-        run.run(42, tmp_path, False, tmp_path, ("holdout_v2",))
+        run.run(42, tmp_path, False, tmp_path, ("holdout_v3",))
 
 
 def test_marking_a_split_seen_after_the_prereg_does_not_skip_the_guard(tmp_path, monkeypatch):
@@ -413,9 +413,9 @@ def test_marking_a_split_seen_after_the_prereg_does_not_skip_the_guard(tmp_path,
     }
     (tmp_path / "prereg-abc1234.json").write_text(json.dumps(pre))
     monkeypatch.setattr(run, "load_templates", lambda name: [object()])
-    monkeypatch.setattr(run, "seen_splits", lambda prereg=None: frozenset({*SEEN, "holdout_v2"}))
+    monkeypatch.setattr(run, "seen_splits", lambda prereg=None: frozenset({*SEEN, "holdout_v3"}))
     with pytest.raises(SystemExit, match="explicit --prereg"):
-        run.run(42, tmp_path, False, tmp_path, ("holdout_v2",))
+        run.run(42, tmp_path, False, tmp_path, ("holdout_v3",))
 
 
 def test_a_run_on_seen_splits_still_takes_the_newest_prereg_without_one(tmp_path, monkeypatch):
@@ -452,4 +452,4 @@ def test_the_preregistration_records_the_frozen_files_and_what_to_expect(world, 
     assert payload["frozen_files"] == freeze.frozen_hashes(splits=payload["seen_splits"])
     assert "bench/briefs/leakage.md" in payload["frozen_files"]
     assert any("near zero" in note and "plan_history" in note for note in payload["expectations"])
-    assert payload["fit_splits"] == ["dev"] and "holdout_v2" not in payload["seen_splits"]
+    assert payload["fit_splits"] == ["dev"] and "holdout_v3" not in payload["seen_splits"]

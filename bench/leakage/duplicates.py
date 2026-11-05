@@ -35,8 +35,8 @@ once.
 `shape_counts` checks a candidate set against the author brief's quotas (clean and leaky templates
 per type, share of dbt-style shapes), counting distinct templates.
 
-Usage: python -m bench.leakage.duplicates --candidate-dir DIR [--against dev dev_v1b]
-       python -m bench.leakage.duplicates --candidate holdout_v2 --counts
+Usage: python -m bench.leakage.duplicates --candidate-dir DIR [--against dev dev_v1b holdout_v2]
+       python -m bench.leakage.duplicates --candidate holdout_v3 --counts
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from sqlglot.errors import SqlglotError
 from bench.leakage.cases import LEAK_TYPES, TEMPLATES_DIR, Template, load_template, render
 from bench.leakage.splits import load_splits, seen_splits
 
-MIN_CLEAN = 25
+MIN_CLEAN = 60  # with fewer, zero false positives would not bound the rate below 0.05
 MIN_LEAKY_PER_TYPE = 8
 MIN_DBT_SHARE = 0.30
 DBT_CTE_DEPTH = 3  # a query with at least this many CTEs is dbt-style
@@ -771,7 +771,7 @@ def _relations_of(split: str) -> dict[str, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m bench.leakage.duplicates", description=__doc__)
     where = parser.add_mutually_exclusive_group(required=True)
-    where.add_argument("--candidate", help="a split of the repository, e.g. holdout_v2")
+    where.add_argument("--candidate", help="a split of the repository, e.g. holdout_v3")
     where.add_argument("--candidate-dir", type=Path, help="a directory of template files")
     parser.add_argument(
         "--against",
@@ -780,14 +780,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--relations-of",
-        default="holdout_v2",
-        help="the split whose spec's `relations` resolve qualified names (default: holdout_v2)",
+        default="holdout_v3",
+        help="the split whose spec's `relations` resolve qualified names (default: holdout_v3)",
     )
     parser.add_argument("--counts", action="store_true", help="also check the brief's quotas")
     args = parser.parse_args(argv)
 
     manifest = load_splits()
-    reference_names = args.against or sorted(seen_splits())
+    # a split named as the candidate is never its own reference
+    reference_names = args.against or sorted(seen_splits() - {args.candidate})
     unknown = [n for n in reference_names if n not in manifest]
     if unknown:
         parser.error(f"unknown split(s) {unknown}; known: {sorted(manifest)}")

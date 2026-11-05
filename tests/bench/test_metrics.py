@@ -82,3 +82,32 @@ def test_bootstrap_ci_is_tight_when_every_template_agrees():
     scores = [0.9, 0.8, 0.1, 0.0]
     ci = bootstrap_ci(labels, scores, 0.5, ["a", "b", "c", "d"], n_resamples=200)
     assert ci["recall"] == (1.0, 1.0) and ci["fpr"] == (0.0, 0.0)
+
+
+def test_clopper_pearson_matches_the_published_intervals():
+    from bench.leakage.metrics import clopper_pearson
+
+    assert clopper_pearson(0, 29) == (0.0, 0.1194)  # zero false positives in 29 templates
+    assert clopper_pearson(10, 20) == (0.272, 0.728)
+    assert clopper_pearson(1, 10) == (0.0025, 0.445)
+    assert clopper_pearson(5, 5) == (0.4782, 1.0)
+    assert clopper_pearson(0, 0)[0] != clopper_pearson(0, 0)[0]  # no templates: nan
+
+
+def test_template_rates_count_templates_and_what_the_product_blocks():
+    from bench.leakage.metrics import template_rates
+
+    #            clean templates a(2 cases) b(2) c(1)   leaky d
+    labels = [False, False, False, False, False, True]
+    scores = [0.9, 0.0, 0.1, 0.0, 0.0, 1.0]
+    groups = ["a", "a", "b", "b", "c", "d"]
+    rates = template_rates(labels, scores, 0.5, groups, [False, False, False, True, False, False])
+    assert rates["template_fpr"]["k"] == 1 and rates["template_fpr"]["n"] == 3
+    # template b is not flagged, but one of its cases cannot be checked: it is blocked
+    assert rates["block_rate_clean"]["k"] == 2 and rates["block_rate_clean"]["rate"] == 0.6667
+    assert (rates["clean_cases"], rates["clean_cases_flagged"], rates["clean_cases_blocked"]) == (
+        5,
+        1,
+        2,
+    )
+    assert rates["template_fpr"]["ci95"][0] < 1 / 3 < rates["template_fpr"]["ci95"][1]

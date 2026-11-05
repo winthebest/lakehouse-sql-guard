@@ -1,5 +1,7 @@
 """The leakage benchmark counts and lists the cases a detector could not check."""
 
+from dataclasses import replace
+
 import pytest
 
 from bench.leakage.cases import LEAK_TYPES, LeakCase
@@ -24,7 +26,8 @@ def case(name: str, sql: str, leak_type: str) -> LeakCase:
 
 def test_unverifiable_cases_are_counted_and_listed(world):
     catalog, _ = world
-    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    # without the declared load delay an event-time-only bound is a hint that only replay settles
+    spec = replace(LeakageSpec.from_yaml(SYNTHETIC_SPEC), max_ingest_delay={})
     cases = [
         case("ok", CLEAN, "clean"),
         case("crash", CRASH, "clean"),
@@ -43,6 +46,11 @@ def test_unverifiable_cases_are_counted_and_listed(world):
     assert "settled by replay" in listed[("hint", "static")]
     assert ("ok", "static") not in listed and ("ok", "combined") not in listed
 
+    declared = score_cases(
+        [case("hint", EVENT_TIME_ONLY, "L4")], catalog, LeakageSpec.from_yaml(SYNTHETIC_SPEC), 42
+    )
+    assert declared[0].scores["static"] >= 0.5 and not declared[0].verdicts  # a finding, not a hint
+
 
 def test_markdown_lists_unverifiable_cases(world):
     catalog, _ = world
@@ -59,6 +67,23 @@ def test_markdown_lists_unverifiable_cases(world):
     }
     text = markdown(result)
     assert "Unverifiable cases" in text and "`crash`" in text
+    # the case fails closed: the clean template counts as blocked although its score is 1.0 anyway,
+    # and the report gives exact template-level intervals next to the bootstrap
+    rates = split["detectors"]["static"]
+    assert rates["block_rate_clean"]["k"] == 1 and rates["block_rate_clean"]["n"] == 1
+    assert "| clean templates | flagged / n [95% exact CI]" in text and "1/1 = 1.00" in text
+
+
+def test_an_unverifiable_clean_case_is_blocked_without_being_flagged(world):
+    """A detector that cannot check a clean query and says so has not flagged it, but the product
+    blocks it: the block rate counts it, the false positive rate does not."""
+    catalog, _ = world
+    spec = LeakageSpec.from_yaml(SYNTHETIC_SPEC)
+    scored = score_cases([case("ok", CLEAN, "clean")], catalog, spec, seed=42)
+    scored[0].verdicts["static"] = "unverifiable"
+    scored[0].reasons["static"] = "a table the spec does not declare"
+    rates = evaluate(scored, {d: 0.5 for d in DETECTORS})["detectors"]["static"]
+    assert rates["template_fpr"]["k"] == 0 and rates["block_rate_clean"]["k"] == 1
 
 
 def split_stub() -> dict:
@@ -111,10 +136,10 @@ def test_run_needs_known_splits(tmp_path):
     from bench.leakage.cases import SPLITS
     from bench.leakage.run import main, run
 
-    assert SPLITS == ("dev", "dev_v1b", "holdout_v2") and "L7" in LEAK_TYPES
-    # The held-out split has templates now; scoring it still needs a pre-registration.
-    with pytest.raises(SystemExit, match="no pre-registration found"):
-        run(42, tmp_path, False, tmp_path, splits=("holdout_v2",))
+    assert SPLITS == ("dev", "dev_v1b", "holdout_v2", "holdout_v3") and "L7" in LEAK_TYPES
+    # The next held-out split has no templates until its authors hand them in.
+    with pytest.raises(SystemExit, match="no templates for split"):
+        run(42, tmp_path, False, tmp_path, splits=("holdout_v3",))
     with pytest.raises(SystemExit):
         main(["run", "--splits", "holdout"])
 
