@@ -581,9 +581,11 @@ def find_internal(
 ) -> list[tuple[str, str, str, float]]:
     """Pairs of candidate templates that are near-copies: (a, b, kind, score).
 
-    The same canonical query is reported whatever the labels (one of them is wrong, or both are
-    the same template). A merely similar pair is reported only when the labels are equal: a clean
-    twin of a leaky shape is the point of a hard negative.
+    The same canonical query is reported whatever the labels. Two templates that canonicalise
+    alike differ at most in a masked literal or a spelling: either one template written twice, or
+    a twin whose label turns on a constant (an 8-day versus a 7-day lag), so a person decides. A
+    merely similar pair is reported only when the labels are equal: a clean twin of a leaky shape
+    is the point of a hard negative.
     """
     templates = sorted(candidate, key=lambda t: t.template_id)
     forms = _forms(templates, dialect, relations)

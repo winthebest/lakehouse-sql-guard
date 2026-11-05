@@ -33,8 +33,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
-import subprocess
 import tempfile
 import time
 from collections import Counter
@@ -57,10 +55,11 @@ from bench.leakage.cases import (
     render,
 )
 from bench.leakage.freeze import (
+    ROOT,
+    checkout_state,
     frozen_hashes,
     frozen_mismatches,
-    recorded_differences,
-    recorded_hashes,
+    is_ancestor,
 )
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.splits import load_splits, seen_splits
@@ -74,7 +73,7 @@ from bench.leakage.v1_runner import (
     tag_commit,
     v1_spec_data,
 )
-from bench.leakage.world import SCHEMAS, WorldConfig, build_world
+from bench.leakage.world import synthetic_world, world_dir
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
@@ -123,12 +122,12 @@ EXPECTATIONS = (
 
 
 def git_sha() -> tuple[str, bool]:
-    def out(*args: str) -> str:
-        return subprocess.run(args, capture_output=True, text=True, check=False).stdout.strip()
-
-    sha = out("git", "rev-parse", "--short", "HEAD") or "unknown"
-    dirty = bool(out("git", "status", "--porcelain", "--untracked-files=no"))
-    return sha, dirty
+    """`(short sha, dirty)` of this repository for labelling a result; ("unknown", False) outside
+    a checkout. A held-out run and `prereg` do not use it: they refuse outside a checkout."""
+    try:
+        return checkout_state()
+    except SystemExit:
+        return "unknown", False
 
 
 def unverifiable_reason(report: LeakageReport) -> str:
@@ -281,10 +280,6 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
     return report
 
 
-def world_dir(root: Path, seed: int) -> Path:
-    return root / f"synthetic-{seed}"
-
-
 def v1_reading(scored: list[Scored], cut: dict[str, float]) -> dict:
     """What row (a) could not read, by truth label, and what it would have said had it read L7.
 
@@ -325,22 +320,6 @@ def v1_reading(scored: list[Scored], cut: dict[str, float]) -> dict:
             "of_which_flagged_by_v1_raw": sum(raw[s.case.case_id] >= cut[row] for s in forced),
         }
     return result
-
-
-def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
-    """The synthetic world for `seed` under `root`, generated on first use.
-
-    A directory generated before a table was added to the world lacks it, so it is regenerated
-    (the other tables come out the same: the generator is deterministic).
-    """
-    path = world_dir(root, seed)
-    catalog = LakehouseCatalog.local(path)
-    if set(catalog.table_names()) != set(SCHEMAS):
-        if catalog.table_names():
-            shutil.rmtree(path)
-            catalog = LakehouseCatalog.local(path)
-        build_world(catalog, WorldConfig(seed=seed))
-    return catalog
 
 
 def v1_spec_for(spec_path: Path) -> LeakageSpec:
@@ -389,7 +368,7 @@ def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
     """What `prereg` writes: thresholds fit on dev, and what existed when they were fit."""
     catalog = synthetic_world(warehouse, seed)
     dev = score_split("dev", seed, warehouse, catalog, with_v1)
-    sha, _ = git_sha()
+    sha, _ = checkout_state()
     weights = Weights.load()
     manifest = load_splits()
     cut = thresholds(dev)
@@ -409,8 +388,7 @@ def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
             name: len(list((TEMPLATES_DIR / name).glob("*.sql"))) for name in manifest
         },
         "v1": {"tag": V1_TAG, "commit": tag_commit()} if with_v1 else None,
-        "frozen_files": frozen_hashes(),
-        "recorded_files": recorded_hashes(),
+        "frozen_files": frozen_hashes(splits=sorted(seen_splits())),
         "expectations": list(EXPECTATIONS),
         "max_fpr": MAX_FPR,
         # null = the detector cannot reach FPR <= max_fpr with any positive threshold
@@ -424,7 +402,7 @@ def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
 
 
 def prereg(seed: int, warehouse: Path, out_dir: Path = RESULTS_DIR, with_v1: bool = True) -> Path:
-    sha, dirty = git_sha()
+    sha, dirty = checkout_state()
     if dirty:
         raise SystemExit("commit your changes first: pre-registration must point at a clean SHA")
     payload = prereg_payload(seed, warehouse, with_v1)
@@ -460,19 +438,28 @@ def require_frozen_run(
 ) -> None:
     """Refuse a run on a split nobody has seen unless everything it relies on is as it was frozen.
 
-    It needs an explicit pre-registration, a clean working tree, the recorded hashes of the frozen
-    files unchanged, and a threshold for every row it reports (row (a) only if `with_v1`).
+    It needs an explicit pre-registration; a git checkout (at `root`, whatever the working
+    directory) with a clean tree; the commit the pre-registration was written at to be an ancestor
+    of HEAD; the SHA-256 of every frozen file (all of `src/sqlguard`, the harness, the specs and
+    manifest, the briefs, the templates of the seen splits) to match the record; and a threshold
+    for every row it reports (row (a) only if `with_v1`).
     """
     names = ", ".join(held_out)
     if prereg_path is None:
         raise SystemExit(f"a run on unseen split(s) {names} needs an explicit --prereg PATH")
-    _, dirty = git_sha()
+    checkout = root or ROOT
+    _, dirty = checkout_state(checkout)
     if dirty:
         raise SystemExit("commit or stash your changes first: a held-out run needs a clean tree")
+    if not pre.get("git_sha") or not is_ancestor(pre["git_sha"], checkout):
+        raise SystemExit(
+            f"{prereg_path.name} was written at {pre.get('git_sha')}, which is not an ancestor "
+            "of HEAD: the checkout is not a continuation of the frozen commit"
+        )
     recorded = pre.get("frozen_files")
     if not recorded:
         raise SystemExit(f"{prereg_path} records no frozen_files hashes; write it with `prereg`")
-    problems = frozen_mismatches(recorded, root) if root else frozen_mismatches(recorded)
+    problems = frozen_mismatches(recorded, checkout, pre.get("seen_splits", ()))
     if problems:
         shown = "; ".join(problems[:8])
         raise SystemExit(f"the frozen files changed since {prereg_path.name}: {shown}")
@@ -521,7 +508,10 @@ def run(
         raise SystemExit(f"no templates for split(s) {unknown or splits}; known: {SPLITS}")
     started = time.perf_counter()
     pre = load_prereg(prereg_path) if prereg_path else latest_prereg(out_dir)
-    held_out = [name for name in splits if name not in seen_splits(pre)]
+    # seen-ness for the guard is what the pre-registration recorded, never the live manifest: a
+    # split cannot be declared seen after the fact to skip the checks
+    recorded_seen = set(pre["seen_splits"]) if "seen_splits" in pre else set(seen_splits())
+    held_out = [name for name in splits if name not in recorded_seen]
     if held_out:
         require_frozen_run(held_out, pre, prereg_path, with_v1=with_v1)
     cut = {d: float("inf") if t is None else t for d, t in pre["thresholds"].items()}
@@ -546,9 +536,6 @@ def run(
         "prereg_sha": pre["git_sha"],
         "prereg_file": str(prereg_path) if prereg_path else None,
         "held_out_run_checked": bool(held_out),
-        "recorded_files_differ": (
-            recorded_differences(pre["recorded_files"]) if pre.get("recorded_files") else None
-        ),
         "thresholds": pre["thresholds"],
         "splits": results,
         "in_sample_splits": [name for name in splits if name in seen_splits(pre)],
@@ -596,12 +583,6 @@ def markdown(result: dict) -> str:
         ]
     if fresh:
         lines += [f"Not seen during development: {', '.join(fresh)}.", ""]
-    if result.get("recorded_files_differ"):
-        lines += [
-            "Files recorded in the pre-registration that differ now: "
-            + "; ".join(result["recorded_files_differ"]),
-            "",
-        ]
     if result.get("specs"):
         lines += [
             "Spec per split: " + ", ".join(f"{n} `{f}`" for n, f in result["specs"].items()),

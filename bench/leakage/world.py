@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import shutil
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -467,3 +468,23 @@ def write_timeline(catalog: LakehouseCatalog, path: Path) -> None:
 
 def summary_dict(summary: WorldSummary) -> dict:
     return {**asdict(summary), "late_rate": round(summary.late_rate, 4)}
+
+
+def world_dir(root: Path, seed: int) -> Path:
+    return root / f"synthetic-{seed}"
+
+
+def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
+    """The synthetic world for `seed` under `root`, generated on first use.
+
+    A directory generated before a table was added to the world lacks it, so it is regenerated
+    (the other tables come out the same: the generator is deterministic).
+    """
+    path = world_dir(root, seed)
+    catalog = LakehouseCatalog.local(path)
+    if set(catalog.table_names()) != set(SCHEMAS):
+        if catalog.table_names():
+            shutil.rmtree(path)
+            catalog = LakehouseCatalog.local(path)
+        build_world(catalog, WorldConfig(seed=seed))
+    return catalog

@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,117 +13,228 @@ from bench.leakage.cases import LeakCase
 FROZEN_FILES = {
     "src/sqlguard/leakage/validator.py": "rules",
     "src/sqlguard/leakage/weights.yaml": "weights",
+    "src/sqlguard/core/lineage.py": "lineage",
     "src/sqlguard/dbt/inline.py": "inline",
+    "bench/leakage/cases.py": "cases",
     "bench/leakage/spec_holdout_v2.yaml": "spec",
     "bench/leakage/splits.yaml": "splits",
-    "bench/leakage/world.py": "world",
+    "bench/leakage/templates/dev/a.sql": "-- leak: clean\nSELECT 1",
+    "bench/briefs/leakage.md": "brief",
+    "README.md": "not frozen",
 }
+SEEN = ["dev", "dev_v1b"]
 THRESHOLDS = {d: 0.5 for d in (*run.DETECTORS, *run.V1_SPEC_ROWS, *run.V1_ROWS)}
 
 
-@pytest.fixture
-def tree(tmp_path):
-    for name, text in FROZEN_FILES.items():
-        path = tmp_path / name
+def git(root: Path, *args: str) -> str:
+    done = subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=a@b.c", "-c", "user.name=t", *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.strip()
+
+
+def write(root: Path, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-    (tmp_path / "src/sqlguard/leakage/__pycache__").mkdir()
-    (tmp_path / "src/sqlguard/leakage/__pycache__/x.pyc").write_bytes(b"\0")
-    return tmp_path
 
 
 @pytest.fixture
-def clean(monkeypatch):
-    monkeypatch.setattr(run, "git_sha", lambda: ("abc1234", False))
+def repo(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    write(root, FROZEN_FILES)
+    (root / "src/sqlguard/leakage/__pycache__").mkdir()
+    (root / "src/sqlguard/leakage/__pycache__/x.pyc").write_bytes(b"\0")
+    git(root, "add", "-A", "-f")
+    git(root, "commit", "-qm", "frozen")
+    return root
 
 
-def prereg_for(tree: Path, **changes) -> dict:
+def prereg_for(root: Path, **changes) -> dict:
     pre = {
-        "git_sha": "abc1234",
+        "git_sha": git(root, "rev-parse", "--short", "HEAD"),
         "created_at": "2026-11-05T10:00:00+00:00",
+        "seen_splits": SEEN,
         "thresholds": dict(THRESHOLDS),
-        "frozen_files": freeze.frozen_hashes(tree),
+        "frozen_files": freeze.frozen_hashes(root, SEEN),
     }
     return pre | changes
 
 
-def refuse(tree, pre, path=Path("prereg-abc1234.json"), **kwargs):
+def refuse(root, pre, path=Path("prereg-x.json")):
     with pytest.raises(SystemExit) as stop:
-        run.require_frozen_run(["holdout_v2"], pre, path, with_v1=True, root=tree, **kwargs)
+        run.require_frozen_run(["holdout_v2"], pre, path, with_v1=True, root=root)
     return str(stop.value)
 
 
-def test_the_repository_freezes_the_rules_the_specs_and_the_world():
-    names = set(freeze.frozen_hashes())
+def accept(root, pre):
+    run.require_frozen_run(["holdout_v2"], pre, Path("p.json"), with_v1=True, root=root)
+
+
+# --- what is frozen -----------------------------------------------------------------------------
+
+
+def test_the_repository_freezes_everything_that_decides_a_verdict_or_builds_a_case():
+    names = set(freeze.frozen_hashes(splits=SEEN))
     assert {
         "src/sqlguard/leakage/validator.py",
         "src/sqlguard/leakage/weights.yaml",
+        "src/sqlguard/core/lineage.py",  # the rules import it
+        "src/sqlguard/core/parsing.py",
         "src/sqlguard/dbt/inline.py",
+        "bench/leakage/cases.py",  # renders the cases
+        "bench/leakage/run.py",
+        "bench/leakage/metrics.py",
+        "bench/leakage/baseline.py",
+        "bench/leakage/v1_runner.py",
+        "bench/leakage/audit.py",
+        "bench/leakage/duplicates.py",
+        "bench/leakage/freeze.py",
+        "bench/leakage/world.py",
+        "bench/leakage/spec.yaml",
         "bench/leakage/spec_holdout_v2.yaml",
         "bench/leakage/splits.yaml",
-        "bench/leakage/world.py",
+        "bench/briefs/leakage.md",
+        "bench/briefs/safety.md",
     } <= names
+    assert any(n.startswith("bench/leakage/templates/dev/") for n in names)
+    assert any(n.startswith("bench/leakage/templates/dev_v1b/") for n in names)
     assert not [n for n in names if "__pycache__" in n or n.endswith(".pyc")]
+    assert not [n for n in names if "templates/holdout_v2" in n]  # arrive after the freeze
 
 
-def test_an_unchanged_tree_matches_and_every_kind_of_change_is_named(tree):
-    recorded = freeze.frozen_hashes(tree)
-    assert freeze.frozen_mismatches(recorded, tree) == []
-    (tree / "src/sqlguard/leakage/weights.yaml").write_text("heavier", encoding="utf-8")
-    (tree / "bench/leakage/world.py").unlink()
-    (tree / "src/sqlguard/leakage/rules").mkdir()
-    (tree / "src/sqlguard/leakage/rules/l8.py").write_text("new", encoding="utf-8")
-    assert freeze.frozen_mismatches(recorded, tree) == [
-        "changed: src/sqlguard/leakage/weights.yaml",
-        "missing: bench/leakage/world.py",
+def test_every_kind_of_change_is_named(repo):
+    recorded = freeze.frozen_hashes(repo, SEEN)
+    assert freeze.frozen_mismatches(recorded, repo, SEEN) == []
+    (repo / "src/sqlguard/core/lineage.py").write_text("tuned", encoding="utf-8")
+    (repo / "bench/leakage/cases.py").unlink()
+    write(
+        repo, {"src/sqlguard/leakage/rules/l8.py": "new", "bench/leakage/templates/dev/b.sql": "x"}
+    )
+    assert freeze.frozen_mismatches(recorded, repo, SEEN) == [
+        "changed: src/sqlguard/core/lineage.py",
+        "missing: bench/leakage/cases.py",
+        "added: bench/leakage/templates/dev/b.sql",
         "added: src/sqlguard/leakage/rules/l8.py",
     ]
 
 
-def test_a_run_on_an_unseen_split_passes_when_nothing_changed(tree, clean):
-    run.require_frozen_run(
-        ["holdout_v2"], prereg_for(tree), Path("p.json"), with_v1=True, root=tree
-    )
+# --- the guard ----------------------------------------------------------------------------------
 
 
-def test_it_needs_an_explicit_prereg(tree, clean):
+def test_a_pristine_checkout_passes(repo):
+    accept(repo, prereg_for(repo))
+
+
+def test_it_does_not_depend_on_the_working_directory(repo, tmp_path, monkeypatch):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # not a checkout, and not the repository under test
+    accept(repo, prereg_for(repo))
+    (repo / "src/sqlguard/core/lineage.py").write_text("tuned", encoding="utf-8")
+    assert "clean tree" in refuse(repo, prereg_for(repo))
+
+
+def test_it_refuses_outside_a_git_checkout(tmp_path):
+    bare = tmp_path / "archive"
+    write(bare, FROZEN_FILES)
+    pre = {
+        "git_sha": "abc1234",
+        "seen_splits": SEEN,
+        "thresholds": dict(THRESHOLDS),
+        "frozen_files": freeze.frozen_hashes(bare, SEEN),
+    }
+    assert "not a git checkout" in refuse(bare, pre)
+
+
+def test_it_needs_an_explicit_prereg(repo):
     with pytest.raises(SystemExit, match="explicit --prereg"):
-        run.require_frozen_run(["holdout_v2"], prereg_for(tree), None, with_v1=True, root=tree)
+        run.require_frozen_run(["holdout_v2"], prereg_for(repo), None, with_v1=True, root=repo)
 
 
-def test_it_refuses_a_dirty_tree(tree, monkeypatch):
-    monkeypatch.setattr(run, "git_sha", lambda: ("abc1234", True))
-    assert "clean tree" in refuse(tree, prereg_for(tree))
+def test_it_refuses_a_dirty_tree_even_for_a_file_that_is_not_frozen(repo):
+    (repo / "README.md").write_text("edited", encoding="utf-8")
+    assert "clean tree" in refuse(repo, prereg_for(repo))
 
 
-def test_it_refuses_when_a_frozen_file_changed_even_uncommitted(tree, clean):
-    pre = prereg_for(tree)
-    (tree / "src/sqlguard/leakage/validator.py").write_text(
-        "tuned after the fact", encoding="utf-8"
-    )
-    message = refuse(tree, pre)
-    assert "changed: src/sqlguard/leakage/validator.py" in message
+@pytest.mark.parametrize(
+    "path",
+    ["src/sqlguard/core/lineage.py", "bench/leakage/cases.py", "src/sqlguard/leakage/validator.py"],
+)
+def test_an_uncommitted_edit_to_code_that_decides_a_verdict_is_refused(repo, path):
+    pre = prereg_for(repo)
+    (repo / path).write_text("tuned after the fact", encoding="utf-8")
+    message = refuse(repo, pre)
+    assert "clean tree" in message  # caught twice: dirty, and below by hash
+    git(repo, "commit", "-qam", "tune")
+    assert f"changed: {path}" in refuse(repo, pre)
 
 
-def test_it_refuses_a_prereg_without_hashes(tree, clean):
-    pre = prereg_for(tree)
+def test_a_committed_change_after_the_prereg_is_refused(repo):
+    pre = prereg_for(repo)
+    write(repo, {"src/sqlguard/core/lineage.py": "merged from another branch"})
+    git(repo, "commit", "-qam", "unrelated merge")
+    assert "changed: src/sqlguard/core/lineage.py" in refuse(repo, pre)
+
+
+def test_a_new_file_in_the_frozen_set_is_refused(repo):
+    pre = prereg_for(repo)
+    write(repo, {"src/sqlguard/leakage/rules/l8.py": "new rule"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "new rule")
+    assert "added: src/sqlguard/leakage/rules/l8.py" in refuse(repo, pre)
+
+
+def test_changes_outside_the_frozen_set_do_not_matter(repo):
+    pre = prereg_for(repo)
+    write(repo, {"README.md": "docs moved on", "results/leakage/prereg-x.json": "{}"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "docs and results")
+    accept(repo, pre)
+
+
+def test_the_prereg_commit_must_be_an_ancestor_of_head(repo):
+    default = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    git(repo, "checkout", "-qb", "side")
+    write(repo, {"README.md": "side"})
+    git(repo, "commit", "-qam", "side")
+    side = prereg_for(repo)  # frozen files identical, but written on another branch
+    git(repo, "checkout", "-q", default)
+    assert "not an ancestor" in refuse(repo, side)
+
+
+def test_an_unknown_commit_is_refused(repo):
+    assert "does not have" in refuse(repo, prereg_for(repo, git_sha="deadbee"))
+
+
+def test_it_refuses_a_prereg_without_hashes(repo):
+    pre = prereg_for(repo)
     del pre["frozen_files"]
-    assert "no frozen_files" in refuse(tree, pre)
+    assert "no frozen_files" in refuse(repo, pre)
 
 
-def test_it_fails_instead_of_dropping_a_row_without_a_threshold(tree, clean):
-    pre = prereg_for(tree)
+def test_it_fails_instead_of_dropping_a_row_without_a_threshold(repo):
+    pre = prereg_for(repo)
     del pre["thresholds"]["v2v1_static"]
-    assert "refusing to drop rows" in refuse(tree, pre) and "v2v1_static" in refuse(tree, pre)
+    assert "v2v1_static" in refuse(repo, pre)
     without_v1 = {k: v for k, v in THRESHOLDS.items() if k not in run.V1_ROWS}
     run.require_frozen_run(
         ["holdout_v2"],
-        prereg_for(tree, thresholds=without_v1),
+        prereg_for(repo, thresholds=without_v1),
         Path("p.json"),
         with_v1=False,
-        root=tree,
+        root=repo,
     )  # row (a) may be left out on purpose, never by accident
-    assert "v1_static" in refuse(tree, prereg_for(tree, thresholds=without_v1))
+    assert "v1_static" in refuse(repo, prereg_for(repo, thresholds=without_v1))
+
+
+# --- choosing and trusting the prereg ------------------------------------------------------------
 
 
 def test_the_newest_prereg_is_the_one_that_says_it_is_newest_not_the_newest_file(tmp_path):
@@ -139,6 +251,21 @@ def test_run_refuses_an_unseen_split_without_a_prereg(tmp_path, monkeypatch):
         json.dumps({"created_at": "x", "git_sha": "abc1234", "thresholds": THRESHOLDS})
     )
     monkeypatch.setattr(run, "load_templates", lambda name: [object()])
+    with pytest.raises(SystemExit, match="explicit --prereg"):
+        run.run(42, tmp_path, False, tmp_path, ("holdout_v2",))
+
+
+def test_marking_a_split_seen_after_the_prereg_does_not_skip_the_guard(tmp_path, monkeypatch):
+    """Seen-ness for the guard is what the pre-registration recorded, not the live manifest."""
+    pre = {
+        "created_at": "x",
+        "git_sha": "abc1234",
+        "seen_splits": SEEN,
+        "thresholds": THRESHOLDS,
+    }
+    (tmp_path / "prereg-abc1234.json").write_text(json.dumps(pre))
+    monkeypatch.setattr(run, "load_templates", lambda name: [object()])
+    monkeypatch.setattr(run, "seen_splits", lambda prereg=None: frozenset({*SEEN, "holdout_v2"}))
     with pytest.raises(SystemExit, match="explicit --prereg"):
         run.run(42, tmp_path, False, tmp_path, ("holdout_v2",))
 
@@ -171,41 +298,7 @@ def test_the_preregistration_records_the_frozen_files_and_what_to_expect(world, 
     monkeypatch.setattr(run, "synthetic_world", lambda root, seed: catalog)
     monkeypatch.setattr(run, "score_split", lambda *a, **k: scored)
     payload = run.prereg_payload(42, Path("."), with_v1=False)
-    assert payload["frozen_files"] == freeze.frozen_hashes()
-    assert payload["recorded_files"] == freeze.recorded_hashes()
+    assert payload["frozen_files"] == freeze.frozen_hashes(splits=payload["seen_splits"])
+    assert "bench/briefs/leakage.md" in payload["frozen_files"]
     assert any("near zero" in note and "plan_history" in note for note in payload["expectations"])
     assert payload["fit_splits"] == ["dev"] and "holdout_v2" not in payload["seen_splits"]
-
-
-def test_the_preregistration_also_records_the_briefs_and_the_gating_tools():
-    recorded = freeze.recorded_hashes()
-    assert {
-        "bench/briefs/leakage.md",
-        "bench/briefs/safety.md",
-        "bench/leakage/splits.yaml",
-        "bench/leakage/audit.py",
-        "bench/leakage/duplicates.py",
-        "bench/leakage/freeze.py",
-    } <= set(recorded)
-    assert all(len(h) == 64 for h in recorded.values())
-
-
-def test_a_changed_brief_is_reported_not_refused(tmp_path, clean):
-    brief = tmp_path / "bench/briefs/leakage.md"
-    brief.parent.mkdir(parents=True)
-    brief.write_text("v1", encoding="utf-8")
-    recorded = freeze.recorded_hashes(tmp_path)
-    assert freeze.recorded_differences(recorded, tmp_path) == []
-    brief.write_text("v2", encoding="utf-8")
-    (tmp_path / "bench/leakage").mkdir(parents=True)
-    (tmp_path / "bench/leakage/audit.py").write_text("new tool", encoding="utf-8")
-    assert freeze.recorded_differences(recorded, tmp_path) == [
-        "changed: bench/briefs/leakage.md",
-        "added: bench/leakage/audit.py",
-    ]
-    # the frozen checks are untouched by it
-    rule = tmp_path / "src/sqlguard/leakage/rule.py"
-    rule.parent.mkdir(parents=True)
-    rule.write_text("rule", encoding="utf-8")
-    pre = prereg_for(tmp_path)
-    run.require_frozen_run(["holdout_v2"], pre, Path("p.json"), with_v1=True, root=tmp_path)

@@ -34,8 +34,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from bench.leakage.cases import SPLITS, LeakCase, generate_cases
-from bench.leakage.run import synthetic_world
 from bench.leakage.splits import load_splits
+from bench.leakage.world import synthetic_world
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.fixes import Semantics, Verification, key_counts, suggest_fix
 from sqlguard.leakage.replay import Replayer

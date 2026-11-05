@@ -248,7 +248,8 @@ def test_a_future_spine_row_is_not_known(audit_world, points):
 def test_l6_and_l7_are_not_auditable_with_the_reason(audit_world, points):
     for label in ("L6", "L7"):
         result = judged(audit_world, points, label, EVENTS_BOUNDED)
-        assert result.status == "not_auditable" and result.reason.startswith(label)
+        assert result.status == "not_auditable"
+        assert result.reason.startswith(f"not auditable: {label}")
 
 
 @pytest.mark.parametrize("label", ["clean", "L3"])
@@ -412,3 +413,50 @@ def test_the_command_exits_1_on_a_planted_mislabel(tmp_path, world, capsys):
     empty = tmp_path / "empty"
     empty.mkdir()
     assert audit.main(["--candidate-dir", str(empty)]) == 2
+
+
+def test_a_clean_query_labelled_l6_is_not_judged_and_the_command_says_so(tmp_path, world, capsys):
+    catalog, _ = world
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "synthetic-42").symlink_to(
+        Path(catalog.catalog.properties["warehouse"].removeprefix("file://"))
+    )
+    directory = tmp_path / "authored"
+    write(directory, "hv2_l6_really_clean", "L6", EVENTS_BOUNDED)
+    write(directory, "hv2_l7_really_clean", "L7", EVENTS_BOUNDED)
+    assert (
+        audit.main(["--candidate-dir", str(directory), "--warehouse", str(root), "--points", "6"])
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "not auditable by label: L6 1, L7 1" in out
+    assert "not auditable hv2_l6_really_clean (L6): not auditable: L6" in out
+
+
+def test_the_audit_command_imports_no_detector_module(tmp_path, world):
+    """Running it loads the world generator and the SQL engine, never `sqlguard.leakage.*`."""
+    import subprocess
+    import sys
+
+    catalog, _ = world
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "synthetic-42").symlink_to(
+        Path(catalog.catalog.properties["warehouse"].removeprefix("file://"))
+    )
+    directory = tmp_path / "authored"
+    write(directory, "hv2_clean_ingest_bounded", "clean", EVENTS_BOUNDED)
+    code = (
+        "import sys\n"
+        "from bench.leakage import audit\n"
+        f"args = ['--candidate-dir', {str(directory)!r}, '--warehouse', {str(root)!r}]\n"
+        "status = audit.main([*args, '--points', '4'])\n"
+        "loaded = sorted(m for m in sys.modules if m.startswith('sqlguard.leakage'))\n"
+        "print('LOADED', loaded)\n"
+        "raise SystemExit(status)\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr[-400:]
+    assert "LOADED []" in done.stdout, done.stdout[-400:]
+    assert "bench.leakage.run" not in done.stdout

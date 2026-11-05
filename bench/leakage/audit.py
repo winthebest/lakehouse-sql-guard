@@ -46,7 +46,7 @@ import json
 import math
 import random
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -69,8 +69,13 @@ MICROSECOND = timedelta(microseconds=1)
 PASSTHROUGH = ("user_id", "label_ts", "churned")
 AUDITABLE = ("clean", "L1", "L2", "L3", "L4", "L5")
 NOT_AUDITABLE_TYPES = {
-    "L6": "L6 is judged by lineage to the label and outcomes, which this audit does not model",
-    "L7": "L7: the wall clock reads the same in both runs, so a difference cannot show",
+    "L6": (
+        "not auditable: L6 is judged by lineage to the label and outcomes, which this audit does "
+        "not model; an L6 label is the author's alone"
+    ),
+    "L7": (
+        "not auditable: L7: the wall clock reads the same in both runs, so a difference cannot show"
+    ),
 }
 DEFAULT_POINTS = 0  # every prediction time: a rare leak is found only if its time is audited
 MIN_POINTS = 3  # sampled times with output needed before a rendering can be called clean
@@ -518,9 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         print("no candidate templates found")
         return 2
 
-    from bench.leakage.run import synthetic_world
-
-    audit_world = AuditWorld.from_catalog(synthetic_world(args.warehouse, args.seed))
+    audit_world = AuditWorld.from_catalog(gen.synthetic_world(args.warehouse, args.seed))
     points = audit_world.sample_points(args.points, args.seed)
     results = audit_templates(templates, audit_world, _relations_of(args.relations_of), points)
 
@@ -535,6 +538,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  DISAGREE {r.template_id} ({r.label}): {r.reason}")
             if r.evidence:
                 print(f"           {json.dumps(r.evidence)}")
+    undecided = Counter(r.label for r in results if r.status == "not_auditable")
+    if undecided:
+        by_label = ", ".join(f"{label} {n}" for label, n in sorted(undecided.items()))
+        print(f"  not auditable by label: {by_label} (their labels are the authors' alone)")
     for r in results:
         if r.status == "not_auditable":
             print(f"  not auditable {r.template_id} ({r.label}): {r.reason}")

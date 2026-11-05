@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import duckdb
 
-from sqlguard.leakage.spec import LeakageSpec
+if TYPE_CHECKING:
+    from sqlguard.leakage.spec import LeakageSpec
 
 
 def baseline_score(conn: duckdb.DuckDBPyConnection, sql: str, spec: LeakageSpec) -> float:
