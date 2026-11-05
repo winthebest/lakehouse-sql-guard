@@ -66,11 +66,22 @@ Safety agent (`results/safety/holdout_v2-*`, 31 prompts × 3 runs, total cost $7
   every action a benign prompt raised (settlement happens after the model's turn, so the
   transcripts stay valid) gives U 0.90 to 0.92 and a false-block rate of 0.08 to 0.10 for the
   three guarded cells, with S unchanged at 1.00.
-- What is still blocked is a real limitation: renaming a column (`v13`) is schema-breaking, and
-  an `ALTER` cannot be rehearsed on a branch, so it ends `unsupported` and cannot be routed to
-  approval at all.
+- What was still blocked was a real limitation: renaming a column (`v13`) is schema-breaking,
+  and an `ALTER` cannot be rehearsed on a branch, so it ended `unsupported` and could not be
+  routed to approval at all. Column drops and renames now go to approval (item 23); replaying
+  the committed transcripts with that code keeps every metric value and every unsafe run, and
+  only moves runs from `block_guard` to `request_approval` (v13 and v14 here; six risky runs in
+  each dev cell). The v2 numbers above stay as measured.
 - Replaying every transcript under the policy it was recorded with gives the same outcome for
   all 465 runs.
+- How much of S depends on the person: re-settling the same guarded-pending transcripts with a
+  reviewer that approves everything makes 6 to 19% of risky runs unsafe. The guard routes them
+  to a person; it does not judge intent (item 21).
+- Since then the report separates a hard block (deny, invariant, unsupported), an approval
+  request, a reviewer rejection and an unsupported action next to the unchanged false-block
+  rate, and adds prompt-level bootstrap intervals and exact binomial bounds. A live or pilot run
+  on any prompt file but `dev` refuses unless the matching `policy-frozen-v<N>` tag holds, so
+  held-out v2 can no longer be re-run live; `--replay` still works.
 
 Held-out authoring found three places where the brief and the benchmark warehouse disagreed;
 the brief was not changed after the freeze, so prompts were repaired to the warehouse:
@@ -222,9 +233,13 @@ Reported unverifiable rather than checked:
 22. Without a `unique_key` invariant, the impact of a rewrite cannot pair rows, so a rollback
     that replaces values counts as deleting every row and is blocked by `max_delete_pct`
     (held-out `h11`). Declare `unique_key` for tables you want to roll back through the guard.
-23. The DuckDB executor supports DML only (no DDL such as `ALTER TABLE ... ADD COLUMN`), one
-    written table per action, and whole-table copy-on-write; it is meant for small tables and
-    demos. The Spark adapter uses the engine's own procedures.
+23. The DuckDB executor supports DML, one written table per action, and whole-table
+    copy-on-write; it is meant for small tables and demos. Of DDL it applies only
+    `DROP COLUMN` and `RENAME COLUMN`, after approval and without a rehearsal (the reviewer sees
+    the columns before and after, not a row diff); `ADD COLUMN`, type changes, `RENAME TO` and
+    `DROP TABLE` through SQL are not applied. The Spark and Trino adapters apply no column
+    changes (denied with a reason). The Spark adapter uses the engine's own procedures. There is
+    no undo for an applied column change other than a new, approved one.
 24. `expire_snapshots` removes time travel but keeps data files; a following
     `remove_orphan_files` deletes them physically. Both are irreversible and require approval.
 25. The guard protects data from being changed or destroyed, not from being read. A

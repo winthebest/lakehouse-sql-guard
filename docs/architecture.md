@@ -193,9 +193,21 @@ it is saved in an `ActionStore` (`safety/store.py`, one SQLite file) and the bra
 | set | Store. Rehearsed, measured, saved, and still decidable with `Guard.resolve(action_id, ...)`. |
 
 Maintenance (`expire_snapshots`, `remove_orphan_files`, rollback, fast-forward) is queued
-the same way, with its dry-run plan instead of a branch. Reads, and statements that cannot be
-rehearsed on a branch (DDL), are never queued (the latter come back `unsupported`). A table too big
+the same way, with its dry-run plan instead of a branch. Reads are never queued. A table too big
 to diff (see below) is refused with `denied`, because an approver must be able to read the change.
+
+A column change (`ALTER TABLE ... DROP COLUMN` or `RENAME COLUMN`, one per call) cannot be
+rehearsed: an Iceberg schema belongs to the table, not to a branch. It is queued as kind
+`alter_table` without a branch, always as `ask` whatever the policy says for its class, with the
+schema id and the columns before and after (by field id) as its reviewed artifact; the approval
+surfaces say it was not rehearsed. On approval it is re-planned (the digest must match) and
+applied in one catalog commit that requires main's snapshot and the schema id to be unchanged
+(`AssertRefSnapshotId`, `AssertCurrentSchemaId`); a lost race ends `stale`. A plan that would leave
+the table unusable is denied: dropping a column a sort order or any partition spec uses, renaming
+onto an existing name (ignoring case), dropping every column. A pending write whose table's
+columns changed after its rehearsal ends `stale`. Engines without `Capabilities.schema_change`
+(the Spark and Trino adapters) deny it with a reason; other DDL (`ADD COLUMN`, type changes,
+`RENAME TO`, `DROP TABLE` through SQL) is still not applied.
 
 ```mermaid
 stateDiagram-v2
@@ -226,8 +238,10 @@ a guessed literal be confirmed), digests and counts stay. No row value is ever s
 truncate cannot run while another connection holds a read transaction (a UI, the `sqlite3`
 CLI), so the erased bytes can linger in `-wal` until the reader is gone; `expire_pending` and
 `reconcile` repeat it, so the guarantee is "eventually", not "at the instant of the transition".
-The store carries a schema version (`PRAGMA user_version`, now 2). A new file is stamped; a
-version 1 file is upgraded in place by adding `owner`, `lease_until` and `drop_pending` (its
+The store carries a schema version (`PRAGMA user_version`, now 3: version 3 adds no column, it
+only keeps older builds, which do not know `alter_table`, away from the file; a version 2 file is
+stamped on open and keeps its rows; restart every process that opens the store after upgrading,
+because the version is checked at open). A new file is stamped; a version 1 file is upgraded in place by adding `owner`, `lease_until` and `drop_pending` (its
 pending actions were hashed before the display fields were bound, so they no longer match their
 `action_hash` and `resolve` ends them as `stale`: an upgrade never re-blesses a row); a file
 from a newer build, or with tables but no version, is refused with `StoreError`. Any later
