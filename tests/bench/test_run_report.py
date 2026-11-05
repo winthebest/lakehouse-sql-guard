@@ -123,3 +123,35 @@ def test_bench_cli_takes_the_splits_to_score():
 
     with pytest.raises(SystemExit):
         cli.main(["leakage", "run", "--splits", "holdout"])
+
+
+def test_fix_rates_by_verification_level_are_reported(world, monkeypatch):
+    from bench.leakage import run as leakage_run
+    from bench.leakage.cases import generate_cases
+
+    catalog, _ = world
+    few = [c for c in generate_cases(42, ("dev",)) if c.template_id in {"l1_future_window"}][:3]
+    monkeypatch.setattr(leakage_run, "generate_cases", lambda seed, splits: few)
+    rates = leakage_run._fix_rates("dev", 42, catalog)
+    assert rates["n_cases"] == len(few)
+    assert set(rates["rates"]) == {"static_and_replay", "static_only", "unverified", "none"}
+    assert sum(rates["counts"].values()) == len(few)
+
+    result = result_for("dev", in_sample=("dev",))
+    result["fixes"] = {"dev": rates}
+    text = markdown(result)
+    assert "## Fix suggestions by verification level" in text
+    assert "| dev | 3 |" in text and "static_and_replay" in text
+
+
+def test_rows_without_a_threshold_are_not_reported():
+    from bench.leakage.run import Scored, evaluate
+
+    scored = [
+        Scored(case("a", CLEAN, "clean"), {d: 0.0 for d in DETECTORS} | {"v1_static": 0.0}, [], {}),
+        Scored(case("b", CRASH, "L2"), {d: 1.0 for d in DETECTORS} | {"v1_static": 1.0}, [], {}),
+    ]
+    report = evaluate(scored, {d: 0.5 for d in DETECTORS})
+    assert "v1_static" not in report["detectors"]
+    report = evaluate(scored, {d: 0.5 for d in (*DETECTORS, "v1_static")})
+    assert report["detectors"]["v1_static"]["recall"] == 1.0
