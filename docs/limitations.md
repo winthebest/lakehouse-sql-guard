@@ -43,6 +43,9 @@ Behaviour changes that make the guard stricter (a query that was clean can now b
   keeping only each entity's latest prediction is flagged (items 9 and 10).
 - A unitless `INTERVAL '5'` is five seconds, as in DuckDB, and never earns a lag exemption.
 
+- The safety classifier and the Trino rewriter scope CTE names as SQL does: a CTE defined
+  inside a subquery no longer hides a real table of the same name in an outer scope.
+
 New optional spec fields (`boundary`, `max_ingest_delay`, `label_known_after`, `relations`)
 are described in the README; a spec without them behaves as before.
 
@@ -194,16 +197,12 @@ Reported unverifiable rather than checked:
     another writer creates between that check and Trino's run cannot be seen. Orphan-file
     cleanup never runs through Trino. Reads may not use table functions (`TABLE(...)`,
     `system.query`, `table_changes`).
-30. A CTE name defined inside a subquery is also trusted in outer scopes when tables are
-    classified, so an outer reference with that name is not checked against the task scope.
-    On Trino such a reference fails because the connection has no default schema, but it is
-    a classifier gap.
-31. The integration matrix runs on Lakekeeper, the Iceberg REST fixture and Polaris. AWS Glue
+30. The integration matrix runs on Lakekeeper, the Iceberg REST fixture and Polaris. AWS Glue
     is expected to work through PyIceberg's Glue catalog but is untested.
 
 ## Leakage: fix suggestions
 
-32. A fix is a rewrite of the query; formatting is normalized in the diff and comments are
+31. A fix is a rewrite of the query; formatting is normalized in the diff and comments are
     kept. Files are never written. Rewritten: missing bounds (join `ON` or correlated
     `WHERE`), availability bounds, inclusive and shifted bounds, frames and windows that read
     later rows, a `LEAD` output column, the latest-prediction filter, and latest-row
@@ -211,12 +210,12 @@ Reported unverifiable rather than checked:
     `ROW_NUMBER` otherwise). Explained only: L6, L7, an aggregate CTE or derived table
     grouped by entity alone (it needs the prediction time as an input), label-table cutoffs,
     timezone mismatches and calendar-unit offsets.
-33. `verification` is about leaks only: `static_only` means the validator no longer reports
+32. `verification` is about leaks only: `static_only` means the validator no longer reports
     the finding and the rewrite adds none; `static_and_replay` adds a replay PASS and a clean
     verdict; `unverified` means the checker still reports it or replay disagrees. Replay
     cannot tell whether a fix computes the same thing: it runs the same query pinned and
     unpinned, so a rewrite that computes another quantity also passes.
-34. `semantics` is decided from the query text and is the same with or without `--replay`.
+33. `semantics` is decided from the query text and is the same with or without `--replay`.
     `preserved` is a narrow, proven claim: the bound sits in the `ON` of the table's own
     `LEFT JOIN` (or in a correlated scalar subquery in the projection), every read of that
     table is an aggregate that is NULL (0 for a count of a column) for a row with no match,
@@ -226,8 +225,19 @@ Reported unverifiable rather than checked:
     model make the fix `changed` with `rows may drop:`. Read the caveats of a `changed`
     fix before applying it (a mirrored window, `LEFT` instead of `INNER JOIN`, `COUNT` of
     the joined key, a removed filter).
-35. Mirrored windows and flipped `MIN`/`ASC` orderings are guesses about intent that replay
+34. Mirrored windows and flipped `MIN`/`ASC` orderings are guesses about intent that replay
     cannot confirm; their caveat asks you to confirm the span.
-36. Snowflake's `ASOF JOIN ... MATCH_CONDITION` is written by hand and checked in its `ON`
+35. Snowflake's `ASOF JOIN ... MATCH_CONDITION` is written by hand and checked in its `ON`
     form; it has not been run on Snowflake. Spark and Trino get the `ROW_NUMBER` form; the
     rewrites have not been run on those engines.
+
+## Leakage: slowly changing dimensions
+
+36. For a type-2 (SCD2) table, static analysis bounds which version rows a query may read,
+    not when each column of a row got its value. `valid_to` is written when the next version
+    is loaded, so any use of it can see the future and passes static analysis: a feature such
+    as `valid_to - valid_from`, and also the usual as-of lookup
+    (`valid_from <= t AND (valid_to > t OR valid_to IS NULL) AND ingested_at < t`), which
+    picks the wrong version when the next one took effect before `t` but was loaded after
+    it. Only replay, which reads the table as it was loaded, catches these. A version-safe
+    lookup takes the latest version with `ingested_at < t`.
