@@ -112,7 +112,8 @@ def test_run_needs_known_splits(tmp_path):
     from bench.leakage.run import main, run
 
     assert SPLITS == ("dev", "dev_v1b", "holdout_v2") and "L7" in LEAK_TYPES
-    with pytest.raises(SystemExit, match="no templates"):
+    # The held-out split has templates now; scoring it still needs a pre-registration.
+    with pytest.raises(SystemExit, match="no pre-registration found"):
         run(42, tmp_path, False, tmp_path, splits=("holdout_v2",))
     with pytest.raises(SystemExit):
         main(["run", "--splits", "holdout"])
