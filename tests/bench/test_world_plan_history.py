@@ -141,3 +141,59 @@ def test_a_final_valid_to_reveals_a_change_nobody_knew_of(world):
     assert exposed
     assert all(v.ingested_at < t <= v.valid_to for v in exposed if v.ingested_at < t)
     assert any(v.closed_at is not None and v.closed_at >= t for v in exposed)
+
+
+AS_OF_LOOKUP = """
+SELECT l.user_id, l.label_ts, p.plan FROM labels l
+LEFT JOIN plan_history p ON p.user_id = l.user_id AND p.ingested_at < l.label_ts
+ AND p.valid_from < l.label_ts AND (p.valid_to IS NULL OR p.valid_to >= l.label_ts)
+"""
+NEWEST_LOADED = """
+SELECT l.user_id, l.label_ts, p.plan FROM labels l
+LEFT JOIN plan_history p ON p.user_id = l.user_id AND p.ingested_at < l.label_ts
+QUALIFY row_number() OVER (PARTITION BY l.user_id, l.label_ts ORDER BY p.valid_from DESC) = 1
+"""
+LOAD_MARGIN = """
+SELECT l.user_id, l.label_ts, p.plan FROM labels l
+LEFT JOIN plan_history p ON p.user_id = l.user_id
+ AND p.valid_from < l.label_ts - INTERVAL 8 DAY
+ AND (p.valid_to IS NULL OR p.valid_to >= l.label_ts - INTERVAL 8 DAY)
+"""
+
+
+def _plans_that_differ_from_the_oracle(catalog, sql, margin=None):
+    """Rows whose plan is not the one known at `t` (or, with a margin, not the plan in effect
+    `margin` earlier by event time, which must itself have been loaded before `t`)."""
+    from sqlguard.core.duck import connect_catalog
+
+    versions = gen.plan_versions(catalog)
+    wrong = []
+    for user, t, plan in connect_catalog(catalog).sql(sql).fetchall():
+        if margin is None:
+            expected = gen.known_plans(versions, t).get(user)
+        else:
+            expected = gen.effective_plans(versions, t - margin).get(user)
+            assert expected is None or expected.ingested_at < t  # loaded by the time it is read
+        if (expected.plan if expected else None) != plan:
+            wrong.append((user, t))
+    return wrong
+
+
+def test_the_as_of_lookup_on_valid_to_is_leaky_by_construction(world):
+    """The usual point-in-time idiom, even with an ingestion bound, loses a plan the model could
+    have read: the next version took effect before `t` but was loaded at or after it."""
+    catalog, _ = world
+    wrong = _plans_that_differ_from_the_oracle(catalog, AS_OF_LOOKUP)
+    assert len(wrong) >= 5
+
+
+def test_the_newest_loaded_version_is_the_known_plan_for_every_row(world):
+    catalog, _ = world
+    assert _plans_that_differ_from_the_oracle(catalog, NEWEST_LOADED) == []
+
+
+def test_the_version_in_effect_a_load_margin_earlier_was_loaded(world):
+    """A lookup at `t - 8 days` by event time returns the plan then, always loaded by `t`."""
+    catalog, _ = world
+    margin = timedelta(days=8)
+    assert _plans_that_differ_from_the_oracle(catalog, LOAD_MARGIN, margin=margin) == []

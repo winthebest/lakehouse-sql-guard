@@ -75,7 +75,8 @@ How the data arrives:
   midnight that starts day `d+1`). About 10% arrive late: 1 to 7 extra days. A row is never loaded
   more than 8 days after its `event_ts`, and never before it.
 - **user_stats**: every midnight the table gets one new row per user (lifetime spend and order count
-  over events loaded so far). The row stamped `updated_at = m` is available from `m`.
+  over events loaded so far). A row stamped `m` becomes known just after `m`: at `t = m` it is not
+  known yet (the boundary is strict, section 3).
 - **plan_history**: a change of plan is loaded the night after it takes effect, or up to 7 nights
   later (never before the version it replaces). When a version is loaded, the previous version of
   that user is closed in the same load: its `valid_to` becomes visible then, not before. So today's
@@ -165,10 +166,36 @@ late rows describing the past were not loaded yet. Such a query is safe only if 
 ingestion time (`ingested_at < t`), or if its event-time bound is earlier than `t` by at least the
 declared maximum delay (`event_ts < t - INTERVAL 8 DAY` for `events` and `plan_history`).
 
-For `plan_history`, `valid_from < t` selects versions that began before `t`; the version in effect
-may still not have been loaded. `valid_to` of a version that was still open at `t` reveals a later
-change: using it as a feature value is future information (comparing it with `t` to find the
-version in effect is the usual idiom; that is judged by whether the version could have been loaded).
+### The SCD2 table `plan_history`
+
+The plan known at `t` is the version with the newest `valid_from` among the rows with
+`ingested_at < t`. `valid_to` of a version is known at `t` only if the **next version was loaded
+before `t`**. Today's table cannot tell you that: a version that the next one replaced shows its
+final `valid_to` whether or not that replacement had been loaded at `t`.
+
+So any use of `valid_to` that can see a version closed by a load at or after `t` is **leaky, label
+L4** (late-arriving data). This includes the usual as-of lookup
+
+```sql
+valid_from < t AND (valid_to IS NULL OR valid_to >= t)          -- also COALESCE(valid_to, <far future>) > t
+```
+
+**even together with `ingested_at < t`**. Example: the next plan took effect before `t` but was loaded
+at or after `t`; today the old version has `valid_to < t` and drops out of the lookup, while the new
+version fails `ingested_at < t`. The feature is empty where it should hold the old plan. Using the
+final `valid_to` of a version as a value (tenure, days to the next change) is leaky for the same
+reason.
+
+Clean forms:
+
+- the newest version with `ingested_at < t`, ranked by `valid_from` (for example
+  `row_number() OVER (PARTITION BY ... ORDER BY valid_from DESC) = 1`), without `valid_to`;
+- the version in effect at `t - 8 days`: `valid_from < t - INTERVAL 8 DAY` and
+  `(valid_to IS NULL OR valid_to >= t - INTERVAL 8 DAY)`.
+
+`valid_from < t` alone, with no `ingested_at` bound, is also L4: the version in effect may not have
+been loaded yet. Any of these is a good leaky or clean template; just keep to the rule above when you
+label.
 
 ## 4. The taxonomy (labels)
 
@@ -186,7 +213,8 @@ was not known at that row's prediction time `t`. Its label is the type of that d
   history) with no upper bound relative to `t`.
 - **L4, late-arriving data.** The only time bound is on event time, while the table has an ingestion
   time and the bound is not at least the maximum delay before `t`. The SQL looks time-correct; the
-  data was not all there yet.
+  data was not all there yet. For `plan_history` this also covers the use of `valid_to` described in
+  section 3.
 - **L5, boundary error.** The bound is off at the edge: `<=` against `t` where the fact stamped
   `t` is not yet known, a shift forward of less than a day (including time-zone shifts),
   comparing a time-zone aware value with a naive one, a date cast that pulls in the rest of the day.

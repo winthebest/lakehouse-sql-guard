@@ -51,6 +51,26 @@ QUERIES = {
         """,
         False,
     ),
+    "as_of_lookup_with_ingestion_bound": (
+        f"""
+        SELECT l.user_id, l.label_ts, l.churned, p.plan
+        FROM {SPINE} AS l
+        LEFT JOIN {PLANS} AS p
+          ON p.user_id = l.user_id AND p.ingested_at < l.label_ts AND p.valid_from < l.label_ts
+         AND (p.valid_to IS NULL OR p.valid_to >= l.label_ts)
+        """,
+        True,
+    ),
+    "as_of_lookup_coalesce_inner_join": (
+        f"""
+        SELECT l.user_id, l.label_ts, l.churned, p.plan
+        FROM {SPINE} AS l
+        JOIN {PLANS} AS p
+          ON p.user_id = l.user_id AND p.ingested_at < l.label_ts AND p.valid_from < l.label_ts
+         AND COALESCE(p.valid_to, TIMESTAMP '9999-01-01') > l.label_ts
+        """,
+        True,
+    ),
     "current_row_of_scd2": (
         f"""
         SELECT l.user_id, l.label_ts, l.churned, p.plan
