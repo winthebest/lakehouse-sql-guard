@@ -1,8 +1,11 @@
 # Known limitations
 
 What the guard gets wrong or cannot see today, so results can be read honestly. The
-leakage rules have two generations: the first set, frozen at tag `rules-frozen-v1`, and the
-current set ("v2"). The safety policy was frozen at tag `policy-frozen-v1`.
+leakage rules have three generations: the first set, frozen at tag `rules-frozen-v1`; the
+second ("v2"), frozen at `rules-frozen-v2` and measured once on `holdout_v2`; and the current
+set ("v3"), changed after that result was read (see [Changed after held-out
+v2](#changed-after-held-out-v2)). `holdout_v2` is development data from then on; `holdout_v3` is
+the next split nobody has tuned on.
 
 The committed leakage results in `results/leakage/` and the held-out numbers in the README
 were measured with the v1 rules and stay valid for them. The v1 held-out templates now live
@@ -94,6 +97,44 @@ the brief was not changed after the freeze, so prompts were repaired to the ware
 The `done` checks can bound snapshot counts from below (`min_snapshots`) and require files to
 be kept (`files_kept`), but cannot prove that an expiry or an orphan-file removal took place, so
 a benign maintenance prompt is scored on what remained, not on what was removed.
+
+## Changed after held-out v2
+
+Every number measured on `holdout_v2` after this point is in-sample. Changes (paired clean and
+leaky tests, fail-closed probes from code review in `tests/leakage/test_fail_closed_probes.py`,
+metamorphic tests in `tests/leakage/test_metamorphic_static.py`):
+
+- Static bounds now recognized: a window over rows that its own or an upstream scope already
+  cut before the prediction time; a surrogate key of the spine row; `UNNEST`/`generate_series`
+  calendar scaffolds; running and forward-fill windows over a `UNION` timeline; named windows
+  (`OVER w`); bounds followed through staging CTEs and `relations`; peer target encoding over
+  labels already final by `label_known_after`.
+- A surrogate key is recognized only in this form: optionally a hash (`md5`, `sha1`, `sha2`,
+  `hash`) of a concatenation (`||`, `concat`, `concat_ws` with a literal separator) whose parts
+  are string literals or columns of one label reference, under lossless casts and optionally
+  `COALESCE`/`IFNULL`/`NVL` with a literal fallback, covering every entity key and the
+  prediction time (dbt's `generate_surrogate_key` output qualifies). Anything else (`UPPER`,
+  `SUBSTR`, `CASE`, `COALESCE` between columns, a cast to `DATE`) is not a key and is flagged.
+- A timeline bound holds only while the window that earns it is the only thing reading those
+  rows; another window, aggregate, `GROUP BY`, `DISTINCT` or `HAVING` over them is flagged (a
+  correct timeline written through a named `WINDOW` clause is a known false positive).
+- Casts are never folded into constants: `CAST(0.6 AS INT)` as a tie-break is not a strict bound.
+- **L4 is leaky by contract when the spec declares `max_ingest_delay`:** an event-time bound with
+  a margin shorter than the declared delay is an L4 finding of weight 0.90 whatever the data or
+  replay shows. A query that happens to be clean on the data but has a too-short margin is a
+  false positive by this definition. Without the field, L4 stays the 0.4 hint replay must confirm.
+- A replay result never lowers a static score. A pass only adds evidence to L1/L2/L3/L5
+  findings (`replay_no_mismatch`, rows the pinned read hid per entity); a sampled pass cannot
+  rule out a leak that only a few rows show.
+- Replay adds up to a third of its point budget at prediction times with rows still in flight
+  (event time before t, loaded at or after t), weighted by age against the longest declared
+  delay, for any temporal column type and unit. Above 1024 label times the candidates are thinned
+  evenly, so a leaking time can be among those dropped; if this scoring fails, replay falls back
+  to the base sample and says so in its reason. Replay takes about 1.5 times longer per query
+  than before (median about 110 ms on the synthetic world).
+- In-sample on `holdout_v2` (rules fixed while looking at it): combined recall 1.00, FPR 0.00;
+  dev and `dev_v1b` unchanged. These numbers say nothing about unseen queries. Static analysis
+  still cannot see the SCD2 `valid_to` L4 cases (item 36).
 
 ## Changed in v2
 

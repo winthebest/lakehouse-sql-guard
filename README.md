@@ -177,6 +177,11 @@ analysis, and what is still truly blocked, is in
 [docs/limitations.md](docs/limitations.md#held-out-v2-frozen-rules-and-policy). Reports:
 [leakage](results/leakage/20261105-f52e63f.md), safety `results/safety/holdout_v2-*`.
 
+The rules and the guard were changed after this result was read (column changes now go to
+approval; [what changed](docs/limitations.md#changed-after-held-out-v2)), so `holdout_v2` is
+development data now. They will be frozen again and measured once on a new held-out set,
+`holdout_v3`, written by new authors.
+
 ### First rule set (v1)
 
 The leakage numbers below were measured with the first rule set (tag `rules-frozen-v1`).
