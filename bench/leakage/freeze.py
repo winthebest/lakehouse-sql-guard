@@ -2,7 +2,8 @@
 
 The pre-registration records the SHA-256 of everything that decides a verdict or builds the cases:
 all of `src/sqlguard`, the leakage harness (`bench/leakage/*.py`, every YAML there: specs, split
-manifest), the author briefs, and the template directories of the splits seen so far. A run on a
+manifest), the benchmark entry point, the author briefs, the dependency pins (`uv.lock`,
+`pyproject.toml`), and the template directories of the splits seen so far. A run on a
 split nobody has seen compares the working tree with that record and the checkout with the commit
 the pre-registration was written at, so a rule, a parser or a harness edited after the freeze is
 caught whether or not it reached a commit, and whatever the working directory is.
@@ -21,10 +22,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 FROZEN_GLOBS = (
     "src/sqlguard/**/*",
+    "bench/cli.py",  # the entry point of the benchmark
     "bench/leakage/*.py",
     "bench/leakage/**/*.yaml",
     "bench/briefs/*.md",
+    # the environment the verdicts were computed in: sqlglot and duckdb versions decide them
+    "uv.lock",
+    "pyproject.toml",
+    ".python-version",
 )
+TEMPLATES = "bench/leakage/templates/"
 _IGNORED = ("__pycache__", ".pyc")
 
 
@@ -34,13 +41,16 @@ def template_globs(splits: Iterable[str]) -> tuple[str, ...]:
 
 
 def _files(root: Path, splits: Iterable[str]) -> list[Path]:
+    """The frozen files. Under `templates/` only the `.sql` files of the given splits count: a
+    file the held-out authors add there (even a YAML) is not part of the freeze."""
     found = {
         p
-        for pattern in (*FROZEN_GLOBS, *template_globs(splits))
+        for pattern in FROZEN_GLOBS
         for p in root.glob(pattern)
-        if p.is_file() and not any(part in str(p) for part in _IGNORED)
+        if p.is_file() and TEMPLATES not in p.relative_to(root).as_posix()
     }
-    return sorted(found)
+    found |= {p for pattern in template_globs(splits) for p in root.glob(pattern) if p.is_file()}
+    return sorted(p for p in found if not any(part in str(p) for part in _IGNORED))
 
 
 def frozen_hashes(root: Path = ROOT, splits: Iterable[str] = ()) -> dict[str, str]:

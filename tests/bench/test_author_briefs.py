@@ -119,7 +119,7 @@ def test_the_leakage_brief_tells_authors_how_labels_are_audited_without_asking_t
     assert (
         "A disagreement is returned to you" in section and "never changed by anyone but" in section
     )
-    for undecided in ("L6", "L7", "wall clock", "time-split cutoff taken from the spine"):
+    for undecided in ("L6", "L7", "wall clock"):
         assert undecided in section
 
 

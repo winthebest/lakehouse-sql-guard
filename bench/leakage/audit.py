@@ -20,14 +20,17 @@ What it cannot decide is listed as **not auditable**, with the reason:
 
 - `L6` (lineage to the label or outcomes) and `L7` (the wall clock is the same in both runs);
 - any template that reads the wall clock, whatever its label;
-- a time-split cutoff computed from the spine: `label_ts` compared (`<`, `<=`, `>`, `>=`, `BETWEEN`)
-  with `(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)` in a WHERE, ON, HAVING or QUALIFY.
-  The documented rules accept it by design (a split is chosen before any prediction time exists),
-  so the audit keeps the author's label;
 - a rendering that does not parse or run on the world, has no `user_id`/`label_ts` or feature
   column in its output, or returns rows at fewer than `MIN_POINTS` sampled times (for `clean`).
 
 It checks leaky versus clean, not the type: whether a leak is `L2` or `L3` stays the author's call.
+
+A time-split cutoff is the one pattern the documented rules accept by design (a split is chosen
+before any prediction time exists): the spine's `label_ts` compared with an uncorrelated
+`(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)`. The audit computes that value once from
+the final spine, writes it into the query as a literal for both runs, and audits everything else
+as written; `fix_spine_cutoffs` is exact about what counts. Any other use of such a subquery is
+audited as it stands.
 
 Two conventions are stricter than they may look, and are stated to the authors: the spine after `t`
 does not exist at `t` (a value *read* from later spine rows, such as `MAX(label_ts)` in the select
@@ -95,6 +98,7 @@ class CaseResult:
     reason: str = ""
     points_with_rows: int = 0
     evidence: dict = field(default_factory=dict)
+    cutoffs: list[str] = field(default_factory=list)  # split cutoffs fixed to their final value
 
 
 @dataclass
@@ -283,23 +287,87 @@ def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str]) -> bo
     )
 
 
-def has_spine_cutoff(sql: str, relations: Mapping[str, str] | None = None) -> bool:
-    """Whether the query filters rows by a time-split cutoff taken from the whole spine.
+def _spine_names(tree: exp.Expression, relations: Mapping[str, str]) -> set[str]:
+    """Aliases and names under which the query reads the spine table."""
+    names = set()
+    for table in tree.find_all(exp.Table):
+        qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
+        if (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() == SPINE_TABLE:
+            names.add(table.alias_or_name.lower())
+    return names
 
-    The subquery has to sit in a comparison (`<`, `<=`, `>`, `>=`, `BETWEEN`) inside a `WHERE`,
-    `ON`, `HAVING` or `QUALIFY`. The same subquery in the select list is a feature that reads
-    the future, and `= MAX(label_ts)` is a documented leak; both stay auditable.
+
+def _is_spine_time(node: exp.Expression, spine: set[str]) -> bool:
+    """The spine's own `label_ts` column (a bare `label_ts` counts when the spine is read)."""
+    if isinstance(node, exp.Paren):
+        node = node.this
+    if not isinstance(node, exp.Column) or node.name.lower() != SPINE_TIME:
+        return False
+    return node.table.lower() in spine if node.table else bool(spine)
+
+
+def _holds(side: exp.Expression, node: exp.Expression) -> bool:
+    """`side` is `node` itself, or `node` plus or minus an interval (arithmetic outside it)."""
+    while isinstance(side, exp.Paren):
+        side = side.this
+    if side is node:
+        return True
+    if isinstance(side, exp.Add | exp.Sub):
+        inner, other = (side.this, side.expression)
+        if isinstance(inner, exp.Interval):
+            inner, other = other, inner
+        return isinstance(other, exp.Interval) and _holds(inner, node)
+    return False
+
+
+def _compared_with_spine_time(node: exp.Subquery, spine: set[str]) -> bool:
+    """Whether the subquery is a bound on the spine's own `label_ts` in a row filter."""
+    if node.find_ancestor(exp.Where, exp.Join, exp.Having, exp.Qualify) is None:
+        return False  # in the select list it is a feature, and a feature reads the future
+    comparison = node.find_ancestor(*_CUTOFF_COMPARISONS)
+    if comparison is None:
+        return False
+    if isinstance(comparison, exp.Between):
+        bounds = (comparison.args.get("low"), comparison.args.get("high"))
+        return _is_spine_time(comparison.this, spine) and any(
+            b is not None and _holds(b, node) for b in bounds
+        )
+    left, right = comparison.this, comparison.expression
+    if _holds(left, node):
+        return _is_spine_time(right, spine)
+    return _holds(right, node) and _is_spine_time(left, spine)
+
+
+def fix_spine_cutoffs(
+    sql: str, conn, relations: Mapping[str, str] | None = None
+) -> tuple[str, list[str]]:
+    """`sql` with each time-split cutoff replaced by the value it has on the final spine.
+
+    A cutoff is `label_ts` of the spine compared (`<`, `<=`, `>`, `>=`, `BETWEEN`) with an
+    uncorrelated `(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)`, with at most an interval
+    added or subtracted outside it, in a WHERE, ON, HAVING or QUALIFY. The documented rules accept
+    it by design: a split is chosen before any prediction time exists. Its value is computed once
+    on the final tables and written into the query as a literal, so the final run and the run as
+    of `t` use the same cutoff and everything else in the query is audited as it is. A subquery used
+    any other way (on `event_ts` or `ingested_at`, in a feature, pinned with `=`, correlated, with
+    arithmetic inside) stays as written. Returns the new SQL and the cutoff values.
     """
     tree = parse_one(sql, read="duckdb")
-    for node in tree.find_all(exp.Subquery):
-        if not _is_spine_cutoff(node, relations or {}):
-            continue
-        comparison = node.find_ancestor(*_CUTOFF_COMPARISONS)
-        if comparison is not None and comparison.find_ancestor(
-            exp.Where, exp.Join, exp.Having, exp.Qualify
+    spine = _spine_names(tree, relations or {})
+    fixed: list[str] = []
+    for node in list(tree.find_all(exp.Subquery)):
+        if not _is_spine_cutoff(node, relations or {}) or not _compared_with_spine_time(
+            node, spine
         ):
-            return True
-    return False
+            continue
+        rows = conn.sql(node.this.sql(dialect="duckdb")).fetchall()
+        value = rows[0][0] if rows else None
+        if not isinstance(value, datetime):
+            continue
+        literal = f"TIMESTAMP '{value.isoformat(sep=' ')}'"
+        node.replace(parse_one(literal, read="duckdb"))
+        fixed.append(value.isoformat(sep=" "))
+    return (tree.sql(dialect="duckdb") if fixed else sql), fixed
 
 
 def reads_the_clock(sql: str) -> bool:
@@ -320,6 +388,8 @@ def audit_cases(
     results: dict[str, CaseResult] = {}
     final_conn = _connection(audit_world.final, relations)
     final: dict[str, tuple[list[str], list[tuple]]] = {}
+    sqls: dict[str, str] = {}  # what is run: the rendering with its split cutoffs fixed
+    fixed_cutoffs: dict[str, list[str]] = {}
     for case in cases:
         try:
             if reads_the_clock(case.sql):
@@ -327,14 +397,11 @@ def audit_cases(
                     case.case_id, "unauditable", "reads the wall clock (the audit cannot see L7)"
                 )
                 continue
-            if has_spine_cutoff(case.sql, relations):
-                results[case.case_id] = CaseResult(
-                    case.case_id,
-                    "unauditable",
-                    "spine-derived split cutoff (accepted by design)",
-                )
-                continue
-            final[case.case_id] = _run(final_conn, case.sql)
+            sql, cutoffs = fix_spine_cutoffs(case.sql, final_conn, relations)
+            sqls[case.case_id] = sql
+            if cutoffs:
+                fixed_cutoffs[case.case_id] = cutoffs
+            final[case.case_id] = _run(final_conn, sql)
         except Exception as err:  # noqa: BLE001 - any failure to run is a finding
             results[case.case_id] = CaseResult(
                 case.case_id, "unauditable", f"does not run on the world: {str(err)[:160]}"
@@ -359,7 +426,7 @@ def audit_cases(
                 )
                 continue
             try:
-                got_columns, got_rows = _run(conn, case.sql)
+                got_columns, got_rows = _run(conn, sqls[case.case_id])
             except Exception as err:  # noqa: BLE001
                 results[case.case_id] = CaseResult(
                     case.case_id, "unauditable", f"does not run as of {t}: {str(err)[:160]}"
@@ -389,6 +456,8 @@ def audit_cases(
                 f"returns rows at only {n} of {len(points)} sampled times (needs {MIN_POINTS})",
                 n,
             )
+    for case_id, values in fixed_cutoffs.items():
+        results[case_id].cutoffs = values
     return results
 
 
@@ -427,6 +496,12 @@ def audit_template(template: Template, results: Mapping[str, CaseResult]) -> Tem
         )
     leaky = next((r for r in verdicts if r.verdict == "leaky"), None)
     warnings = []
+    cutoffs = sorted({c for r in verdicts for c in r.cutoffs})
+    if cutoffs:
+        warnings.append(
+            "split cutoff fixed at " + ", ".join(cutoffs) + " (computed once from the final spine "
+            "and used in both runs; the rest of the query is audited as written)"
+        )
     if count["unauditable"]:
         warnings.append(f"{count['unauditable']} of {len(verdicts)} renderings not auditable")
     if label == "clean":

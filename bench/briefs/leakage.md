@@ -160,10 +160,11 @@ For a row with prediction time `t`, a fact is **known** when:
 - it never comes from `user_outcomes`, and never from the row's own `churned`.
 - the spine itself is known only up to `t`: spine rows with a later `label_ts` do not exist yet, so a
   value read from them as a feature (`MAX(label_ts)` in the select list, the next prediction time)
-  depends on the future (label L1). A time-split cutoff is different: a `WHERE` that compares
-  `label_ts` with `(SELECT MAX(label_ts) FROM labels)` (or `MIN`, a quantile, a median, with arithmetic
-  outside the subquery) only chooses which rows to train on. Such a split is accepted: label it by
-  everything else in the query, and note that the audit does not check it.
+  depends on the future (label L1). A time-split cutoff is different: a `WHERE` that compares the
+  spine's own `label_ts` with `(SELECT MAX(label_ts) FROM labels)` (or `MIN`, a quantile, a median,
+  with an interval added or subtracted outside the subquery) only chooses which rows to train on, and
+  is accepted. Anything else built on such a subquery (compared with `event_ts` or `ingested_at`,
+  used as a feature, `=`) is judged like any other read of the spine.
 
 The boundary is **strict**: a fact stamped exactly `t` is not known at `t`.
 
@@ -305,8 +306,9 @@ events and plan versions loaded before `t`, stats stamped before `t`, the spine 
 hidden unless final, no outcomes). If a feature differs for a row at `t`, the query used something
 unknown at `t`. A clean template must never differ; a leaky template must differ in at least one
 rendering. Templates the audit cannot decide (L6, L7, anything that reads the wall clock, anything
-that does not run or returns too few rows, a time-split cutoff taken from the spine) are listed as
-such and are not checked this way.
+that does not run or returns too few rows) are listed as such and are not checked this way. A
+time-split cutoff is checked: its value is computed once from the final spine and used in both runs,
+so the rest of the query is audited as written.
 
 A disagreement is returned to you with the row where it shows. Labels are never changed by anyone but
 you, and only before any detector result has been seen.

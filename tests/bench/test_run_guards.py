@@ -20,6 +20,9 @@ FROZEN_FILES = {
     "bench/leakage/splits.yaml": "splits",
     "bench/leakage/templates/dev/a.sql": "-- leak: clean\nSELECT 1",
     "bench/briefs/leakage.md": "brief",
+    "bench/cli.py": "entry point",
+    "uv.lock": "pins",
+    "pyproject.toml": "project",
     "README.md": "not frozen",
 }
 SEEN = ["dev", "dev_v1b"]
@@ -102,6 +105,9 @@ def test_the_repository_freezes_everything_that_decides_a_verdict_or_builds_a_ca
         "bench/leakage/splits.yaml",
         "bench/briefs/leakage.md",
         "bench/briefs/safety.md",
+        "bench/cli.py",
+        "uv.lock",  # sqlglot and duckdb versions decide verdicts
+        "pyproject.toml",
     } <= names
     assert any(n.startswith("bench/leakage/templates/dev/") for n in names)
     assert any(n.startswith("bench/leakage/templates/dev_v1b/") for n in names)
@@ -165,7 +171,14 @@ def test_it_refuses_a_dirty_tree_even_for_a_file_that_is_not_frozen(repo):
 
 @pytest.mark.parametrize(
     "path",
-    ["src/sqlguard/core/lineage.py", "bench/leakage/cases.py", "src/sqlguard/leakage/validator.py"],
+    [
+        "src/sqlguard/core/lineage.py",
+        "bench/leakage/cases.py",
+        "src/sqlguard/leakage/validator.py",
+        "bench/cli.py",
+        "uv.lock",
+        "pyproject.toml",
+    ],
 )
 def test_an_uncommitted_edit_to_code_that_decides_a_verdict_is_refused(repo, path):
     pre = prereg_for(repo)
@@ -189,6 +202,25 @@ def test_a_new_file_in_the_frozen_set_is_refused(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "new rule")
     assert "added: src/sqlguard/leakage/rules/l8.py" in refuse(repo, pre)
+
+
+def test_a_yaml_file_the_authors_add_to_the_held_out_templates_is_not_frozen(repo):
+    pre = prereg_for(repo)
+    write(
+        repo,
+        {
+            "bench/leakage/templates/holdout_v2/notes.yaml": "a: 1",
+            "bench/leakage/templates/holdout_v2/hv2_a.sql": "-- leak: clean\nSELECT 1",
+        },
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the authors' output")
+    accept(repo, pre)
+    # ...while a YAML dropped into a seen split's directory would still be a change to the freeze
+    write(repo, {"bench/leakage/templates/dev/b.sql": "-- leak: clean\nSELECT 2"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "late dev template")
+    assert "added: bench/leakage/templates/dev/b.sql" in refuse(repo, pre)
 
 
 def test_changes_outside_the_frozen_set_do_not_matter(repo):
@@ -297,7 +329,10 @@ def test_the_preregistration_records_the_frozen_files_and_what_to_expect(world, 
     scored = [Scored(case, scores, [], {}), Scored(leaky, {d: 1.0 for d in run.ALL_ROWS}, [], {})]
     monkeypatch.setattr(run, "synthetic_world", lambda root, seed: catalog)
     monkeypatch.setattr(run, "score_split", lambda *a, **k: scored)
+    # the payload names the commit it is written at; the test does not need to run in a checkout
+    monkeypatch.setattr(run, "checkout_state", lambda root=None: ("abc1234", False))
     payload = run.prereg_payload(42, Path("."), with_v1=False)
+    assert payload["git_sha"] == "abc1234"
     assert payload["frozen_files"] == freeze.frozen_hashes(splits=payload["seen_splits"])
     assert "bench/briefs/leakage.md" in payload["frozen_files"]
     assert any("near zero" in note and "plan_history" in note for note in payload["expectations"])

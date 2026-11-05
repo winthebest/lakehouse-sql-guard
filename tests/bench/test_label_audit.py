@@ -173,6 +173,11 @@ def cutoff_query(where: str, select: str = "COUNT(e.event_id) AS n") -> str:
     GROUP BY ALL"""
 
 
+@pytest.fixture(scope="module")
+def final_conn(audit_world):
+    return audit._connection(audit_world.final, RELATIONS)
+
+
 @pytest.mark.parametrize(
     "where",
     [
@@ -185,11 +190,46 @@ def cutoff_query(where: str, select: str = "COUNT(e.event_id) AS n") -> str:
         f"{CUTOFF} > l.label_ts",
     ],
 )
-def test_a_spine_derived_split_cutoff_is_accepted_by_design(audit_world, points, where):
-    for label in ("clean", "L3"):
-        result = judged(audit_world, points, label, cutoff_query(where))
-        assert result.status == "not_auditable", where
-        assert result.reason == "spine-derived split cutoff (accepted by design)"
+def test_a_split_cutoff_is_fixed_to_its_final_value_and_the_query_is_audited(
+    audit_world, points, final_conn, where
+):
+    sql = cutoff_query(where)
+    fixed, values = audit.fix_spine_cutoffs(sql, final_conn, RELATIONS)
+    assert values and "SELECT" not in fixed.split("WHERE")[1], fixed  # a literal replaces it
+    result = judged(audit_world, points, "clean", sql)
+    assert result.status == "agree", where  # audited, and consistent with its label
+    assert any("split cutoff fixed at" in w for w in result.warnings)
+    # not exempted: a wrong label on the same query is a disagreement
+    assert judged(audit_world, points, "L3", sql).status == "disagree", where
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["q01_cutoff_plus_unbounded", "q03_cutoff_in_on", "q04_cutoff_on_events"],
+)
+def test_a_leak_next_to_a_cutoff_is_still_caught(audit_world, points, name):
+    """Three leaky templates labelled clean, each with a spine subquery somewhere. The first
+    carries a real cutoff and a leak beside it; the others use the subquery on `event_ts` and
+    `ingested_at`, which is not a split cutoff."""
+    sql = PLANTED[name]
+    result = judged(audit_world, points, "clean", sql)
+    assert result.status == "disagree" and "labelled clean" in result.reason, name
+
+
+PLANTED = {
+    "q01_cutoff_plus_unbounded": """
+        SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+        FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
+        WHERE l.label_ts <= (SELECT MAX(label_ts) FROM labels) GROUP BY ALL""",
+    "q03_cutoff_in_on": """
+        SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+        FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
+          AND e.event_ts > (SELECT MIN(label_ts) FROM labels) GROUP BY ALL""",
+    "q04_cutoff_on_events": """
+        SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+        FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.event_ts < l.label_ts
+          AND e.ingested_at < (SELECT MAX(label_ts) FROM labels) GROUP BY ALL""",
+}
 
 
 @pytest.mark.parametrize(
@@ -208,30 +248,31 @@ def test_a_spine_derived_split_cutoff_is_accepted_by_design(audit_world, points,
         cutoff_query(
             "l.label_ts < (SELECT MAX(h.label_ts) FROM labels h WHERE h.user_id = l.user_id)"
         ),
+        # compared with a column that is not the spine's label_ts
+        cutoff_query("e.event_ts < (SELECT MAX(label_ts) FROM labels)"),
+        cutoff_query("e.ingested_at >= (SELECT MIN(label_ts) FROM labels)"),
+        cutoff_query("l.user_id < (SELECT MAX(label_ts) FROM labels)"),
     ],
 )
-def test_other_uses_of_the_same_subquery_stay_auditable(audit_world, points, sql):
-    result = judged(audit_world, points, "clean", sql)
-    assert result.reason != "spine-derived split cutoff (accepted by design)"
-    assert not audit.has_spine_cutoff(sql)
+def test_any_other_use_of_the_subquery_is_left_as_written(final_conn, sql):
+    fixed, values = audit.fix_spine_cutoffs(sql, final_conn, RELATIONS)
+    assert values == [] and fixed == sql
 
 
-def test_the_cutoff_is_found_through_a_qualified_spine_name():
+def test_the_cutoff_is_found_through_a_qualified_spine_name(final_conn):
     sql = cutoff_query(
         "l.label_ts < (SELECT MAX(label_ts) FROM analytics.marts.fct_training_spine)"
     )
-    assert not audit.has_spine_cutoff(sql)
-    assert audit.has_spine_cutoff(sql, RELATIONS)
+    assert audit.fix_spine_cutoffs(sql, final_conn, {})[1] == []
+    assert len(audit.fix_spine_cutoffs(sql, final_conn, RELATIONS)[1]) == 1
 
 
-def test_a_cutoff_template_with_one_literal_rendering_is_audited_for_that_one(audit_world, points):
-    body = cutoff_query("l.label_ts < {cut}")
-    mixed = Template(
-        "split", "candidate", "clean", {"cut": [CUTOFF, "TIMESTAMP '2026-01-24'"]}, body.strip()
-    )
-    [result] = audit.audit_templates([mixed], audit_world, RELATIONS, points)
-    assert result.status == "agree"
-    assert any("1 of 2 renderings not auditable" in w for w in result.warnings)
+def test_the_cutoff_is_computed_once_from_the_final_spine(audit_world, final_conn):
+    sql = cutoff_query("l.label_ts < (SELECT MIN(label_ts) FROM labels) + INTERVAL 10 DAY")
+    fixed, [value] = audit.fix_spine_cutoffs(sql, final_conn, RELATIONS)
+    earliest = min(audit_world.final["labels"].column("label_ts").to_pylist())
+    assert value == earliest.isoformat(sep=" ") and f"CAST('{value}' AS TIMESTAMP)" in fixed
+    assert "INTERVAL" in fixed  # the arithmetic outside the subquery stays in the query
 
 
 def test_a_future_spine_row_is_not_known(audit_world, points):
@@ -346,7 +387,7 @@ def test_the_audit_uses_no_detector_and_no_snapshot():
 
 SEEN_SAMPLE = {
     "dev": {
-        "c13_time_split_cutoff": "not_auditable",  # spine-derived split cutoff: by design
+        "c13_time_split_cutoff": "agree",  # its split cutoffs are fixed, the rest is audited
         "c01_asof_stats": "agree",
         "c04_cte_events": "agree",
         "l1_future_window": "agree",
