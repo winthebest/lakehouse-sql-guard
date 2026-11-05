@@ -223,6 +223,109 @@ def test_a_yaml_file_the_authors_add_to_the_held_out_templates_is_not_frozen(rep
     assert "added: bench/leakage/templates/dev/b.sql" in refuse(repo, pre)
 
 
+def test_an_untracked_held_out_template_is_refused_under_a_clean_looking_tree(repo):
+    """`git status` without untracked files calls this tree clean, yet the run would score the
+    file: the commit would not name what was scored."""
+    pre = prereg_for(repo)
+    write(repo, {"bench/leakage/templates/holdout_v2/hv2_new.sql": "-- leak: clean\nSELECT 1"})
+    assert freeze.checkout_state(repo)[1] is False
+    message = refuse(repo, pre)
+    assert "templates of holdout_v2 are not committed" in message and "hv2_new.sql" in message
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "now committed")
+    accept(repo, pre)
+
+
+def test_a_modified_or_deleted_held_out_template_is_refused(repo):
+    write(repo, {"bench/leakage/templates/holdout_v2/hv2_a.sql": "-- leak: clean\nSELECT 1"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "authors' output")
+    pre = prereg_for(repo)
+    accept(repo, pre)
+    (repo / "bench/leakage/templates/holdout_v2/hv2_a.sql").write_text("-- leak: L1\nSELECT 2")
+    assert refuse(repo, pre)  # dirty tree: the label changed after the commit
+    git(repo, "checkout", "--", "bench/leakage/templates/holdout_v2/hv2_a.sql")
+    (repo / "bench/leakage/templates/holdout_v2/hv2_a.sql").unlink()
+    assert refuse(repo, pre)
+
+
+def test_template_changes_names_every_kind_of_loose_file(repo):
+    write(repo, {"bench/leakage/templates/holdout_v2/a.sql": "x"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a")
+    write(
+        repo,
+        {
+            "bench/leakage/templates/holdout_v2/a.sql": "changed",
+            "bench/leakage/templates/holdout_v2/b.sql": "untracked",
+            "bench/leakage/templates/dev/c.sql": "elsewhere",
+        },
+    )
+    changes = freeze.template_changes("holdout_v2", repo)
+    assert any(c.endswith("a.sql") for c in changes) and any(c.endswith("b.sql") for c in changes)
+    assert not any("dev/c.sql" in c for c in changes)
+    assert freeze.template_changes("dev_v1b", repo) == []
+
+
+def test_the_templates_a_run_scores_are_hashed_per_file(repo):
+    write(
+        repo,
+        {
+            "bench/leakage/templates/holdout_v2/b.sql": "second",
+            "bench/leakage/templates/holdout_v2/a.sql": "first",
+        },
+    )
+    hashes = freeze.template_hashes(["holdout_v2", "dev_v1b"], repo)
+    assert list(hashes["holdout_v2"]) == ["a.sql", "b.sql"] and hashes["dev_v1b"] == {}
+    assert all(len(h) == 64 for h in hashes["holdout_v2"].values())
+    first = freeze.digest(hashes["holdout_v2"])
+    write(repo, {"bench/leakage/templates/holdout_v2/a.sql": "edited"})
+    assert freeze.digest(freeze.template_hashes(["holdout_v2"], repo)["holdout_v2"]) != first
+
+
+def test_a_result_lists_the_templates_it_scored(world, tmp_path, monkeypatch):
+    """The result names, per scored split, the sha256 of every template file, and the markdown
+    prints the digest (and, for a held-out split, the whole list)."""
+    from bench.leakage import optimism
+    from bench.leakage.run import Scored
+
+    catalog, _ = world
+    case = LeakCase("a-000", "a", "dev", "clean", "clean", {}, "SELECT 1")
+    leaky = LeakCase("b-000", "b", "dev", "leaky", "L1", {}, "SELECT 1")
+    scored = [
+        Scored(case, {d: 0.0 for d in run.ALL_ROWS}, [], {}),
+        Scored(leaky, {d: 1.0 for d in run.ALL_ROWS}, [], {}),
+    ]
+    pre = {
+        "created_at": "x",
+        "git_sha": "abc1234",
+        "seen_splits": SEEN,
+        "thresholds": {d: 0.5 for d in run.ALL_ROWS},
+    }
+    (tmp_path / "prereg-abc1234.json").write_text(json.dumps(pre))
+    monkeypatch.setattr(run, "synthetic_world", lambda root, seed: catalog)
+    monkeypatch.setattr(run, "score_split", lambda *a, **k: scored)
+    monkeypatch.setattr(run, "plot_roc", lambda *a, **k: None)
+    monkeypatch.setattr(optimism, "run", lambda *a, **k: {})
+    path = run.run(42, tmp_path, False, tmp_path, ("dev",), with_v1=False)
+    result = json.loads(path.read_text())
+    hashes = result["template_sha256"]["dev"]
+    assert len(hashes) >= 50 and all(len(h) == 64 for h in hashes.values())
+    assert hashes == freeze.template_hashes(["dev"])["dev"]
+    text = path.with_suffix(".md").read_text()
+    assert f"Templates scored in dev: {len(hashes)}" in text
+    assert freeze.digest(hashes)[:16] in text
+    assert "## Templates scored in dev" not in text  # the whole list is for held-out splits
+
+    held = {
+        **result,
+        "in_sample_splits": [],
+        "template_sha256": {"holdout_v2": {"a.sql": "f" * 64}},
+    }
+    held_text = run.markdown(held)
+    assert "## Templates scored in holdout_v2" in held_text and "f" * 64 + "  a.sql" in held_text
+
+
 def test_changes_outside_the_frozen_set_do_not_matter(repo):
     pre = prereg_for(repo)
     write(repo, {"README.md": "docs moved on", "results/leakage/prereg-x.json": "{}"})

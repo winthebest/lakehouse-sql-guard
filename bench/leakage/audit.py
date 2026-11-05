@@ -29,7 +29,9 @@ A time-split cutoff is the one pattern the documented rules accept by design (a 
 before any prediction time exists): the spine's `label_ts` compared with an uncorrelated
 `(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)`. The audit computes that value once from
 the final spine, writes it into the query as a literal for both runs, and audits everything else
-as written; `fix_spine_cutoffs` is exact about what counts. Any other use of such a subquery is
+as written; `fix_spine_cutoffs` is exact about what counts: the comparison sits in the WHERE, ON,
+HAVING or QUALIFY of its own nearest SELECT (never in a select list, nested or not), and a CTE
+that is a plain `SELECT * FROM labels` copy is the spine. Any other use of such a subquery is
 audited as it stands.
 
 Two conventions are stricter than they may look, and are stated to the authors: the spine after `t`
@@ -263,8 +265,46 @@ _CUTOFF_AGGREGATES = (
 _CUTOFF_COMPARISONS = (exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between)
 
 
-def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str]) -> bool:
-    """`(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)` and nothing else in it."""
+def _reads_spine(table: exp.Table, relations: Mapping[str, str], spine_tables: set[str]) -> bool:
+    """Whether a table reference is the spine (a catalog name, a relation name, or a CTE copy)."""
+    if table.name.lower() in spine_tables and not table.db:
+        return True
+    qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
+    return (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() == SPINE_TABLE
+
+
+def _spine_tables(tree: exp.Expression, relations: Mapping[str, str]) -> set[str]:
+    """The spine's name, and the CTEs that are plain copies of it (`sp AS (SELECT * FROM labels)`).
+
+    Only a body of exactly `SELECT * FROM <spine>` counts: a copy that filters or projects is a
+    different relation and is not the spine.
+    """
+    names = {SPINE_TABLE}
+    changed = True
+    while changed:
+        changed = False
+        for cte in tree.find_all(exp.CTE):
+            body, name = cte.this, cte.alias_or_name.lower()
+            if name in names or not isinstance(body, exp.Select) or len(body.expressions) != 1:
+                continue
+            extras = {k for k, v in body.args.items() if v and k not in ("expressions", "from_")}
+            source = body.args.get("from_")
+            if (
+                isinstance(body.expressions[0], exp.Star)
+                and not extras
+                and source is not None
+                and isinstance(source.this, exp.Table)
+                and _reads_spine(source.this, relations, names)
+            ):
+                names.add(name)
+                changed = True
+    return names
+
+
+def _is_spine_cutoff(
+    subquery: exp.Subquery, relations: Mapping[str, str], spine_tables: set[str]
+) -> bool:
+    """`(SELECT MAX|MIN|quantile|median(label_ts) FROM <the spine>)` and nothing else in it."""
     select = subquery.this
     if not isinstance(select, exp.Select) or len(select.expressions) != 1:
         return False
@@ -272,9 +312,7 @@ def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str]) -> bo
     source = select.args.get("from_")
     if extras or source is None or not isinstance(source.this, exp.Table):
         return False
-    table = source.this
-    qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
-    if (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() != SPINE_TABLE:
+    if not _reads_spine(source.this, relations, spine_tables):
         return False
     aggregate = select.expressions[0]
     if isinstance(aggregate, exp.Alias):
@@ -287,14 +325,15 @@ def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str]) -> bo
     )
 
 
-def _spine_names(tree: exp.Expression, relations: Mapping[str, str]) -> set[str]:
+def _spine_names(
+    tree: exp.Expression, relations: Mapping[str, str], spine_tables: set[str]
+) -> set[str]:
     """Aliases and names under which the query reads the spine table."""
-    names = set()
-    for table in tree.find_all(exp.Table):
-        qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
-        if (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() == SPINE_TABLE:
-            names.add(table.alias_or_name.lower())
-    return names
+    return {
+        table.alias_or_name.lower()
+        for table in tree.find_all(exp.Table)
+        if _reads_spine(table, relations, spine_tables)
+    }
 
 
 def _is_spine_time(node: exp.Expression, spine: set[str]) -> bool:
@@ -320,12 +359,24 @@ def _holds(side: exp.Expression, node: exp.Expression) -> bool:
     return False
 
 
+def _in_own_row_filter(node: exp.Expression) -> bool:
+    """Whether `node` sits in the WHERE, ON, HAVING or QUALIFY of its nearest enclosing SELECT.
+
+    In that SELECT's select list it is a feature, however many queries are nested around it: a
+    flag computed in a derived table that is then joined still reads the future.
+    """
+    child = node
+    while child.parent is not None and not isinstance(child.parent, exp.Select):
+        child = child.parent
+    if child.parent is None:
+        return False
+    return child.arg_key in ("where", "having", "qualify", "joins")
+
+
 def _compared_with_spine_time(node: exp.Subquery, spine: set[str]) -> bool:
     """Whether the subquery is a bound on the spine's own `label_ts` in a row filter."""
-    if node.find_ancestor(exp.Where, exp.Join, exp.Having, exp.Qualify) is None:
-        return False  # in the select list it is a feature, and a feature reads the future
     comparison = node.find_ancestor(*_CUTOFF_COMPARISONS)
-    if comparison is None:
+    if comparison is None or not _in_own_row_filter(comparison):
         return False
     if isinstance(comparison, exp.Between):
         bounds = (comparison.args.get("low"), comparison.args.get("high"))
@@ -353,14 +404,20 @@ def fix_spine_cutoffs(
     arithmetic inside) stays as written. Returns the new SQL and the cutoff values.
     """
     tree = parse_one(sql, read="duckdb")
-    spine = _spine_names(tree, relations or {})
+    relations = relations or {}
+    spine_tables = _spine_tables(tree, relations)
+    spine = _spine_names(tree, relations, spine_tables)
     fixed: list[str] = []
     for node in list(tree.find_all(exp.Subquery)):
-        if not _is_spine_cutoff(node, relations or {}) or not _compared_with_spine_time(
-            node, spine
-        ):
+        if not _is_spine_cutoff(node, relations, spine_tables):
             continue
-        rows = conn.sql(node.this.sql(dialect="duckdb")).fetchall()
+        if not _compared_with_spine_time(node, spine):
+            continue
+        scan = node.this.copy()  # a CTE copy of the spine is read as the spine itself
+        for table in scan.find_all(exp.Table):
+            if table.name.lower() in spine_tables and not table.db:
+                table.set("this", exp.to_identifier(SPINE_TABLE))
+        rows = conn.sql(scan.sql(dialect="duckdb")).fetchall()
         value = rows[0][0] if rows else None
         if not isinstance(value, datetime):
             continue

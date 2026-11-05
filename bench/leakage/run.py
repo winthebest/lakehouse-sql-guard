@@ -57,9 +57,12 @@ from bench.leakage.cases import (
 from bench.leakage.freeze import (
     ROOT,
     checkout_state,
+    digest,
     frozen_hashes,
     frozen_mismatches,
     is_ancestor,
+    template_changes,
+    template_hashes,
 )
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.splits import load_splits, seen_splits
@@ -439,7 +442,8 @@ def require_frozen_run(
     """Refuse a run on a split nobody has seen unless everything it relies on is as it was frozen.
 
     It needs an explicit pre-registration; a git checkout (at `root`, whatever the working
-    directory) with a clean tree; the commit the pre-registration was written at to be an ancestor
+    directory) with a clean tree, and no untracked or modified file in the held-out splits'
+    template directories; the commit the pre-registration was written at to be an ancestor
     of HEAD; the SHA-256 of every frozen file (all of `src/sqlguard`, the harness, the specs and
     manifest, the briefs, the templates of the seen splits) to match the record; and a threshold
     for every row it reports (row (a) only if `with_v1`).
@@ -463,6 +467,13 @@ def require_frozen_run(
     if problems:
         shown = "; ".join(problems[:8])
         raise SystemExit(f"the frozen files changed since {prereg_path.name}: {shown}")
+    for split in held_out:
+        loose = template_changes(split, checkout)
+        if loose:
+            raise SystemExit(
+                f"templates of {split} are not committed as they are ({'; '.join(loose[:6])}): "
+                "commit them first, so the commit names exactly what is scored"
+            )
     rows = [*DETECTORS, *V1_SPEC_ROWS, *(V1_ROWS if with_v1 else ())]
     missing = [row for row in rows if row not in pre["thresholds"]]
     if missing:
@@ -536,6 +547,7 @@ def run(
         "prereg_sha": pre["git_sha"],
         "prereg_file": str(prereg_path) if prereg_path else None,
         "held_out_run_checked": bool(held_out),
+        "template_sha256": template_hashes(splits),
         "thresholds": pre["thresholds"],
         "splits": results,
         "in_sample_splits": [name for name in splits if name in seen_splits(pre)],
@@ -583,6 +595,8 @@ def markdown(result: dict) -> str:
         ]
     if fresh:
         lines += [f"Not seen during development: {', '.join(fresh)}.", ""]
+    for name, hashes in (result.get("template_sha256") or {}).items():
+        lines += [f"Templates scored in {name}: {len(hashes)}, digest `{digest(hashes)[:16]}`.", ""]
     if result.get("specs"):
         lines += [
             "Spec per split: " + ", ".join(f"{n} `{f}`" for n, f in result["specs"].items()),
@@ -656,6 +670,11 @@ def markdown(result: dict) -> str:
         )
     if result.get("fixes"):
         lines.append("")
+    held_out = [n for n in (result.get("template_sha256") or {}) if n not in in_sample]
+    for name in held_out:
+        lines += [f"## Templates scored in {name}", "", "```"]
+        lines += [f"{sha}  {file}" for file, sha in sorted(result["template_sha256"][name].items())]
+        lines += ["```", ""]
     gap = result["optimism_gap"]
     lines += [
         "## Optimism gap (logistic regression, synthetic world)",

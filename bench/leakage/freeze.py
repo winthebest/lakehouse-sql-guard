@@ -111,3 +111,39 @@ def is_ancestor(sha: str, root: Path = ROOT) -> bool:
             f"the pre-registration names commit {sha}, which this checkout does not have"
         )
     return _git(root, "merge-base", "--is-ancestor", sha, "HEAD").returncode == 0
+
+
+def template_changes(split: str, root: Path = ROOT) -> list[str]:
+    """Files of the split's template directory that git does not have as committed.
+
+    Untracked, modified, staged and deleted files all count (`--untracked-files=all`): the run
+    globs every `*.sql` there, so a file that is not in a commit would be scored without a trace.
+    """
+    status = _git(
+        root,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--",
+        f"bench/leakage/templates/{split}",
+    )
+    if status.returncode:
+        raise SystemExit(f"git status failed in {root}: {status.stderr.strip()}")
+    return [line.strip() for line in status.stdout.splitlines() if line.strip()]
+
+
+def template_hashes(splits: Iterable[str], root: Path = ROOT) -> dict[str, dict[str, str]]:
+    """`{split: {template file: sha256}}` for the `*.sql` files a run on `splits` would score."""
+    return {
+        name: {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted((root / "bench/leakage/templates" / name).glob("*.sql"))
+        }
+        for name in splits
+    }
+
+
+def digest(hashes: Mapping[str, str]) -> str:
+    """One SHA-256 over a split's `{file: sha256}` list, for a header line."""
+    joined = "\n".join(f"{name} {sha}" for name, sha in sorted(hashes.items()))
+    return hashlib.sha256(joined.encode()).hexdigest()

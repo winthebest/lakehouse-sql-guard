@@ -205,7 +205,15 @@ def test_a_split_cutoff_is_fixed_to_its_final_value_and_the_query_is_audited(
 
 @pytest.mark.parametrize(
     "name",
-    ["q01_cutoff_plus_unbounded", "q03_cutoff_in_on", "q04_cutoff_on_events"],
+    [
+        "q01_cutoff_plus_unbounded",
+        "q03_cutoff_in_on",
+        "q04_cutoff_on_events",
+        "q05_lastflag_in_join_derived",
+        "q06_lastflag_in_cte",
+        "q10_survivor_filter",
+        "q11_lastflag_where_exists",
+    ],
 )
 def test_a_leak_next_to_a_cutoff_is_still_caught(audit_world, points, name):
     """Three leaky templates labelled clean, each with a spine subquery somewhere. The first
@@ -225,6 +233,29 @@ PLANTED = {
         SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
         FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
           AND e.event_ts > (SELECT MIN(label_ts) FROM labels) GROUP BY ALL""",
+    # a flag computed in a joined derived table: its select list, however nested, is a feature
+    "q05_lastflag_in_join_derived": """
+        SELECT l.user_id, l.label_ts, l.churned, x.not_last FROM labels l
+        LEFT JOIN (SELECT s.user_id, s.label_ts,
+                          s.label_ts < (SELECT MAX(label_ts) FROM labels) AS not_last
+                   FROM labels s) x ON x.user_id = l.user_id AND x.label_ts = l.label_ts""",
+    "q06_lastflag_in_cte": """
+        WITH x AS (SELECT s.user_id, s.label_ts,
+                          s.label_ts < (SELECT MAX(label_ts) FROM labels) AS not_last
+                   FROM labels s)
+        SELECT l.user_id, l.label_ts, l.churned, x.not_last FROM labels l
+        LEFT JOIN x ON x.user_id = l.user_id AND x.label_ts = l.label_ts""",
+    "q10_survivor_filter": """
+        SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n FROM labels l
+        LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+        WHERE l.user_id IN (SELECT s.user_id FROM labels s
+                            WHERE s.label_ts >= (SELECT MAX(label_ts) FROM labels) - INTERVAL 7 DAY)
+        GROUP BY ALL""",
+    "q11_lastflag_where_exists": """
+        SELECT l.user_id, l.label_ts, l.churned, EXISTS (
+          SELECT 1 FROM labels s WHERE s.user_id = l.user_id
+            AND s.label_ts > (SELECT MIN(label_ts) FROM labels) AND s.label_ts > l.label_ts
+        ) AS has_future FROM labels l""",
     "q04_cutoff_on_events": """
         SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
         FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.event_ts < l.label_ts
@@ -257,6 +288,36 @@ PLANTED = {
 def test_any_other_use_of_the_subquery_is_left_as_written(final_conn, sql):
     fixed, values = audit.fix_spine_cutoffs(sql, final_conn, RELATIONS)
     assert values == [] and fixed == sql
+
+
+def test_a_comparison_in_a_nested_select_list_is_never_a_cutoff(final_conn):
+    nested = PLANTED["q05_lastflag_in_join_derived"]
+    assert audit.fix_spine_cutoffs(nested, final_conn, RELATIONS) == (nested, [])
+    in_cte = PLANTED["q06_lastflag_in_cte"]
+    assert audit.fix_spine_cutoffs(in_cte, final_conn, RELATIONS) == (in_cte, [])
+
+
+def test_a_cutoff_inside_a_joined_derived_tables_where_is_still_a_cutoff(final_conn):
+    derived = """
+        SELECT l.user_id, l.label_ts, l.churned, x.n FROM labels l
+        LEFT JOIN (SELECT s.user_id, s.label_ts, count(*) AS n FROM labels s
+                   WHERE s.label_ts < (SELECT MAX(label_ts) FROM labels) GROUP BY ALL) x
+          ON x.user_id = l.user_id AND x.label_ts = l.label_ts"""
+    assert len(audit.fix_spine_cutoffs(derived, final_conn, RELATIONS)[1]) == 1
+
+
+def test_a_plain_cte_copy_of_the_spine_is_the_spine(audit_world, points, final_conn):
+    copy = """
+        WITH sp AS (SELECT * FROM labels)
+        SELECT s.user_id, s.label_ts, s.churned, count(e.event_id) AS n
+        FROM sp s LEFT JOIN events e ON e.user_id = s.user_id AND e.ingested_at < s.label_ts
+        WHERE s.label_ts < (SELECT MAX(label_ts) FROM sp) - INTERVAL 7 DAY GROUP BY ALL"""
+    fixed, values = audit.fix_spine_cutoffs(copy, final_conn, RELATIONS)
+    assert len(values) == 1 and "FROM sp" in fixed
+    assert judged(audit_world, points, "clean", copy).status == "agree"
+    # a copy that filters is another relation: its maximum is not the spine's
+    filtered = copy.replace("SELECT * FROM labels", "SELECT * FROM labels WHERE churned = 1")
+    assert audit.fix_spine_cutoffs(filtered, final_conn, RELATIONS)[1] == []
 
 
 def test_the_cutoff_is_found_through_a_qualified_spine_name(final_conn):
