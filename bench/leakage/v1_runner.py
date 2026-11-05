@@ -185,12 +185,19 @@ def _venv_python(venv: Path) -> Path:
 
 
 def _probe(python: Path, version: str) -> bool:
-    """True when `python` imports lakehouse-sql-guard at exactly `version`."""
-    code = "import importlib.metadata as m, sqlguard; print(m.version('lakehouse-sql-guard'))"
+    """True when `python` imports lakehouse-sql-guard at exactly `version`, from its own
+    environment (the repository's package carries the same version number)."""
+    code = (
+        "import importlib.metadata as m, sqlguard, sys; "
+        "print(m.version('lakehouse-sql-guard')); print(sqlguard.__file__); print(sys.prefix)"
+    )
     done = subprocess.run(
         [str(python), "-I", "-c", code], capture_output=True, text=True, check=False
     )
-    return done.returncode == 0 and done.stdout.strip() == version
+    if done.returncode:
+        return False
+    found, origin, prefix = (done.stdout.strip().splitlines() + ["", "", ""])[:3]
+    return found == version and bool(prefix) and origin.startswith(prefix)
 
 
 def ensure_v1_python(

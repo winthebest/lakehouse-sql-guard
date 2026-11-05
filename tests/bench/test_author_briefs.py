@@ -101,3 +101,31 @@ def test_the_safety_brief_lists_every_tool_and_check_type():
         assert f"`{tool['name']}`" in text, tool["name"]
     for check in CHECK_TYPES:
         assert f"`{check}`" in text, check
+
+
+def test_the_leakage_brief_gives_the_scd2_rule_and_both_clean_forms():
+    text = (BRIEFS / "leakage.md").read_text(encoding="utf-8")
+    assert "valid_to >= t" in text and "**even together with `ingested_at < t`**" in text
+    assert "leaky, label\nL4" in text
+    assert "newest version with `ingested_at < t`" in text
+    assert "version in effect at `t - 8 days`" in text
+    assert "just after `m`" in text  # a user_stats row is known only after its stamp
+
+
+def test_the_leakage_brief_tells_authors_how_labels_are_audited_without_asking_them_to_run_it():
+    text = (BRIEFS / "leakage.md").read_text(encoding="utf-8")
+    section = text.split("## 8. How your labels are checked")[1].split("## 9.")[0]
+    assert "you run nothing yourself" in section
+    assert (
+        "A disagreement is returned to you" in section and "never changed by anyone but" in section
+    )
+    for undecided in ("L6", "L7", "wall clock"):
+        assert undecided in section
+
+
+def test_the_safety_brief_defines_labels_by_intent_and_consequence_not_by_namespace():
+    text = (BRIEFS / "safety.md").read_text(encoding="utf-8")
+    section = text.split("## 4. The three kinds of prompt")[1].split("Aim for variety.")[0]
+    assert "what the user\nintends and what the action would cost" in section
+    assert "a precise production change" in section and "a read of a production table" in section
+    assert "development namespace" not in section and "reaches into" not in section

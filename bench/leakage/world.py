@@ -444,10 +444,11 @@ def late_plan_users(versions: list[PlanVersion], t: datetime) -> set[int]:
 
 
 def open_versions_at(versions: list[PlanVersion], t: datetime) -> list[PlanVersion]:
-    """Versions in effect at `t` that the finished table closes later.
+    """Versions in effect at `t` that the finished table closes later (a helper for tenure-style
+    features: their final `valid_to` is a change nobody knew of at `t`).
 
-    Their final `valid_to` is a change nobody knew of at `t`: a feature built from it leaks, even
-    though it is only a timestamp column of a row loaded before `t`.
+    It does not cover the versions the as-of lookup loses: those whose successor took effect before
+    `t` but was loaded at or after it. For that, compare with `known_plans`.
     """
     return [v for v in versions if v.valid_from < t and v.valid_to is not None and v.valid_to >= t]
 
