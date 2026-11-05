@@ -164,7 +164,8 @@ For a row with prediction time `t`, a fact is **known** when:
   spine's own `label_ts` with `(SELECT MAX(label_ts) FROM labels)` (or `MIN`, a quantile, a median,
   with an interval added or subtracted outside the subquery) only chooses which rows to train on, and
   is accepted. Anything else built on such a subquery (compared with `event_ts` or `ingested_at`,
-  used as a feature, `=`) is judged like any other read of the spine.
+  used as a feature, `=`) is judged like any other read of the spine. So is a cutoff read from a CTE,
+  even one that only copies the spine: read it from the spine itself.
 
 The boundary is **strict**: a fact stamped exactly `t` is not known at `t`.
 

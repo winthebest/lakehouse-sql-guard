@@ -62,7 +62,6 @@ from bench.leakage.freeze import (
     frozen_mismatches,
     is_ancestor,
     template_changes,
-    template_hashes,
 )
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.splits import load_splits, seen_splits
@@ -531,8 +530,13 @@ def run(
     results = {}
     curves = {}
     fixes = {}
+    template_sha256: dict[str, dict[str, str]] = {}
     for split in splits:
         scored = score_split(split, seed, warehouse, catalog, with_v1)
+        # hashed when the templates were loaded for scoring, not read again at the end
+        template_sha256[split] = {
+            f"{s.case.template_id}.sql": s.case.template_sha256 for s in scored
+        }
         results[split] = evaluate(scored, cut)
         labels = [s.case.is_leaky for s in scored]
         curves[split] = {d: roc_curve(labels, [s.scores[d] for s in scored]) for d in DETECTORS}
@@ -547,7 +551,7 @@ def run(
         "prereg_sha": pre["git_sha"],
         "prereg_file": str(prereg_path) if prereg_path else None,
         "held_out_run_checked": bool(held_out),
-        "template_sha256": template_hashes(splits),
+        "template_sha256": template_sha256,
         "thresholds": pre["thresholds"],
         "splits": results,
         "in_sample_splits": [name for name in splits if name in seen_splits(pre)],

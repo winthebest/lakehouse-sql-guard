@@ -132,17 +132,6 @@ def template_changes(split: str, root: Path = ROOT) -> list[str]:
     return [line.strip() for line in status.stdout.splitlines() if line.strip()]
 
 
-def template_hashes(splits: Iterable[str], root: Path = ROOT) -> dict[str, dict[str, str]]:
-    """`{split: {template file: sha256}}` for the `*.sql` files a run on `splits` would score."""
-    return {
-        name: {
-            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted((root / "bench/leakage/templates" / name).glob("*.sql"))
-        }
-        for name in splits
-    }
-
-
 def digest(hashes: Mapping[str, str]) -> str:
     """One SHA-256 over a split's `{file: sha256}` list, for a header line."""
     joined = "\n".join(f"{name} {sha}" for name, sha in sorted(hashes.items()))

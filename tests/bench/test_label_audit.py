@@ -306,18 +306,61 @@ def test_a_cutoff_inside_a_joined_derived_tables_where_is_still_a_cutoff(final_c
     assert len(audit.fix_spine_cutoffs(derived, final_conn, RELATIONS)[1]) == 1
 
 
-def test_a_plain_cte_copy_of_the_spine_is_the_spine(audit_world, points, final_conn):
-    copy = """
-        WITH sp AS (SELECT * FROM labels)
-        SELECT s.user_id, s.label_ts, s.churned, count(e.event_id) AS n
-        FROM sp s LEFT JOIN events e ON e.user_id = s.user_id AND e.ingested_at < s.label_ts
-        WHERE s.label_ts < (SELECT MAX(label_ts) FROM sp) - INTERVAL 7 DAY GROUP BY ALL"""
-    fixed, values = audit.fix_spine_cutoffs(copy, final_conn, RELATIONS)
-    assert len(values) == 1 and "FROM sp" in fixed
-    assert judged(audit_world, points, "clean", copy).status == "agree"
-    # a copy that filters is another relation: its maximum is not the spine's
-    filtered = copy.replace("SELECT * FROM labels", "SELECT * FROM labels WHERE churned = 1")
-    assert audit.fix_spine_cutoffs(filtered, final_conn, RELATIONS)[1] == []
+CTE_COPY = """
+    WITH sp AS (SELECT * FROM labels)
+    SELECT s.user_id, s.label_ts, s.churned, count(e.event_id) AS n
+    FROM sp s LEFT JOIN events e ON e.user_id = s.user_id AND e.ingested_at < s.label_ts
+    WHERE s.label_ts < (SELECT MAX(label_ts) FROM sp) - INTERVAL 7 DAY GROUP BY ALL"""
+SHADOW = """
+    WITH labels AS (SELECT * FROM marts.fct_training_spine WHERE churned = 1)
+    SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+    FROM marts.fct_training_spine l LEFT JOIN events e
+      ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+    WHERE l.label_ts < (SELECT MAX(label_ts) FROM labels) GROUP BY ALL"""
+STAR_REPLACE = """
+    WITH sp AS (SELECT * REPLACE (label_ts + INTERVAL 30 DAY AS label_ts) FROM labels)
+    SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+    FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+    WHERE l.label_ts < (SELECT MIN(label_ts) FROM sp) GROUP BY ALL"""
+STAR_REPLACE_BACK = """
+    WITH sp AS (SELECT * REPLACE (label_ts - INTERVAL 5 DAY AS label_ts) FROM labels)
+    SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+    FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+    WHERE l.label_ts < (SELECT MAX(label_ts) FROM sp) GROUP BY ALL"""
+SHADOW_DRIVER = """
+    WITH labels AS (SELECT * FROM marts.fct_training_spine WHERE churned = 1)
+    SELECT l.user_id, l.label_ts, l.churned, count(e.event_id) AS n
+    FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+    WHERE l.label_ts >= (SELECT MIN(label_ts) FROM labels) GROUP BY ALL"""
+
+
+@pytest.mark.parametrize("sql", [CTE_COPY, SHADOW, STAR_REPLACE, STAR_REPLACE_BACK, SHADOW_DRIVER])
+def test_a_cutoff_read_through_any_cte_is_never_fixed(final_conn, sql):
+    """A CTE is not the spine: not a plain copy, not one that filters or rewrites it, not one
+    that takes the spine's own name. The query is audited as written."""
+    assert audit.fix_spine_cutoffs(sql, final_conn, RELATIONS) == (sql, [])
+
+
+@pytest.mark.parametrize("sql", [SHADOW, STAR_REPLACE_BACK, SHADOW_DRIVER])
+def test_a_cutoff_hidden_behind_a_cte_is_a_disagreement_not_a_pass(audit_world, points, sql):
+    assert judged(audit_world, points, "clean", sql).status == "disagree"
+
+
+def test_a_star_replace_copy_is_audited_as_written_and_is_stable_when_it_really_is(
+    audit_world, points
+):
+    """Audited as written, `MIN(label_ts) + 30 days` over the copy is the same in both runs (the
+    earliest prediction exists at every `t`), so that query has no leak and agrees. What the
+    audit must not do is substitute the cutoff it would have had for `labels`: that is asserted
+    above. A copy that moves the maximum back does leak, and disagrees."""
+    assert judged(audit_world, points, "clean", STAR_REPLACE).status == "agree"
+
+
+def test_a_plain_cte_copy_of_the_spine_is_a_documented_false_alarm(audit_world, points):
+    """It is a disagreement (not a pass and not hidden): the author is asked, and can read the
+    cutoff off `labels` directly. Reading the CTE would need a guess, and a wrong guess hides."""
+    result = judged(audit_world, points, "clean", CTE_COPY)
+    assert result.status == "disagree" and "labelled clean" in result.reason
 
 
 def test_the_cutoff_is_found_through_a_qualified_spine_name(final_conn):

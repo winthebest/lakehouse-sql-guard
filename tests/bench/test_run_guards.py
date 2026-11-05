@@ -267,20 +267,33 @@ def test_template_changes_names_every_kind_of_loose_file(repo):
     assert freeze.template_changes("dev_v1b", repo) == []
 
 
-def test_the_templates_a_run_scores_are_hashed_per_file(repo):
-    write(
-        repo,
-        {
-            "bench/leakage/templates/holdout_v2/b.sql": "second",
-            "bench/leakage/templates/holdout_v2/a.sql": "first",
-        },
-    )
-    hashes = freeze.template_hashes(["holdout_v2", "dev_v1b"], repo)
-    assert list(hashes["holdout_v2"]) == ["a.sql", "b.sql"] and hashes["dev_v1b"] == {}
-    assert all(len(h) == 64 for h in hashes["holdout_v2"].values())
-    first = freeze.digest(hashes["holdout_v2"])
-    write(repo, {"bench/leakage/templates/holdout_v2/a.sql": "edited"})
-    assert freeze.digest(freeze.template_hashes(["holdout_v2"], repo)["holdout_v2"]) != first
+def test_a_template_is_hashed_when_it_is_loaded(tmp_path):
+    """The hash is of the bytes that were parsed, so an edit after loading does not change what a
+    run reports about the cases it scored."""
+    import hashlib
+
+    from bench.leakage.cases import generate_cases, load_template, render
+
+    path = tmp_path / "hv2_a.sql"
+    path.write_text("-- leak: clean\n-- param n: 1 | 2\nSELECT {n}", encoding="utf-8")
+    loaded = load_template(path, "holdout_v2")
+    at_load = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert loaded.sha256 == at_load
+    path.write_text("-- leak: L1\nSELECT 99", encoding="utf-8")  # edited after it was read
+    cases = render(loaded)
+    assert {c.template_sha256 for c in cases} == {at_load} and len(cases) == 2
+    assert loaded.sha256 != hashlib.sha256(path.read_bytes()).hexdigest()
+
+    for case in generate_cases(42, ("dev",))[:20]:
+        file = freeze.ROOT / "bench/leakage/templates/dev" / f"{case.template_id}.sql"
+        assert case.template_sha256 == hashlib.sha256(file.read_bytes()).hexdigest()
+
+
+def test_the_digest_of_a_template_list_changes_with_any_file():
+    base = {"a.sql": "1" * 64, "b.sql": "2" * 64}
+    assert freeze.digest(base) == freeze.digest(dict(reversed(base.items())))
+    assert freeze.digest(base) != freeze.digest({**base, "b.sql": "3" * 64})
+    assert freeze.digest(base) != freeze.digest({**base, "c.sql": "4" * 64})
 
 
 def test_a_result_lists_the_templates_it_scored(world, tmp_path, monkeypatch):
@@ -290,8 +303,8 @@ def test_a_result_lists_the_templates_it_scored(world, tmp_path, monkeypatch):
     from bench.leakage.run import Scored
 
     catalog, _ = world
-    case = LeakCase("a-000", "a", "dev", "clean", "clean", {}, "SELECT 1")
-    leaky = LeakCase("b-000", "b", "dev", "leaky", "L1", {}, "SELECT 1")
+    case = LeakCase("a-000", "a", "dev", "clean", "clean", {}, "SELECT 1", "a" * 64)
+    leaky = LeakCase("b-000", "b", "dev", "leaky", "L1", {}, "SELECT 1", "b" * 64)
     scored = [
         Scored(case, {d: 0.0 for d in run.ALL_ROWS}, [], {}),
         Scored(leaky, {d: 1.0 for d in run.ALL_ROWS}, [], {}),
@@ -310,12 +323,12 @@ def test_a_result_lists_the_templates_it_scored(world, tmp_path, monkeypatch):
     path = run.run(42, tmp_path, False, tmp_path, ("dev",), with_v1=False)
     result = json.loads(path.read_text())
     hashes = result["template_sha256"]["dev"]
-    assert len(hashes) >= 50 and all(len(h) == 64 for h in hashes.values())
-    assert hashes == freeze.template_hashes(["dev"])["dev"]
+    assert hashes == {"a.sql": "a" * 64, "b.sql": "b" * 64}  # those of the cases that were scored
     text = path.with_suffix(".md").read_text()
-    assert f"Templates scored in dev: {len(hashes)}" in text
+    assert "Templates scored in dev: 2" in text
     assert freeze.digest(hashes)[:16] in text
     assert "## Templates scored in dev" not in text  # the whole list is for held-out splits
+    assert "a" * 64 not in text
 
     held = {
         **result,
