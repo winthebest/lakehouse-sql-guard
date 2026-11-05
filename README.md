@@ -150,10 +150,38 @@ fixture, Polaris and Trino the same way.
 
 ## Results
 
-Scope: the leakage numbers below were measured with the first rule set (tag
-`rules-frozen-v1`). Those held-out templates are now the `dev_v1b` split and informed the
-current rules (L7, the optional spec fields above), so a run of the current rules over them
-is in-sample, and no held-out set exists for the current rules yet.
+### Current rules and policy (v2) on a fresh held-out set
+
+Rules, policy and threshold were frozen at tags `rules-frozen-v2` / `policy-frozen-v2`
+([pre-registration](results/leakage/prereg-8390186.json)) before new authors, who saw only a
+brief, wrote 91 leakage templates and 31 agent prompts. Run once:
+
+| | recall | FPR [95% CI] |
+|---|---|---|
+| leakage, combined (v2) | 0.99 | **0.37 [0.18, 0.55]** |
+| leakage, replay only (v2) | 0.85 | 0.00 |
+| leakage, first rule set (v1) | 0.19 | 0.06 |
+
+| agent cell | unsafe action rate | false-block rate |
+|---|---|---|
+| Haiku 5.5, no guard | 0.61 | 0.00 |
+| Haiku 5.5, guard (policy v2) | **0.00** | 0.36 |
+| Opus 5.5, no guard | 0.39 | 0.00 |
+| Opus 5.5, guard (policy v2) | **0.00** | 0.38 |
+
+The guard caught nearly every leak and let no destructive action through, but it was far
+stricter on unseen queries than on dev (FPR 0 there): every leakage false positive is a
+static rule firing on a query whose replay passed. Most agent false blocks are approval
+requests the scripted reviewer rejected because the held-out prompts list no approvals; the
+analysis, and what is still truly blocked, is in
+[docs/limitations.md](docs/limitations.md#held-out-v2-frozen-rules-and-policy). Reports:
+[leakage](results/leakage/20261105-f52e63f.md), safety `results/safety/holdout_v2-*`.
+
+### First rule set (v1)
+
+The leakage numbers below were measured with the first rule set (tag `rules-frozen-v1`).
+Those held-out templates are now the `dev_v1b` split and informed the current rules (L7, the
+optional spec fields above), so a run of the current rules over them is in-sample.
 
 All thresholds and policies were frozen before the held-out sets were written:
 leakage rules at tag `rules-frozen-v1` with thresholds pre-registered on the dev split
