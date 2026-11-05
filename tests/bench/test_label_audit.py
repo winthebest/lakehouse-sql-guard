@@ -162,6 +162,78 @@ def test_matured_labels_use_the_strict_boundary(audit_world, points):
     assert judged(audit_world, points, "clean", inclusive).status == "disagree"
 
 
+CUTOFF = "(SELECT MAX(label_ts) FROM labels)"
+
+
+def cutoff_query(where: str, select: str = "COUNT(e.event_id) AS n") -> str:
+    return f"""
+    SELECT l.user_id, l.label_ts, l.churned, {select}
+    FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+    WHERE {where}
+    GROUP BY ALL"""
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        f"l.label_ts < {CUTOFF}",
+        f"l.label_ts <= {CUTOFF} - INTERVAL 3 DAY",
+        "l.label_ts < (SELECT MIN(label_ts) FROM labels) + INTERVAL 10 DAY",
+        "l.label_ts < (SELECT quantile_cont(label_ts, 0.8) FROM labels)",
+        "l.label_ts < (SELECT MEDIAN(label_ts) FROM labels)",
+        f"l.label_ts BETWEEN (SELECT MIN(label_ts) FROM labels) AND {CUTOFF}",
+        f"{CUTOFF} > l.label_ts",
+    ],
+)
+def test_a_spine_derived_split_cutoff_is_accepted_by_design(audit_world, points, where):
+    for label in ("clean", "L3"):
+        result = judged(audit_world, points, label, cutoff_query(where))
+        assert result.status == "not_auditable", where
+        assert result.reason == "spine-derived split cutoff (accepted by design)"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # read as a feature, it is the future
+        cutoff_query("l.user_id > 0", f"{CUTOFF} AS newest"),
+        # pinned at the maximum it keeps rows that turned out to be the latest (a documented leak)
+        cutoff_query(f"l.label_ts = {CUTOFF}"),
+        # arithmetic inside the subquery is not the accepted form
+        cutoff_query("l.label_ts < (SELECT MAX(label_ts) - INTERVAL 3 DAY FROM labels)"),
+        # a cutoff that reads another table, or is filtered, is not a bare scan of the spine
+        cutoff_query("l.label_ts < (SELECT MAX(event_ts) FROM events)"),
+        cutoff_query("l.label_ts < (SELECT MAX(label_ts) FROM labels WHERE churned = 1)"),
+        # correlated: not a split cutoff
+        cutoff_query(
+            "l.label_ts < (SELECT MAX(h.label_ts) FROM labels h WHERE h.user_id = l.user_id)"
+        ),
+    ],
+)
+def test_other_uses_of_the_same_subquery_stay_auditable(audit_world, points, sql):
+    result = judged(audit_world, points, "clean", sql)
+    assert result.reason != "spine-derived split cutoff (accepted by design)"
+    assert not audit.has_spine_cutoff(sql)
+
+
+def test_the_cutoff_is_found_through_a_qualified_spine_name():
+    sql = cutoff_query(
+        "l.label_ts < (SELECT MAX(label_ts) FROM analytics.marts.fct_training_spine)"
+    )
+    assert not audit.has_spine_cutoff(sql)
+    assert audit.has_spine_cutoff(sql, RELATIONS)
+
+
+def test_a_cutoff_template_with_one_literal_rendering_is_audited_for_that_one(audit_world, points):
+    body = cutoff_query("l.label_ts < {cut}")
+    mixed = Template(
+        "split", "candidate", "clean", {"cut": [CUTOFF, "TIMESTAMP '2026-01-24'"]}, body.strip()
+    )
+    [result] = audit.audit_templates([mixed], audit_world, RELATIONS, points)
+    assert result.status == "agree"
+    assert any("1 of 2 renderings not auditable" in w for w in result.warnings)
+
+
 def test_a_future_spine_row_is_not_known(audit_world, points):
     sql = """
     SELECT l.user_id, l.label_ts, l.churned, (SELECT MAX(label_ts) FROM labels) AS newest
@@ -273,7 +345,7 @@ def test_the_audit_uses_no_detector_and_no_snapshot():
 
 SEEN_SAMPLE = {
     "dev": {
-        "c13_time_split_cutoff": "disagree",  # a cutoff read as MAX(label_ts): the future spine
+        "c13_time_split_cutoff": "not_auditable",  # spine-derived split cutoff: by design
         "c01_asof_stats": "agree",
         "c04_cte_events": "agree",
         "l1_future_window": "agree",
@@ -298,8 +370,8 @@ SEEN_SAMPLE = {
 
 @pytest.mark.parametrize("split", SEEN_SAMPLE)
 def test_the_audit_agrees_with_the_seen_splits_except_at_two_edges(audit_world, points, split):
-    """Eight templates of each seen split (the full splits are audited in the report: 46 of 56 and
-    40 of 46 agree, 9 and 5 are not auditable, and exactly these two disagree)."""
+    """Eight templates of each seen split (the full splits are audited in the report; the only
+    disagreement left is the exact-14-day label boundary of hc07)."""
     wanted = SEEN_SAMPLE[split]
     templates = [t for t in load_templates(split) if t.template_id in wanted]
     assert {t.template_id for t in templates} == set(wanted)

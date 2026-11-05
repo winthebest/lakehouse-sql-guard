@@ -21,13 +21,22 @@ FROZEN_GLOBS = (
     "bench/leakage/splits.yaml",
     "bench/leakage/world.py",
 )
+# Recorded, not enforced: the author briefs and the tools that gate the authors' output. A run
+# reports which of them differ from the record; a change is visible, not a reason to refuse.
+RECORDED_GLOBS = (
+    "bench/briefs/*.md",
+    "bench/leakage/splits.yaml",
+    "bench/leakage/audit.py",
+    "bench/leakage/duplicates.py",
+    "bench/leakage/freeze.py",
+)
 _IGNORED = ("__pycache__", ".pyc")
 
 
-def _files(root: Path) -> list[Path]:
+def _files(root: Path, globs: tuple[str, ...] = FROZEN_GLOBS) -> list[Path]:
     found = {
         p
-        for pattern in FROZEN_GLOBS
+        for pattern in globs
         for p in root.glob(pattern)
         if p.is_file() and not any(part in str(p) for part in _IGNORED)
     }
@@ -39,6 +48,24 @@ def frozen_hashes(root: Path = ROOT) -> dict[str, str]:
     return {
         str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in _files(root)
     }
+
+
+def recorded_hashes(root: Path = ROOT) -> dict[str, str]:
+    """The same for the files that are recorded but not enforced (`RECORDED_GLOBS`)."""
+    return {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in _files(root, RECORDED_GLOBS)
+    }
+
+
+def recorded_differences(recorded: Mapping[str, str], root: Path = ROOT) -> list[str]:
+    """Changed, missing and added recorded files, in the words of `frozen_mismatches`."""
+    now = recorded_hashes(root)
+    return (
+        [f"changed: {n}" for n in sorted(recorded) if n in now and now[n] != recorded[n]]
+        + [f"missing: {n}" for n in sorted(set(recorded) - set(now))]
+        + [f"added: {n}" for n in sorted(set(now) - set(recorded))]
+    )
 
 
 def frozen_mismatches(recorded: Mapping[str, str], root: Path = ROOT) -> list[str]:

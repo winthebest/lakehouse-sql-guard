@@ -20,14 +20,19 @@ What it cannot decide is listed as **not auditable**, with the reason:
 
 - `L6` (lineage to the label or outcomes) and `L7` (the wall clock is the same in both runs);
 - any template that reads the wall clock, whatever its label;
+- a time-split cutoff computed from the spine: `label_ts` compared (`<`, `<=`, `>`, `>=`, `BETWEEN`)
+  with `(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)` in a WHERE, ON, HAVING or QUALIFY.
+  The documented rules accept it by design (a split is chosen before any prediction time exists),
+  so the audit keeps the author's label;
 - a rendering that does not parse or run on the world, has no `user_id`/`label_ts` or feature
   column in its output, or returns rows at fewer than `MIN_POINTS` sampled times (for `clean`).
 
 It checks leaky versus clean, not the type: whether a leak is `L2` or `L3` stays the author's call.
 
 Two conventions are stricter than they may look, and are stated to the authors: the spine after `t`
-does not exist at `t` (a cutoff read as `MAX(label_ts)` over the whole table depends on the future),
-and a label is final only when `label_ts + horizon < t` (strictly).
+does not exist at `t` (a value *read* from later spine rows, such as `MAX(label_ts)` in the select
+list, depends on the future; a cutoff that only chooses training rows is exempt, above), and a
+label is final only when `label_ts + horizon < t` (strictly).
 
 Policy: a disagreement goes back to the author. Labels are never changed here.
 
@@ -51,7 +56,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.compute as pc
 import yaml
-from sqlglot import parse_one
+from sqlglot import exp, parse_one
 
 from bench.leakage import world as gen
 from bench.leakage.baseline import bind_relation_map
@@ -235,6 +240,63 @@ def _run(conn, sql: str) -> tuple[list[str], list[tuple]]:
     return list(relation.columns), relation.fetchall()
 
 
+SPINE_TABLE = "labels"
+SPINE_TIME = "label_ts"
+_CUTOFF_AGGREGATES = (
+    exp.Max,
+    exp.Min,
+    exp.Median,
+    exp.Quantile,
+    exp.ApproxQuantile,
+    exp.PercentileCont,
+    exp.PercentileDisc,
+)
+_CUTOFF_COMPARISONS = (exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between)
+
+
+def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str]) -> bool:
+    """`(SELECT MAX|MIN|quantile|median(label_ts) FROM labels)` and nothing else in it."""
+    select = subquery.this
+    if not isinstance(select, exp.Select) or len(select.expressions) != 1:
+        return False
+    extras = {k for k, v in select.args.items() if v and k not in ("expressions", "from_")}
+    source = select.args.get("from_")
+    if extras or source is None or not isinstance(source.this, exp.Table):
+        return False
+    table = source.this
+    qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
+    if (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() != SPINE_TABLE:
+        return False
+    aggregate = select.expressions[0]
+    if isinstance(aggregate, exp.Alias):
+        aggregate = aggregate.this
+    column = aggregate.find(exp.Column)
+    return (
+        isinstance(aggregate, _CUTOFF_AGGREGATES)
+        and column is not None
+        and column.name.lower() == SPINE_TIME
+    )
+
+
+def has_spine_cutoff(sql: str, relations: Mapping[str, str] | None = None) -> bool:
+    """Whether the query filters rows by a time-split cutoff taken from the whole spine.
+
+    The subquery has to sit in a comparison (`<`, `<=`, `>`, `>=`, `BETWEEN`) inside a `WHERE`,
+    `ON`, `HAVING` or `QUALIFY`. The same subquery in the select list is a feature that reads
+    the future, and `= MAX(label_ts)` is a documented leak; both stay auditable.
+    """
+    tree = parse_one(sql, read="duckdb")
+    for node in tree.find_all(exp.Subquery):
+        if not _is_spine_cutoff(node, relations or {}):
+            continue
+        comparison = node.find_ancestor(*_CUTOFF_COMPARISONS)
+        if comparison is not None and comparison.find_ancestor(
+            exp.Where, exp.Join, exp.Having, exp.Qualify
+        ):
+            return True
+    return False
+
+
 def reads_the_clock(sql: str) -> bool:
     """Whether the query calls a wall-clock function (comments and string literals ignored)."""
     text = parse_one(sql, read="duckdb").sql(dialect="duckdb").lower()
@@ -258,6 +320,13 @@ def audit_cases(
             if reads_the_clock(case.sql):
                 results[case.case_id] = CaseResult(
                     case.case_id, "unauditable", "reads the wall clock (the audit cannot see L7)"
+                )
+                continue
+            if has_spine_cutoff(case.sql, relations):
+                results[case.case_id] = CaseResult(
+                    case.case_id,
+                    "unauditable",
+                    "spine-derived split cutoff (accepted by design)",
                 )
                 continue
             final[case.case_id] = _run(final_conn, case.sql)

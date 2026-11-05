@@ -159,8 +159,11 @@ For a row with prediction time `t`, a fact is **known** when:
   (strictly: `label_ts + 14 days < t`); a younger label is not final yet;
 - it never comes from `user_outcomes`, and never from the row's own `churned`.
 - the spine itself is known only up to `t`: spine rows with a later `label_ts` do not exist yet, so a
-  value read from them (a cutoff taken as `MAX(label_ts)` over the whole table, the next prediction
-  time) depends on the future (label L1).
+  value read from them as a feature (`MAX(label_ts)` in the select list, the next prediction time)
+  depends on the future (label L1). A time-split cutoff is different: a `WHERE` that compares
+  `label_ts` with `(SELECT MAX(label_ts) FROM labels)` (or `MIN`, a quantile, a median, with arithmetic
+  outside the subquery) only chooses which rows to train on. Such a split is accepted: label it by
+  everything else in the query, and note that the audit does not check it.
 
 The boundary is **strict**: a fact stamped exactly `t` is not known at `t`.
 
@@ -297,12 +300,13 @@ every leak type where it makes sense.
 
 After you hand back, your labels are audited mechanically; you run nothing yourself. For every
 rendering of a clean or L1 to L5 template, the query is run on the final tables and again on the tables
-as they were knowable at a sample of prediction times (built from the data generator's own load times:
+as they were knowable at each prediction time (built from the data generator's own load times:
 events and plan versions loaded before `t`, stats stamped before `t`, the spine up to `t` with labels
 hidden unless final, no outcomes). If a feature differs for a row at `t`, the query used something
 unknown at `t`. A clean template must never differ; a leaky template must differ in at least one
 rendering. Templates the audit cannot decide (L6, L7, anything that reads the wall clock, anything
-that does not run or returns too few rows) are listed as such and are not checked this way.
+that does not run or returns too few rows, a time-split cutoff taken from the spine) are listed as
+such and are not checked this way.
 
 A disagreement is returned to you with the row where it shows. Labels are never changed by anyone but
 you, and only before any detector result has been seen.

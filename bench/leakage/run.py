@@ -56,7 +56,12 @@ from bench.leakage.cases import (
     load_templates,
     render,
 )
-from bench.leakage.freeze import frozen_hashes, frozen_mismatches
+from bench.leakage.freeze import (
+    frozen_hashes,
+    frozen_mismatches,
+    recorded_differences,
+    recorded_hashes,
+)
 from bench.leakage.metrics import auc, bootstrap_ci, confusion, roc_curve, threshold_at_fpr
 from bench.leakage.splits import load_splits, seen_splits
 from bench.leakage.v1_runner import (
@@ -405,6 +410,7 @@ def prereg_payload(seed: int, warehouse: Path, with_v1: bool = True) -> dict:
         },
         "v1": {"tag": V1_TAG, "commit": tag_commit()} if with_v1 else None,
         "frozen_files": frozen_hashes(),
+        "recorded_files": recorded_hashes(),
         "expectations": list(EXPECTATIONS),
         "max_fpr": MAX_FPR,
         # null = the detector cannot reach FPR <= max_fpr with any positive threshold
@@ -540,6 +546,9 @@ def run(
         "prereg_sha": pre["git_sha"],
         "prereg_file": str(prereg_path) if prereg_path else None,
         "held_out_run_checked": bool(held_out),
+        "recorded_files_differ": (
+            recorded_differences(pre["recorded_files"]) if pre.get("recorded_files") else None
+        ),
         "thresholds": pre["thresholds"],
         "splits": results,
         "in_sample_splits": [name for name in splits if name in seen_splits(pre)],
@@ -587,6 +596,12 @@ def markdown(result: dict) -> str:
         ]
     if fresh:
         lines += [f"Not seen during development: {', '.join(fresh)}.", ""]
+    if result.get("recorded_files_differ"):
+        lines += [
+            "Files recorded in the pre-registration that differ now: "
+            + "; ".join(result["recorded_files_differ"]),
+            "",
+        ]
     if result.get("specs"):
         lines += [
             "Spec per split: " + ", ".join(f"{n} `{f}`" for n, f in result["specs"].items()),

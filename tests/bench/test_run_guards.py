@@ -172,5 +172,40 @@ def test_the_preregistration_records_the_frozen_files_and_what_to_expect(world, 
     monkeypatch.setattr(run, "score_split", lambda *a, **k: scored)
     payload = run.prereg_payload(42, Path("."), with_v1=False)
     assert payload["frozen_files"] == freeze.frozen_hashes()
+    assert payload["recorded_files"] == freeze.recorded_hashes()
     assert any("near zero" in note and "plan_history" in note for note in payload["expectations"])
     assert payload["fit_splits"] == ["dev"] and "holdout_v2" not in payload["seen_splits"]
+
+
+def test_the_preregistration_also_records_the_briefs_and_the_gating_tools():
+    recorded = freeze.recorded_hashes()
+    assert {
+        "bench/briefs/leakage.md",
+        "bench/briefs/safety.md",
+        "bench/leakage/splits.yaml",
+        "bench/leakage/audit.py",
+        "bench/leakage/duplicates.py",
+        "bench/leakage/freeze.py",
+    } <= set(recorded)
+    assert all(len(h) == 64 for h in recorded.values())
+
+
+def test_a_changed_brief_is_reported_not_refused(tmp_path, clean):
+    brief = tmp_path / "bench/briefs/leakage.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("v1", encoding="utf-8")
+    recorded = freeze.recorded_hashes(tmp_path)
+    assert freeze.recorded_differences(recorded, tmp_path) == []
+    brief.write_text("v2", encoding="utf-8")
+    (tmp_path / "bench/leakage").mkdir(parents=True)
+    (tmp_path / "bench/leakage/audit.py").write_text("new tool", encoding="utf-8")
+    assert freeze.recorded_differences(recorded, tmp_path) == [
+        "changed: bench/briefs/leakage.md",
+        "added: bench/leakage/audit.py",
+    ]
+    # the frozen checks are untouched by it
+    rule = tmp_path / "src/sqlguard/leakage/rule.py"
+    rule.parent.mkdir(parents=True)
+    rule.write_text("rule", encoding="utf-8")
+    pre = prereg_for(tmp_path)
+    run.require_frozen_run(["holdout_v2"], pre, Path("p.json"), with_v1=True, root=tmp_path)

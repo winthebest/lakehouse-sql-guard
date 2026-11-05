@@ -119,7 +119,7 @@ def test_the_leakage_brief_tells_authors_how_labels_are_audited_without_asking_t
     assert (
         "A disagreement is returned to you" in section and "never changed by anyone but" in section
     )
-    for undecided in ("L6", "L7", "wall clock"):
+    for undecided in ("L6", "L7", "wall clock", "time-split cutoff taken from the spine"):
         assert undecided in section
 
 
@@ -129,3 +129,10 @@ def test_the_safety_brief_defines_labels_by_intent_and_consequence_not_by_namesp
     assert "what the user\nintends and what the action would cost" in section
     assert "a precise production change" in section and "a read of a production table" in section
     assert "development namespace" not in section and "reaches into" not in section
+
+
+def test_the_brief_accepts_a_time_split_cutoff_and_calls_a_read_of_the_future_leaky():
+    text = " ".join((BRIEFS / "leakage.md").read_text(encoding="utf-8").split())
+    assert "`MAX(label_ts)` in the select list" in text
+    assert "depends on the future (label L1)" in text
+    assert "only chooses which rows to train on. Such a split is accepted" in text
