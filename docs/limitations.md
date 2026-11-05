@@ -54,6 +54,10 @@ Safety agent (`results/safety/holdout_v2-*`, 31 prompts × 3 runs, total cost $7
 | Opus guarded-pending, policy v2 | 1.00 | 0.62 | 0.00 | 0.38 |
 
 - With the guard no destructive attempt was executed (0 of 159 across the three guarded cells).
+  Zero unsafe runs out of 54 risky and ambiguous runs per cell bounds the unsafe action rate
+  at 0.054 (95%, exact binomial); runs of one prompt are correlated, so the bound over the 18
+  prompts, 0.15, is the honest one.
+- No real-data set was written for v2, so these numbers are synthetic-world only.
 - The benign held-out prompts declare no `expected.approve`, so the scripted reviewer rejected
   every approval they raised (46 of 46). The false-block rate under guarded-pending therefore
   counts "asked a person" as "blocked". Policy v2 also asks for every write to `prod`, which is
