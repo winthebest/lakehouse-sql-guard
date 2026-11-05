@@ -244,6 +244,28 @@ VARIANTS = {
     ),
     "wrapped in select star": f"SELECT * FROM ({BASE}) w",
     "wrapped in a cte": f"WITH q AS ({BASE}) SELECT * FROM q",
+    "NOT of the opposite comparison": BASE.replace(
+        "e.event_ts < l.label_ts\n", "NOT (e.event_ts >= l.label_ts)\n"
+    ),
+    "interval moved to the other side": BASE.replace(
+        "e.event_ts >= l.label_ts - INTERVAL 7 DAY", "e.event_ts + INTERVAL 7 DAY >= l.label_ts"
+    ),
+    "staging models that only project columns": """WITH stg_events AS (
+          SELECT event_id, user_id, event_ts, amount FROM events
+        ), spine AS (SELECT user_id, label_ts, churned FROM labels)
+        SELECT s.user_id, s.label_ts, s.churned, SUM(e.amount) AS amount_7d
+        FROM spine s LEFT JOIN stg_events e ON e.user_id = s.user_id
+          AND e.event_ts < s.label_ts AND e.event_ts >= s.label_ts - INTERVAL 7 DAY
+        GROUP BY ALL""",
+    "staging model that renames columns": """WITH stg_events AS (
+          SELECT user_id AS uid, event_ts AS happened_at, amount AS spend FROM events
+        )
+        SELECT l.user_id, l.label_ts, l.churned, SUM(e.spend) AS amount_7d
+        FROM labels l LEFT JOIN stg_events e ON e.uid = l.user_id
+          AND e.happened_at < l.label_ts AND e.happened_at >= l.label_ts - INTERVAL 7 DAY
+        GROUP BY l.user_id, l.label_ts, l.churned""",
+    "final cte that is only re-selected": f"""WITH final AS ({BASE})
+        SELECT user_id, label_ts, churned, amount_7d FROM final""",
     "extra feature column": BASE.replace(
         "SUM(e.amount) AS amount_7d", "SUM(e.amount) AS amount_7d, COUNT(e.event_id) AS n_7d"
     ),
@@ -260,14 +282,32 @@ UNCAUGHT = {
         "e.event_ts < l.label_ts\n", "CAST(e.event_ts AS DATE) < CAST(l.label_ts AS DATE)\n"
     ),
     "a dead predicate": BASE.replace("AND e.event_ts <", "AND 1 = 1 AND e.event_ts <"),
-    "NOT of the opposite comparison": BASE.replace(
-        "e.event_ts < l.label_ts\n", "NOT (e.event_ts >= l.label_ts)\n"
-    ),
     "join predicates moved to WHERE": """SELECT l.user_id, l.label_ts, l.churned,
                SUM(e.amount) AS amount_7d
         FROM labels l JOIN events e ON e.user_id = l.user_id
         WHERE e.event_ts < l.label_ts AND e.event_ts >= l.label_ts - INTERVAL 7 DAY
         GROUP BY l.user_id, l.label_ts, l.churned""",
+    "date_diff for the window": BASE.replace(
+        "e.event_ts >= l.label_ts - INTERVAL 7 DAY", "date_diff('day', e.event_ts, l.label_ts) <= 7"
+    ),
+    "FILTER (WHERE ...) for the window": """SELECT l.user_id, l.label_ts, l.churned,
+               SUM(e.amount) FILTER (WHERE e.event_ts >= l.label_ts - INTERVAL 7 DAY) AS amount_7d
+        FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.event_ts < l.label_ts
+        GROUP BY l.user_id, l.label_ts, l.churned""",
+    "a correlated scalar subquery": """SELECT l.user_id, l.label_ts, l.churned, (
+          SELECT SUM(e.amount) FROM events e WHERE e.user_id = l.user_id
+            AND e.event_ts < l.label_ts AND e.event_ts >= l.label_ts - INTERVAL 7 DAY
+        ) AS amount_7d FROM labels l""",
+    "a LATERAL join": """SELECT l.user_id, l.label_ts, l.churned, x.amount_7d
+        FROM labels l, LATERAL (
+          SELECT SUM(e.amount) AS amount_7d FROM events e WHERE e.user_id = l.user_id
+            AND e.event_ts < l.label_ts AND e.event_ts >= l.label_ts - INTERVAL 7 DAY) x""",
+    "an aggregate CTE joined back": """WITH f AS (
+          SELECT l.user_id, l.label_ts, SUM(e.amount) AS amount_7d
+          FROM labels l JOIN events e ON e.user_id = l.user_id AND e.event_ts < l.label_ts
+            AND e.event_ts >= l.label_ts - INTERVAL 7 DAY GROUP BY l.user_id, l.label_ts)
+        SELECT l.user_id, l.label_ts, l.churned, f.amount_7d FROM labels l
+        LEFT JOIN f ON f.user_id = l.user_id AND f.label_ts = l.label_ts""",
 }
 
 

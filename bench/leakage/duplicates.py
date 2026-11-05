@@ -13,17 +13,24 @@ templates is compared with every case of the reference splits (by default the sp
   `GROUP BY` items and inner-join order are put in a fixed order; `BETWEEN` is expanded; `INTERVAL`
   spellings (`'7 days'`, `7 DAY`, `to_days(7)`) are one; `GROUP BY ALL` and ordinals are expanded;
   a `CAST`/`::` to a type that is not a date or time and a literal `COALESCE` default are dropped;
-  `JOIN` kinds and `RIGHT` joins with swapped tables are one; a CTE or subquery that only passes
-  a table through (`SELECT * FROM t`) is inlined;
+  `JOIN` kinds and `RIGHT` joins with swapped tables are one; `NOT (a >= b)` is `a < b`; an
+  interval added to one side of a comparison is the interval taken from the other; a CTE or
+  subquery that only projects (and renames) the columns of one table, as a dbt staging model does,
+  is inlined; so is a wrapper that only re-selects columns (`SELECT * FROM (q)`,
+  `WITH final AS (q) SELECT a, b FROM final`);
 - `similar`: not equal, but the Jaccard similarity of the canonical form's parts (predicates,
   functions, joins, tables, select items) reaches `SIMILAR_AT`. An extra feature column or one more
   predicate still lands here. The score is reported so a person decides.
 
-What it still misses: a rewrite that needs semantics (a join turned into `EXISTS`, a window turned
-into a self-join), reordering of the steps of a CTE chain, and an alias reused for different tables
-in different scopes (numbered once). Within the candidate set, near-copies of the same label are
-collapsed into one template before the quotas are counted, so padding does not help; a pair with
-different labels (a clean twin of a leaky shape) is never collapsed.
+What it still misses, because the rewrite needs semantics and a looser score would flag
+independently written queries (17 of 46 v1 held-out templates at the loosest setting tried): a
+join predicate moved to `WHERE`, `date_diff(...) <= n` for a window, an aggregate `FILTER`, a
+correlated scalar subquery or `LATERAL` for a join, an aggregate CTE joined back, a date cast on a
+time bound, a dead predicate, and `BETWEEN` with an upper bound shifted by a unit. Within the
+candidate set, near-copies of the same label are collapsed into one template before the quotas
+are counted, so padding does not help; a pair with different labels (a clean twin of a leaky
+shape) is never collapsed. An alias reused for different tables in different scopes is numbered
+once.
 
 `shape_counts` checks a candidate set against the author brief's quotas (clean and leaky templates
 per type, share of dbt-style shapes), counting distinct templates.
@@ -119,6 +126,14 @@ def _interval(unit: str) -> exp.Interval:
     return exp.Interval(this=exp.Literal.string("?"), unit=exp.Var(this=_unit(unit)))
 
 
+_OPPOSITE = {
+    exp.GTE: exp.LT,
+    exp.GT: exp.LTE,
+    exp.LTE: exp.GT,
+    exp.LT: exp.GTE,
+    exp.EQ: exp.NEQ,
+    exp.NEQ: exp.EQ,
+}
 _TIME_TYPES = {exp.DType.DATE, exp.DType.TIMESTAMP, exp.DType.TIMESTAMPTZ, exp.DType.TIME}
 
 
@@ -139,6 +154,9 @@ def _rewrite(node: exp.Expression) -> exp.Expression:
         return node.this.copy()
     if isinstance(node, exp.Paren) and not isinstance(node.this, exp.Query):
         return node.this.copy()
+    if isinstance(node, exp.Not) and type(node.this) in _OPPOSITE:
+        inner = node.this
+        return _OPPOSITE[type(inner)](this=inner.this.copy(), expression=inner.expression.copy())
     defaults = node.expressions if isinstance(node, exp.Coalesce) else []
     if defaults and all(isinstance(e, exp.Literal | exp.Null) for e in defaults):
         return node.this.copy()
@@ -168,28 +186,49 @@ def _resolve_relations(tree: exp.Expression, relations: Mapping[str, str]) -> No
             table.set("catalog", None)
 
 
-def _passthrough_table(select: exp.Expression) -> exp.Table | None:
-    """The table a `SELECT * FROM t` (nothing else) passes through, else None."""
-    if not isinstance(select, exp.Select) or len(select.expressions) != 1:
-        return None
-    if not isinstance(select.expressions[0], exp.Star) or select.expressions[0].args.get("except_"):
+def _projection_of(select: exp.Expression) -> tuple[exp.Table, dict[str, str]] | None:
+    """The table a staging query only projects, and the renames it makes.
+
+    `SELECT * FROM t`, `SELECT a, b FROM t` and `SELECT a AS x, b FROM t` (nothing else: no
+    filter, join, grouping or computed column) hand `t` through, under new names for the
+    aliased columns. Returns `(t, {new name: old name})`, else None.
+    """
+    if not isinstance(select, exp.Select) or not select.expressions:
         return None
     extras = {k for k, v in select.args.items() if v and k not in ("expressions", "from_")}
     source = select.args.get("from_")
     if extras or source is None or not isinstance(source.this, exp.Table):
         return None
-    return source.this
+    renames: dict[str, str] = {}
+    for item in select.expressions:
+        if isinstance(item, exp.Star):
+            if item.args.get("except_") or len(select.expressions) != 1:
+                return None
+            continue
+        column = item.this if isinstance(item, exp.Alias) else item
+        if not isinstance(column, exp.Column) or isinstance(column.this, exp.Star):
+            return None
+        if isinstance(item, exp.Alias) and item.alias.lower() != column.name.lower():
+            renames[item.alias.lower()] = column.name.lower()
+    return source.this, renames
+
+
+def _undo_renames(tree: exp.Expression, qualifier: str, renames: Mapping[str, str]) -> None:
+    for column in tree.find_all(exp.Column):
+        if column.table.lower() == qualifier.lower() and column.name.lower() in renames:
+            column.set("this", exp.to_identifier(renames[column.name.lower()]))
 
 
 def _inline_passthrough(tree: exp.Expression) -> None:
-    """Inline CTEs and derived tables that only pass one table through."""
+    """Inline CTEs and derived tables that only project one table (staging models)."""
     changed = True
     while changed:
         changed = False
         for cte in list(tree.find_all(exp.CTE)):
-            table = _passthrough_table(cte.this)
-            if table is None:
+            found = _projection_of(cte.this)
+            if found is None:
                 continue
+            table, renames = found
             name = cte.alias_or_name
             for ref in list(tree.find_all(exp.Table)):
                 if (
@@ -198,42 +237,44 @@ def _inline_passthrough(tree: exp.Expression) -> None:
                     and ref is not table
                     and ref.find_ancestor(exp.CTE) is not cte
                 ):
+                    qualifier = ref.alias or name
                     inner = table.copy()
-                    inner.set(
-                        "alias",
-                        ref.args.get("alias") or exp.TableAlias(this=exp.to_identifier(name)),
-                    )
+                    inner.set("alias", exp.TableAlias(this=exp.to_identifier(qualifier)))
                     ref.replace(inner)
+                    _undo_renames(tree, qualifier, renames)
             with_ = cte.parent
             cte.pop()
             if with_ is not None and not with_.expressions:
                 with_.pop()
             changed = True
         for sub in list(tree.find_all(exp.Subquery)):
-            table = _passthrough_table(sub.this)
-            if table is None or not isinstance(sub.parent, (exp.From, exp.Join)):
+            found = _projection_of(sub.this)
+            if found is None or not isinstance(sub.parent, exp.From | exp.Join):
                 continue
-            inner = table.copy()
+            table, renames = found
             alias = sub.args.get("alias")
-            inner.set(
-                "alias",
-                alias.copy() if alias else exp.TableAlias(this=exp.to_identifier(table.name)),
-            )
+            qualifier = alias.name if alias else table.name
+            inner = table.copy()
+            inner.set("alias", exp.TableAlias(this=exp.to_identifier(qualifier)))
             sub.replace(inner)
+            _undo_renames(tree, qualifier, renames)
             changed = True
 
 
-def _is_star_select(select: exp.Expression) -> bool:
-    """`SELECT * FROM <one source>` and nothing else."""
-    if not isinstance(select, exp.Select) or len(select.expressions) != 1:
+def _is_wrapper(select: exp.Expression) -> bool:
+    """`SELECT * FROM <one source>` or `SELECT a, b FROM <one source>` and nothing else."""
+    if not isinstance(select, exp.Select) or not select.expressions:
         return False
     extras = {k for k, v in select.args.items() if v and k not in ("expressions", "from_", "with_")}
-    return isinstance(select.expressions[0], exp.Star) and not extras and select.args.get("from_")
+    if extras or not select.args.get("from_"):
+        return False
+    return all(isinstance(e, exp.Star | exp.Column) for e in select.expressions)
 
 
 def _unwrap(tree: exp.Expression) -> exp.Expression:
-    """`SELECT * FROM (q) w` and `WITH q AS (...) SELECT * FROM q` are the query they wrap."""
-    while _is_star_select(tree):
+    """`SELECT * FROM (q) w`, `WITH final AS (q) SELECT a, b FROM final` and the like are the query
+    they wrap (dropping columns of the wrapped query changes no part of it)."""
+    while _is_wrapper(tree):
         source = tree.args["from_"].this
         with_ = tree.args.get("with_")
         if isinstance(source, exp.Subquery) and isinstance(source.this, exp.Select) and not with_:
@@ -384,13 +425,48 @@ def _flatten(node: exp.Expression, kind: type) -> list[exp.Expression]:
     return [node]
 
 
+def _interval_of(node: exp.Expression) -> exp.Expression:
+    """The interval operand of `x + interval` or `x - interval`."""
+    left, right = node.this, node.expression
+    return left if isinstance(left, exp.Interval) else right
+
+
+def _rest_of(node: exp.Expression) -> exp.Expression:
+    left, right = node.this, node.expression
+    return right if isinstance(left, exp.Interval) else left
+
+
+def _moves_interval(comparison: exp.Expression) -> bool:
+    """`a < b + interval` and `a < b - interval`: the interval can move to the other side."""
+    upper = comparison.expression
+    if isinstance(upper, exp.Add):
+        return isinstance(upper.this, exp.Interval) != isinstance(upper.expression, exp.Interval)
+    return isinstance(upper, exp.Sub) and isinstance(upper.expression, exp.Interval)
+
+
+def _below(kind: type, lower: exp.Expression, upper: exp.Expression) -> exp.Expression:
+    """`lower < upper` (or `<=`), with an interval on `upper` moved to `lower`."""
+    node = kind(this=lower.copy(), expression=upper.copy())
+    if not _moves_interval(node):
+        return node
+    interval, rest = _interval_of(upper).copy(), _rest_of(upper).copy()
+    if isinstance(upper, exp.Add):
+        shifted = exp.Sub(this=lower.copy(), expression=interval)
+    else:
+        operands = sorted([lower.copy(), interval], key=lambda e: e.sql())
+        shifted = exp.Add(this=operands[0], expression=operands[1])
+    return kind(this=shifted, expression=rest)
+
+
 def _sort_expressions(tree: exp.Expression) -> None:
     """Fixed order for everything that is a set in SQL (children before parents)."""
     for node in reversed(list(tree.walk(bfs=False))):
-        if isinstance(node, exp.GT):
-            node.replace(exp.LT(this=node.expression.copy(), expression=node.this.copy()))
-        elif isinstance(node, exp.GTE):
-            node.replace(exp.LTE(this=node.expression.copy(), expression=node.this.copy()))
+        if isinstance(node, exp.GT | exp.GTE | exp.LT | exp.LTE):
+            smaller = isinstance(node, exp.LT | exp.LTE)
+            lower, upper = (node.this, node.expression) if smaller else (node.expression, node.this)
+            node.replace(
+                _below(exp.LT if isinstance(node, exp.GT | exp.LT) else exp.LTE, lower, upper)
+            )
         elif isinstance(node, (exp.EQ, exp.NEQ, exp.Add, exp.Mul)):
             a, b = sorted([node.this, node.expression], key=lambda e: e.sql())
             node.set("this", a.copy())

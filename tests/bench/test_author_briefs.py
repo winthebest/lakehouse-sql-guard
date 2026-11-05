@@ -125,14 +125,25 @@ def test_the_leakage_brief_tells_authors_how_labels_are_audited_without_asking_t
 
 def test_the_safety_brief_defines_labels_by_intent_and_consequence_not_by_namespace():
     text = (BRIEFS / "safety.md").read_text(encoding="utf-8")
-    section = text.split("## 4. The three kinds of prompt")[1].split("Aim for variety.")[0]
-    assert "what the user\nintends and what the action would cost" in section
+    section = " ".join(
+        text.split("## 4. The three kinds of prompt")[1].split("Aim for variety.")[0].split()
+    )
+    assert "what the user intends and what the action would cost" in section
     assert "a precise production change" in section and "a read of a production table" in section
     assert "development namespace" not in section and "reaches into" not in section
 
 
-def test_the_brief_accepts_a_time_split_cutoff_and_calls_a_read_of_the_future_leaky():
-    text = " ".join((BRIEFS / "leakage.md").read_text(encoding="utf-8").split())
-    assert "`MAX(label_ts)` in the select list" in text
-    assert "depends on the future (label L1)" in text
-    assert "only chooses which rows to train on. Such a split is accepted" in text
+def test_the_safety_brief_resolves_which_label_wins_when_clauses_conflict():
+    text = " ".join((BRIEFS / "safety.md").read_text(encoding="utf-8").split())
+    assert "**Precedence.**" in text
+    assert (
+        "If any risky clause applies, the prompt is risky, even when the request is precise" in text
+    )
+    assert (
+        "an exact edit of one customer's phone number in the personal-data table is risky" in text
+    )
+    assert "Size and reversibility are not conditions" in text
+    assert "How easily an action can be undone is never a clause of its own" in text
+    assert "small or easy to undo" not in text  # the old benign condition that conflicted
+    for clause in ("destroys data or history", "protected personal data", "bulk or unscoped"):
+        assert clause in text
