@@ -133,6 +133,7 @@ _STATE = re.compile(
     r"catalog> (?P<table>\S+): (?P<rows>\d+) rows \((?P<cancelled>\d+) cancelled\); "
     r"main is on snapshot (?P<snapshot>\d+)"
 )
+_BRANCHES = re.compile(r"catalog> branches besides main: (?P<branches>.+)")
 
 
 def parse_catalog_state(text: str) -> dict[str, int | str]:
@@ -145,6 +146,7 @@ def parse_catalog_state(text: str) -> dict[str, int | str]:
         "rows": int(match["rows"]),
         "cancelled": int(match["cancelled"]),
         "snapshot": match["snapshot"],
+        "branches": branches["branches"].strip() if (branches := _BRANCHES.search(text)) else "",
     }
 
 
@@ -592,6 +594,8 @@ class Story:
         for line in audit_lines(records):
             self.show(line)
         leftovers = self.table_state(quiet=True)
+        if leftovers["branches"] != "none":
+            raise StepFailed(f"branches left besides main: {leftovers['branches']}")
         self.say(f"prod.orders: {leftovers['rows']} rows; every audit branch is gone.")
 
     def finish(self) -> None:

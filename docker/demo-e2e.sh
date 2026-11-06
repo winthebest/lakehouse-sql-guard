@@ -58,6 +58,7 @@ case "$agent" in scripted | claude) ;; *) echo "--agent must be scripted or clau
 
 cleanup() {
   local status=$?
+  set +e  # cleanup must run to the end even when the terminal is gone
   trap - EXIT INT TERM
   if [[ "${SQLGUARD_KEEP_STACK:-0}" == "1" ]]; then
     echo

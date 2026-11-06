@@ -110,7 +110,10 @@ def test_the_table_state_is_read_from_the_catalog_line():
         "rows": 97,
         "cancelled": 27,
         "snapshot": "2455273240615",
+        "branches": "none",
     }
+    left = out.replace("main: none", "main: audit-1f2e")
+    assert story.parse_catalog_state(left)["branches"] == "audit-1f2e"
     with pytest.raises(ValueError):
         story.parse_catalog_state("nothing useful")
 
