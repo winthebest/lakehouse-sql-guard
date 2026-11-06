@@ -181,6 +181,11 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             "findings": sum(r["findings"] for r in checked),
             "leaky_models": sum(1 for r in checked for m in r["models"] if m["verdict"] == "leaky"),
             "unverifiable_models": sum(r["unverifiable"] for r in checked),
+            # models whose verdict is leaky but whose report also says part of the query was
+            # not checked (for example, the output carries no prediction time)
+            "models_with_unchecked_parts": sum(
+                1 for r in checked for m in r["models"] if m["unchecked"]
+            ),
             "error_models": sum(r["errors"] for r in checked),
             "seconds": round(sum(r["seconds"] for r in checked), 3),
         }
