@@ -167,14 +167,15 @@ def compile_project(project: Project, deps: bool = True) -> dict[str, Any]:
     still written, and the check reports per training model what it lacks.
     """
     profiles = write_profile(project)
-    deps = None
     has_packages = any(
         (project.dbt_dir / f).is_file() for f in ("packages.yml", "dependencies.yml")
     )
+    ran_deps = False
     if deps and has_packages:
-        deps = _dbt(["deps"], project, profiles)
-        if deps.returncode != 0:
-            raise CheckoutError(f"{project.repo}: dbt deps failed: {deps.stdout[-400:]}")
+        installed = _dbt(["deps"], project, profiles)
+        if installed.returncode != 0:
+            raise CheckoutError(f"{project.repo}: dbt deps failed: {installed.stdout[-400:]}")
+        ran_deps = True
     done = _dbt(
         [
             "compile",
@@ -191,5 +192,5 @@ def compile_project(project: Project, deps: bool = True) -> dict[str, Any]:
     return {
         "compile_exit": done.returncode,
         "compile_tail": "" if done.returncode == 0 else done.stdout[-600:],
-        "deps": deps is not None,
+        "deps": ran_deps,
     }

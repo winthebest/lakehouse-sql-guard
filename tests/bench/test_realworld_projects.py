@@ -176,3 +176,28 @@ def test_recall_is_reported_per_operator_and_per_leak_type():
     assert by_leak["L2"]["recall_same_rule"] == 0.0
     assert Counter(r["operator"] for r in results) == Counter({"o1": 2, "o2": 1})
     assert Mutant("o1", "L1", "m").id == "o1__m"
+
+
+def test_compile_runs_dbt_deps_when_the_project_has_packages(tmp_path, monkeypatch):
+    import subprocess
+
+    from bench.realworld import checkout
+
+    monkeypatch.setattr(checkout, "WORK", tmp_path)
+    project = Project(repo="o/r", group="seen", sha="0" * 40, license="mit", publish="full")
+    project.dbt_dir.mkdir(parents=True)
+    (project.dbt_dir / "packages.yml").write_text("packages: []\n")
+    (project.dbt_dir / "dbt_project.yml").write_text("name: r\nprofile: r\n")
+    calls = []
+
+    def fake_dbt(args, proj, profiles):
+        calls.append(args[0])
+        if args[0] == "compile":
+            proj.manifest.parent.mkdir(parents=True, exist_ok=True)
+            proj.manifest.write_text("{}")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(checkout, "_dbt", fake_dbt)
+    assert checkout.compile_project(project)["deps"] is True and calls == ["deps", "compile"]
+    calls.clear()
+    assert checkout.compile_project(project, deps=False)["deps"] is False and calls == ["compile"]
