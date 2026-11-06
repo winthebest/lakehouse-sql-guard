@@ -1,6 +1,6 @@
 [project]
 name = "lakehouse-sql-guard"
-version = "0.1.1"
+version = "0.2.0"
 description = "Pre-execution SQL guard for Apache Iceberg lakehouses: detects temporal feature leakage and gates destructive AI-agent actions."
 readme = "README.md"
 license = "Apache-2.0"
