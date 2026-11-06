@@ -239,6 +239,15 @@ def test_a_decided_action_cannot_be_decided_again(client, pguard, orders, scope)
     assert "Decision" not in page and "Approve</button>" not in page
 
 
+def test_a_finished_action_is_not_reported_as_altered(client, pguard, orders, scope):
+    """The statement is erased at the terminal state, which must not look like tampering."""
+    result = queue(pguard, scope)
+    assert post(client, f"/a/{result.action_id}/approve", decide_form(client, result.action_id))
+    page = client.get(f"/a/{result.action_id}").text
+    assert 'class="pill published"' in page
+    assert "Approval is blocked" not in page and "altered" not in page
+
+
 def test_an_approve_button_needs_a_pending_action(client, pguard, orders, scope):
     result = queue(pguard, scope)
     pguard.expire_pending(pguard._clock() + timedelta(days=2))
