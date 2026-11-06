@@ -1,0 +1,46 @@
+# Policy of the end-to-end demo (policy v2, see config/policy.v2.yaml): every write to the `prod`
+# namespace waits for a person, whatever its size. Two changes against config/policy.v2.yaml so a
+# 100-row table can show every path: the delete invariant of prod.orders is 50% instead of 10% (a
+# delete of 30% is held for a reviewer instead of refused outright), and its history is
+# deliberately short (retention is not what this demo is about).
+version: 2
+default_namespace: prod
+
+class_decisions:
+  read: allow
+  reversible_write: allow_via_branch
+  risky_write: ask
+  schema_breaking: ask
+  irreversible: ask
+  out_of_scope: deny
+  unknown: deny
+
+protected_tables:
+  - customers_pii
+
+retention:
+  default:
+    min_snapshot_age_days: 0
+    min_snapshots: 2
+    min_orphan_age_days: 3
+
+thresholds:
+  max_affected_row_pct: 10
+
+invariants:
+  default:
+    max_delete_pct: 50
+    min_rows: 1
+  tables:
+    prod.orders:
+      max_delete_pct: 50
+      not_null: [id]
+      unique_key: [id]   # a key gives the reviewer a row-by-row diff of every write
+
+environments:
+  prod: prod             # every write here is asked about
+require_table_key: true
+
+task_scope:
+  allowed_namespaces:
+    - prod
