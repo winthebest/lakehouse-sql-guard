@@ -19,11 +19,22 @@ import csv
 import json
 import re
 import subprocess
+import tomllib
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 FROZEN_TAG = "rules-frozen-v3"
+# What `sqlguard leakage dbt` runs: the rules, the shared SQL core, the dbt reader and the CLI.
+FROZEN_PATHS = (
+    "src/sqlguard/leakage",
+    "src/sqlguard/core",
+    "src/sqlguard/dbt",
+    "src/sqlguard/cli/__init__.py",
+    "src/sqlguard/cli/__main__.py",
+    "src/sqlguard/cli/leakage.py",
+)
+PROJECT_NAME = "lakehouse-sql-guard"
 WITHHELD = "(withheld: the project has no license)"
 ADJUDICATION_COLUMNS = ("controller", "reviewer", "final", "reason")
 FINDING_COLUMNS = (
@@ -317,6 +328,33 @@ def public_row(row: dict[str, Any], publish: str) -> dict[str, Any]:
     }
 
 
+ADJUDICATION_COLUMNS = ("controller", "reviewer", "final", "reason")
+
+
+def keep_adjudication(
+    new_rows: list[dict[str, Any]], existing: Path | str, ran: set[str]
+) -> list[dict[str, Any]]:
+    """`new_rows` with the hand verdicts already recorded in `existing` (matched by finding id).
+
+    Rows of projects that were not run this time (`ran`) are kept as they were, so a re-run of
+    one project neither erases the adjudication nor drops the other projects.
+    """
+    path = Path(existing)
+    if not path.is_file():
+        return new_rows
+    with open(path, newline="", encoding="utf-8") as handle:
+        old = list(csv.DictReader(handle))
+    verdicts = {r["id"]: r for r in old if r.get("id")}
+    merged = []
+    for row in new_rows:
+        previous = verdicts.get(row.get("id", ""))
+        if previous is not None:
+            row = row | {c: previous.get(c, "") for c in ADJUDICATION_COLUMNS if previous.get(c)}
+        merged.append(row)
+    kept = [r for r in old if r.get("project") not in ran]
+    return kept + merged
+
+
 def write_csv(
     path: Path | str, rows: Iterable[dict[str, Any]], columns: Iterable[str] = FINDING_COLUMNS
 ) -> int:
@@ -334,27 +372,45 @@ def write_csv(
     return count
 
 
+def _locked_dependencies(lock_text: str) -> list[dict[str, Any]]:
+    """The packages of a uv.lock, without this project's own entry (its version may change)."""
+    packages = tomllib.loads(lock_text).get("package", [])
+    return [p for p in packages if p.get("name") != PROJECT_NAME]
+
+
 def assert_rules_frozen(
     repo: Path | str,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     tag: str = FROZEN_TAG,
 ) -> None:
-    """Fail unless `src/sqlguard` is identical to the frozen tag, committed and in the work tree."""
+    """Fail unless the code the leakage check runs is identical to the frozen tag.
+
+    That is `FROZEN_PATHS` (committed and in the work tree) and every locked dependency. Other
+    parts of `src/sqlguard`, such as the approval service, may change after the freeze.
+    """
     done = run(
-        ["git", "diff", "--quiet", tag, "HEAD", "--", "src/sqlguard"],
+        ["git", "diff", "--quiet", tag, "HEAD", "--", *FROZEN_PATHS],
         cwd=repo,
         capture_output=True,
         text=True,
     )
     if done.returncode == 1:
-        raise RealworldError(f"src/sqlguard differs from tag {tag}: the rules are not frozen")
+        raise RealworldError(f"the leakage code differs from tag {tag}: the rules are not frozen")
     if done.returncode != 0:
-        raise RealworldError(f"cannot compare src/sqlguard with tag {tag}: {done.stderr.strip()}")
+        raise RealworldError(
+            f"cannot compare the leakage code with tag {tag}: {done.stderr.strip()}"
+        )
     pending = run(
-        ["git", "status", "--porcelain", "--", "src/sqlguard"],
+        ["git", "status", "--porcelain", "--", *FROZEN_PATHS],
         cwd=repo,
         capture_output=True,
         text=True,
     )
     if pending.returncode != 0 or pending.stdout.strip():
-        raise RealworldError("src/sqlguard has uncommitted changes: the rules are not frozen")
+        raise RealworldError("the leakage code has uncommitted changes: the rules are not frozen")
+    old_lock = run(["git", "show", f"{tag}:uv.lock"], cwd=repo, capture_output=True, text=True)
+    if old_lock.returncode != 0:
+        raise RealworldError(f"cannot read uv.lock at tag {tag}: {old_lock.stderr.strip()}")
+    current = (Path(repo) / "uv.lock").read_text(encoding="utf-8")
+    if _locked_dependencies(old_lock.stdout) != _locked_dependencies(current):
+        raise RealworldError(f"locked dependencies differ from tag {tag}: the rules are not frozen")

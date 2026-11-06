@@ -238,22 +238,46 @@ def test_model_rows_list_every_checked_model_clean_ones_included():
     assert found[0]["final"] == ""
 
 
-class _Git:
-    """A fake `subprocess.run` that answers the two git commands of the frozen check."""
+LOCK = """version = 1
 
-    def __init__(self, diff_code=0, status_out=""):
-        self.diff_code, self.status_out, self.calls = diff_code, status_out, []
+[[package]]
+name = "lakehouse-sql-guard"
+version = "{version}"
+
+[[package]]
+name = "sqlglot"
+version = "{sqlglot}"
+"""
+
+
+class _Git:
+    """A fake `subprocess.run` that answers the three git commands of the frozen check."""
+
+    def __init__(self, diff_code=0, status_out="", tag_lock=None):
+        self.diff_code, self.status_out, self.tag_lock, self.calls = (
+            diff_code,
+            status_out,
+            tag_lock or LOCK.format(version="0.1.1", sqlglot="27.0"),
+            [],
+        )
 
     def __call__(self, command, **_):
         self.calls.append(command)
         if command[1] == "diff":
             return subprocess.CompletedProcess(command, self.diff_code, "", "bad tag")
+        if command[1] == "show":
+            return subprocess.CompletedProcess(command, 0, self.tag_lock, "")
         return subprocess.CompletedProcess(command, 0, self.status_out, "")
 
 
-def test_frozen_check_passes_when_source_matches_the_tag():
+def _repo(tmp_path, version="0.2.0", sqlglot="27.0"):
+    (tmp_path / "uv.lock").write_text(LOCK.format(version=version, sqlglot=sqlglot))
+    return tmp_path
+
+
+def test_frozen_check_passes_when_the_leakage_code_matches_the_tag(tmp_path):
     git = _Git()
-    rows.assert_rules_frozen("/repo", run=git)
+    rows.assert_rules_frozen(_repo(tmp_path), run=git)
     assert git.calls[0] == [
         "git",
         "diff",
@@ -261,23 +285,32 @@ def test_frozen_check_passes_when_source_matches_the_tag():
         "rules-frozen-v3",
         "HEAD",
         "--",
-        "src/sqlguard",
+        *rows.FROZEN_PATHS,
     ]
+    assert "src/sqlguard/leakage" in rows.FROZEN_PATHS and "src/sqlguard/core" in rows.FROZEN_PATHS
+    assert not any(p.startswith("src/sqlguard/approvals") for p in rows.FROZEN_PATHS)
 
 
-def test_frozen_check_fails_when_source_differs_from_the_tag():
+def test_frozen_check_fails_when_the_leakage_code_differs_from_the_tag(tmp_path):
     with pytest.raises(rows.RealworldError, match="not frozen"):
-        rows.assert_rules_frozen("/repo", run=_Git(diff_code=1))
+        rows.assert_rules_frozen(_repo(tmp_path), run=_Git(diff_code=1))
 
 
-def test_frozen_check_fails_when_git_cannot_compare():
+def test_frozen_check_fails_when_git_cannot_compare(tmp_path):
     with pytest.raises(rows.RealworldError, match="cannot compare"):
-        rows.assert_rules_frozen("/repo", run=_Git(diff_code=128))
+        rows.assert_rules_frozen(_repo(tmp_path), run=_Git(diff_code=128))
 
 
-def test_frozen_check_fails_on_uncommitted_source_changes():
+def test_frozen_check_fails_on_uncommitted_source_changes(tmp_path):
     with pytest.raises(rows.RealworldError, match="uncommitted"):
-        rows.assert_rules_frozen("/repo", run=_Git(status_out=" M src/sqlguard/x.py\n"))
+        rows.assert_rules_frozen(
+            _repo(tmp_path), run=_Git(status_out=" M src/sqlguard/leakage/x.py\n")
+        )
+
+
+def test_frozen_check_fails_when_a_locked_dependency_changes(tmp_path):
+    with pytest.raises(rows.RealworldError, match="locked dependencies"):
+        rows.assert_rules_frozen(_repo(tmp_path, sqlglot="28.0"), run=_Git())
 
 
 def test_frozen_check_holds_in_this_checkout():
@@ -292,3 +325,23 @@ def test_frozen_check_holds_in_this_checkout():
     if tag.returncode != 0:
         pytest.skip(f"tag {rows.FROZEN_TAG} is not in this clone")
     rows.assert_rules_frozen(ROOT)
+
+
+def test_a_rerun_keeps_the_hand_verdicts_and_the_projects_it_did_not_run(tmp_path):
+    existing = tmp_path / "findings.csv"
+    old = [
+        {"id": "a#m#1", "project": "a", "controller": "true", "reviewer": "true", "final": "true"},
+        {
+            "id": "b#m#1",
+            "project": "b",
+            "controller": "false",
+            "reviewer": "false",
+            "final": "false",
+        },
+    ]
+    rows.write_csv(existing, old)
+    rerun = [{"id": "a#m#1", "project": "a"}, {"id": "a#m#2", "project": "a"}]
+    merged = rows.keep_adjudication(rerun, existing, {"a"})
+    by_id = {r["id"]: r for r in merged}
+    assert by_id["a#m#1"]["final"] == "true" and "final" not in by_id["a#m#2"]
+    assert by_id["b#m#1"]["final"] == "false" and len(merged) == 3
