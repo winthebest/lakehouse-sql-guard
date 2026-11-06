@@ -1,0 +1,109 @@
+# Pre-registration of the mutation operators. Committed before any mutant is generated or checked.
+#
+# Base: SarrangTech/fraud-detection-feature-store, dbt/ subdirectory, at the commit pinned in
+# projects.yaml (MIT, (c) 2026 B. Sarang). Its rolling-window features use
+# `range between N preceding and 1 preceding`, so they read only earlier transactions: the
+# unmutated project is the negative control.
+#
+# Each operator rewrites one model of the project with the exact text edits below (regular
+# expressions, applied in order; every edit must match at least once or generation fails). Each
+# edit injects the leak named by the operator, and the result is leaky for the stated reason
+# whatever the checker says. A mutant is a copy of the project with one model replaced.
+#
+# IMPORTANT: the operators mirror the leak types the rules look for (L1-L7), so the recall they
+# give is recall BY CONSTRUCTION: it shows the rules fire on the textbook form of each leak when it
+# sits in real project code, not that they find leaks nobody thought of. It says nothing about
+# false-positive rates (that is what the unmutated control and the adjudicated projects are for).
+#
+# L4 has no operator: it needs a temporal table that declares an ingestion-time column in the spec,
+# and in this project the only table is the label table, which cannot declare one.
+#
+# Scoring (fixed here):
+#   - caught_same_rule: the mutant's report has a finding of the operator's leak type;
+#   - caught_new: that finding is not already in the control's report, by (rule, model file,
+#     location); if the control already reports the same rule at the same place, the mutant is
+#     `masked` and does not count as caught_new;
+#   - leaky: the model verdict is `leaky`;
+#   - right_model: some finding of the leak type is attributed to the mutated model's file.
+#   Recall is reported per operator and per leak type for caught_same_rule and caught_new.
+
+base: SarrangTech/fraud-detection-feature-store
+license: MIT
+
+operators:
+  - id: L1-future-frame
+    leak: L1
+    changes: the rolling window looks at the next N seconds instead of the previous N
+    why_leaky: the feature of a transaction counts or sums transactions that happen after it
+    models: [int_velocity_features, int_spend_pattern_features, int_volatility_features]
+    edits:
+      - find: "range between (\\{\\{ var\\('[a-z0-9_]+'\\) \\}\\}) preceding and 1 preceding"
+        replace: "range between 1 following and \\1 following"
+  - id: L1-lead
+    leak: L1
+    changes: seconds_since_last_txn uses lead() (the next transaction) instead of lag()
+    why_leaky: the feature is the time until the user's next transaction, known only later
+    models: [int_velocity_features]
+    edits:
+      - find: "lag\\(event_time_unix\\)"
+        replace: "lead(event_time_unix)"
+  - id: L2-entity-join
+    leak: L2
+    changes: the training model joins the transactions table to itself on user_id only and selects a column of the joined row
+    why_leaky: the joined row can be any transaction of the user, including later ones, because no condition ties it to the time of the row being scored
+    models: [silver_transaction_features]
+    edits:
+      - find: "(\\n\\s*base\\.is_fraud,\\n)"
+        replace: "\\1    prev.amount as prev_any_amount,\\n"
+      - find: "from base\\n"
+        replace: "from base\\nleft join {{ ref('stg_transactions') }} as prev\\n    on prev.user_id = base.user_id\\n"
+  - id: L3-whole-partition
+    leak: L3
+    changes: the rolling window spans the whole user partition
+    why_leaky: the feature of a transaction aggregates every transaction of the user, past and future
+    models: [int_velocity_features, int_spend_pattern_features, int_volatility_features]
+    edits:
+      - find: "range between (\\{\\{ var\\('[a-z0-9_]+'\\) \\}\\}) preceding and 1 preceding"
+        replace: "range between unbounded preceding and unbounded following"
+  - id: L3-lifetime-join
+    leak: L3
+    changes: the training model joins a per-user lifetime average of amount
+    why_leaky: the average includes the user's transactions after the one being scored
+    models: [silver_transaction_features]
+    edits:
+      - find: "(\\n\\s*base\\.is_fraud,\\n)"
+        replace: "\\1    lifetime.avg_amount_all as avg_amount_all_time,\\n"
+      - find: "from base\\n"
+        replace: "from base\\nleft join (select user_id, avg(amount) as avg_amount_all from {{ ref('stg_transactions') }} group by user_id) as lifetime\\n    on lifetime.user_id = base.user_id\\n"
+  - id: L5-current-row
+    leak: L5
+    changes: the window ends at the current row instead of one second before it
+    why_leaky: under the strict boundary a fact stamped at the prediction time is not yet known, and the frame admits the rows with the same timestamp as the scored row
+    models: [int_velocity_features, int_spend_pattern_features, int_volatility_features]
+    edits:
+      - find: "preceding and 1 preceding"
+        replace: "preceding and current row"
+  - id: L6-label-copy
+    leak: L6
+    changes: the training model adds the label as a second column
+    why_leaky: the feature is the label itself
+    models: [silver_transaction_features]
+    edits:
+      - find: "(\\n\\s*base\\.is_fraud,\\n)"
+        replace: "\\1    cast(base.is_fraud as double) as fraud_flag_copy,\\n"
+  - id: L6-label-history
+    leak: L6
+    changes: the training model adds the number of frauds among the user's transactions of the past 7 days
+    why_leaky: it is built from the label column; the spec declares no delay after which a label is final, and fraud labels are known only after review
+    models: [silver_transaction_features]
+    edits:
+      - find: "(\\n\\s*base\\.is_fraud,\\n)"
+        replace: "\\1    sum(base.is_fraud) over (partition by base.user_id order by base.event_time_unix range between {{ var('window_7d_seconds') }} preceding and 1 preceding) as fraud_count_7d,\\n"
+  - id: L7-wall-clock
+    leak: L7
+    changes: the training model adds the seconds between the transaction and the moment the query runs
+    why_leaky: the value depends on when the training set is built, not on the prediction time of the row
+    models: [silver_transaction_features]
+    edits:
+      - find: "(\\n\\s*base\\.is_fraud,\\n)"
+        replace: "\\1    date_diff('second', base.event_time, current_timestamp) as seconds_since_event,\\n"
