@@ -1,0 +1,11 @@
+The compiled_sql_excerpt column of ../findings.csv and ../unverifiable.csv quotes SQL from two
+MIT-licensed projects, at the commits below. Their license texts are in this directory.
+
+- mponsclo/music-streaming-churn-prediction @ df40a47b6305af269f4855b1b49ef021c6e823ed
+  Copyright (c) 2026 Marcel Pons Cloquells, MIT License
+  (mponsclo__music-streaming-churn-prediction.LICENSE)
+- SarrangTech/fraud-detection-feature-store @ f7d8a259af379a3c39bacd36235e53fb65eb271c
+  Copyright (c) 2026 B. Sarang, MIT License
+  (SarrangTech__fraud-detection-feature-store.LICENSE)
+
+The other projects in ../findings.csv have no license; no SQL of theirs is quoted.
