@@ -267,7 +267,9 @@ class ReviewService:
         record = self.find(action_id)
         now = self._clock()
         problems: list[str] = []
-        if record.computed_hash() != record.action_hash:
+        # a finished action no longer holds its statement (erased at the terminal state), so its
+        # hash cannot be recomputed and says nothing about tampering
+        if not record.terminal and record.computed_hash() != record.action_hash:
             problems.append("the stored action no longer matches its hash; it was altered")
         sql = record.sql_redacted
         if record.sql_normalized is not None:

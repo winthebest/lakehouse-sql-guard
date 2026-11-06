@@ -1,0 +1,56 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Iceberg tables in the `raw` namespace of the lakehouse catalog, loaded every night.
+    meta:
+      plugin: iceberg
+    tables:
+      - name: churn_labels
+        description: One row per customer and prediction date; `churned` is known 7 days later.
+        config:
+          meta:
+            leakage:
+              role: label_spine
+              entity_keys: [customer_id]
+              prediction_ts: cutoff_ts
+              label_columns: [churned]
+        columns:
+          - name: customer_id
+            data_type: bigint
+          - name: cutoff_ts
+            data_type: timestamp
+          - name: churned
+            data_type: boolean
+
+      - name: customers
+        config:
+          meta:
+            leakage:
+              role: static
+        columns:
+          - name: id
+            data_type: bigint
+          - name: first_name
+            data_type: varchar
+
+      - name: orders
+        description: >
+          Order events. The nightly job at 02:00 loads the previous day and any late rows;
+          `loaded_at` is when a row became readable.
+        config:
+          meta:
+            leakage:
+              time_column: ordered_at
+              availability_column: loaded_at
+        columns:
+          - name: id
+            data_type: bigint
+          - name: user_id
+            data_type: bigint
+          - name: ordered_at
+            data_type: timestamp
+          - name: loaded_at
+            data_type: timestamp
+          - name: amount
+            data_type: double

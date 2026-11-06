@@ -2,6 +2,7 @@
 #
 #   docker/run-integration.sh      up -> integration tests in the runner -> down -v
 #   docker/demo.sh                 the Spark demo on Lakekeeper, in the runner
+#   docker/demo-e2e.sh             the end-to-end demo: dbt leakage, an agent over MCP, the approval UI
 #
 # or by hand (always with the project name, so nothing else on the machine is touched):
 #

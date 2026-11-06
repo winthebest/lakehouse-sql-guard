@@ -223,6 +223,63 @@ contains them. Cursor and Claude Desktop have no `permissions.deny` and no sandb
 we know of: rely on barriers 1 to 4. Claude Desktop often does not have `~/.local/bin` on its
 `PATH`; if `uvx` is not found, put its absolute path (`which uvx`) in `command`.
 
+## End-to-end demo
+
+`docker/demo-e2e.sh` runs the whole flow on a real catalog and cleans up after itself. It starts
+Lakekeeper (an Iceberg REST catalog) on an S3-compatible store from
+`docker/compose.lakehouse.yml`, plus one long-lived container of the `runner` service on the same
+network, and then `docker/demo-e2e/story.py` runs the story:
+
+- **Leakage** on [`examples/dbt-lakehouse`](../examples/dbt-lakehouse): see [dbt.md](dbt.md#on-a-lakehouse-with-nightly-commits).
+- **The agent.** A scripted MCP client (`docker/demo-e2e/agent.py`, no model, no key) starts
+  `sqlguard-mcp` with the flags of the [Install](#install) section, against the policy
+  `docker/demo-e2e/policy.yaml` (policy v2: every write to `prod` waits for a person). It asks to
+  delete 30 of the 100 rows of `prod.orders`; the answer is `pending_approval`.
+- **The reviewer** is a program that uses the real approval UI: it signs in with the one-time link
+  `sqlguard serve` prints (never echoed), reads the queue and the action's page, and submits the
+  page's own forms with their CSRF token and proof (`docker/demo-e2e/reviewer.py`). It rejects
+  that delete, approves a 3-row delete (main moves to exactly the snapshot the page showed), lets
+  another job write to the table between the page and the click (the action ends `stale`: `main
+  moved from snapshot ... since the review`), and approves a `rollback` that undoes that write.
+  After each step the table is read straight from the catalog to check the story.
+
+```bash
+docker/demo-e2e.sh                          # scripted agent
+docker/demo-e2e.sh --screenshots docs/assets  # also screenshots of the UI (needs uv; once:
+                                              # uv run --no-project --with playwright playwright install chromium)
+docker/demo-e2e.sh --agent claude           # Claude Code as the agent (needs claude, spends tokens)
+```
+
+The host needs Docker and Python 3.10+; the runner holds everything else. The UI is published on
+`127.0.0.1:18765` only; inside the container it listens on all interfaces, which needs
+`--i-know-this-is-unauthenticated` (the token and the secret path still apply). The demo's reviewer
+holds the sign-in link, so it shows the approval surface working, not a barrier against an agent:
+see [Protecting the approval](#protecting-the-approval). `sqlguard approvals approve` and `reject`
+need a terminal, so a script uses the web UI.
+
+**`--agent claude`** runs `claude -p` on the host once per agent turn, with only the guard as its
+tools: `--tools ""` (no built-in tool), `--allowedTools` for the five MCP tools of the task,
+`--disallowedTools` for the built-ins and the maintenance tools, `--permission-mode dontAsk` and
+`--strict-mcp-config`. The MCP server runs inside the runner (`docker exec -i ... sqlguard-mcp`),
+so only the runner is on the stack's network; the host reaches the UI on `127.0.0.1`. The
+reviewer's decisions are fixed, so the story fails with a message if the model asks for something
+else. The tests only check the command line it builds.
+
+The demo ends by removing the runner container, the project's containers, networks and volumes
+and its temporary directory, also on failure or Ctrl-C. It refuses to start if the project already
+has containers (a running `docker/run-integration.sh`) or one of its ports is taken
+(19000, 19001, 18181, 18765), and says who holds the port; it never kills anything.
+
+The recording in the README is made by the same repository: `docker/demo-e2e/record.py` runs the
+command in a pseudo-terminal, saves an asciicast and a text transcript, and renders the GIF with
+`pyte`, Pillow and ffmpeg. `docker/demo-e2e/shots.py` takes the screenshots with Playwright.
+
+```bash
+uv run --no-project --with pyte --with pillow python docker/demo-e2e/record.py \
+  --cols 120 --rows 36 --cast docs/assets/demo-e2e.cast --gif docs/assets/demo-e2e.gif \
+  --transcript docs/assets/demo-e2e.txt -- docker/demo-e2e.sh --screenshots docs/assets
+```
+
 ## Limits
 
 - The default executor rehearses a write by loading the whole table into memory; do not point
