@@ -1,0 +1,692 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+DobleL2/dbt_churn_prediction#fct_churn_features#2,DobleL2/dbt_churn_prediction,new,fct_churn_features,L2,high,app_events is joined without bounding event_timestamp before churn_date,app_events,models/intermediate/int_user_events_aggregated.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#3,DobleL2/dbt_churn_prediction,new,fct_churn_features,L2,high,billing is joined without bounding billing_date before churn_date,billing,models/intermediate/int_user_billing_summary.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#4,DobleL2/dbt_churn_prediction,new,fct_churn_features,L2,high,support_tickets is joined without bounding created_date before churn_date,support_tickets,models/intermediate/int_user_support_metrics.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#5,DobleL2/dbt_churn_prediction,new,fct_churn_features,L2,high,marketing is joined without bounding campaign_date before churn_date,marketing,models/intermediate/int_user_engagement.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#6,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#7,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#8,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#9,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#10,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#11,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#12,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+DobleL2/dbt_churn_prediction#fct_churn_features#13,DobleL2/dbt_churn_prediction,new,fct_churn_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/marts/fct_churn_features.sql, models/intermediate/int_user_engagement.sql",candidates,1.0,leaky,,(withheld: the project has no license),,,,
+ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline#go_predictive_model_features#2,ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline,new,go_predictive_model_features,L6,high,feature 'user_fraud_transactions' is derived from the target or post-outcome data,user_fraud_transactions,my_fraud_detection_project/models/bronze/br_fraud_detection_raw_data_historical.sql,model,0.9975,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline#go_predictive_model_features#3,ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline,new,go_predictive_model_features,L6,high,feature 'merchant_fraud_transactions' is derived from the target or post-outcome data,merchant_fraud_transactions,my_fraud_detection_project/models/bronze/br_fraud_detection_raw_data_historical.sql,model,0.9975,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+mponsclo/music-streaming-churn-prediction#ml_churn_features#3,mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,L2,high,stg_transactions is joined without bounding transaction_date before prediction_ts,stg_transactions,models/intermediate/int_transaction_features.sql,model,0.9995,leaky,"{""bounds"":[],""table"":""stg_transactions""}","-- models/intermediate/int_transaction_features.sql
+with txns as (
+    select * from ""memory"".""main"".""stg_transactions""
+),
+
+-- Identify each user's most recent transaction
+last_txn as (
+    select
+        *,
+        row_number() over (partition by msno order by transaction_date desc) as rn
+    from txns
+),
+
+-- Aggregate transaction history per user
+per_user_agg as (
+    select
+        msno,
+        count(*) as txn_count,
+        sum(is_cancel) as total_cancels,
+        sum(is_auto_renew) as total_auto_renews,
+        sum(has_discount) as total_discounts,
+        max(membership_expire_date) as latest_expire_date,
+        max(transaction_date) as latest_txn_date
+    from txns
+    group by msno
+)
+
+select
+    lt.msno,
+
+    -- Snapshot of the most recent transaction
+    lt.payment_method_id as last_payment_method,
+    lt.is_auto_renew as last_auto_renew,
+    lt.is_cancel as last_cancel,
+    lt.payment_plan_days as last_plan_days,
+    lt.actual_amount_paid as last_amount_paid,
+    lt.plan_list_price as last_list_price,
+    lt.has_discount as last_has_discount,
+
+    -- Derived: price per day on last plan (value signal from top solutions)
+    ",,,,
+mponsclo/music-streaming-churn-prediction#ml_churn_features#4,mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,L2,high,stg_user_logs is joined without bounding date before prediction_ts,stg_user_logs,models/intermediate/int_user_log_features.sql,model,0.9995,leaky,"{""bounds"":[],""table"":""stg_user_logs""}","-- models/intermediate/int_user_log_features.sql
+-- Aggregate daily listening logs per user.
+-- user_logs_v2 covers roughly one month (March 2017), so these
+-- aggregates represent the full available listening window.
+
+with logs as (
+    select * from ""memory"".""main"".""stg_user_logs""
+)
+
+select
+    msno,
+    count(distinct date) as active_days,
+    coalesce(sum(total_secs), 0) as total_secs,
+    coalesce(sum(num_100), 0) as complete_plays,
+    coalesce(sum(num_unq), 0) as unique_songs,
+    coalesce(sum(num_25), 0) as partial_plays,
+    coalesce(sum(num_50), 0) as half_plays,
+    coalesce(sum(num_75), 0) as three_quarter_plays,
+    coalesce(sum(num_985), 0) as near_complete_plays,
+
+    -- Total plays across all completion levels
+    coalesce(sum(num_25 + num_50 + num_75 + num_985 + num_100), 0) as total_plays,
+
+    -- Song completion rate: proportion played to 100% (engagement quality)
+    
+    case
+        when sum(num_25 + num_50 + num_75 + num_985 + num_100) is null or sum(num_25 + num_50 + num_75 + num_985 + num_100) = 0
+        then 0
+        else cast(sum(num_100) as double) / cast(sum(num_25 + num_50 + num_75 + num_985 + num_100) as double)
+    end
+ as completion_rate,
+
+    -- Engagement depth: unique songs relative to partial listens
+    
+    case
+        when sum(num_25) is null or sum(num_25) = 0
+        then 0
+        else cast(sum(num_unq) as double) / cast(sum(num_25) as double)
+    end
+ as engagement_depth,
+",,,,
+mponsclo/music-streaming-churn-prediction#ml_churn_features#5,mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,L1,high,window over stg_transactions looks at later rows,stg_transactions,models/intermediate/int_transaction_features.sql,model,0.9995,leaky,"{""table"":""stg_transactions"",""window"":""ROW_NUMBER() OVER (PARTITION BY \""txns\"".\""msno\"" ORDER BY \""txns\"".\""transaction_date\"" DESC)""}","-- models/intermediate/int_transaction_features.sql
+with txns as (
+    select * from ""memory"".""main"".""stg_transactions""
+),
+
+-- Identify each user's most recent transaction
+last_txn as (
+    select
+        *,
+        row_number() over (partition by msno order by transaction_date desc) as rn
+    from txns
+),
+
+-- Aggregate transaction history per user
+per_user_agg as (
+    select
+        msno,
+        count(*) as txn_count,
+        sum(is_cancel) as total_cancels,
+        sum(is_auto_renew) as total_auto_renews,
+        sum(has_discount) as total_discounts,
+        max(membership_expire_date) as latest_expire_date,
+        max(transaction_date) as latest_txn_date
+    from txns
+    group by msno
+)
+
+select
+    lt.msno,
+
+    -- Snapshot of the most recent transaction
+    lt.payment_method_id as last_payment_method,
+    lt.is_auto_renew as last_auto_renew,
+    lt.is_cancel as last_cancel,
+    lt.payment_plan_days as last_plan_days,
+    lt.actual_amount_paid as last_amount_paid,
+    lt.plan_list_price as last_list_price,
+    lt.has_discount as last_has_discount,
+
+    -- Derived: price per day on last plan (value signal from top solutions)
+    ",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#1,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L2,high,bronze_transactions is joined without bounding event_time before event_time,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""bounds"":[],""table"":""bronze_transactions""}","-- models/staging/stg_transactions.sql
+-- Cleans and dedupes raw bronze events. Both the Kafka producer's `acks=all` retry
+-- behavior and Structured Streaming's at-least-once delivery guarantee can produce
+-- duplicate transaction_id rows on rare occasions; window functions downstream are
+-- pass-sensitive to duplicates (velocity counts inflate), so dedupe here once, in a
+-- single place, rather than in every downstream model.
+
+with source as (
+    select * from ""{{ env_var('UC_CATALOG', 'workspace') }}"".""{{ env_var('UC_SCHEMA', 'fraud_feature_store') }}"".""bronze_transactions""
+),
+
+deduped as (
+    select
+        *,
+        row_number() over (
+            partition by transaction_id
+            order by _ingested_at asc
+        ) as _dedupe_rank
+    from source
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    cast(event_time as long) as event_time_unix,
+    cast(event_time as date) as event_date,
+    amount,
+    is_fraud,
+    V1, V2, V3, V4, V5, V6, V7, V8, V9, V10,
+    V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
+    V21, V22, V23, V24, V25, V26, V27, V28
+from deduped
+where _dedupe_rank = 1",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#2,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""COUNT(\""txns\"".\""transaction_id\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 3600 preceding AND 1 preceding)""}","-- models/intermediate/int_velocity_features.sql
+-- Velocity features: how many transactions has this user made recently.
+-- Frames use RANGE BETWEEN ... AND 1 PRECEDING on purpose: they look back over prior
+-- transactions only and explicitly exclude the current row, so a transaction is scored
+-- using nothing but history that existed before it arrived (no label/future leakage).
+
+with txns as (
+    select * from ""memory"".""main"".""stg_transactions""
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 3600 preceding and 1 preceding
+    ) as txn_count_1h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 86400 preceding and 1 preceding
+    ) as txn_count_24h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 604800 preceding and 1 preceding
+    ) as txn_count_7d,
+
+    -- Seconds since this user's previous transaction (null = first transaction on record)
+    event_time_unix - lag(event_time_unix) over (
+        partition by user_id order by event_time_unix
+    ) as seconds_since_last_txn
+
+from txns",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#3,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""COUNT(\""txns\"".\""transaction_id\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_velocity_features.sql
+-- Velocity features: how many transactions has this user made recently.
+-- Frames use RANGE BETWEEN ... AND 1 PRECEDING on purpose: they look back over prior
+-- transactions only and explicitly exclude the current row, so a transaction is scored
+-- using nothing but history that existed before it arrived (no label/future leakage).
+
+with txns as (
+    select * from ""memory"".""main"".""stg_transactions""
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 3600 preceding and 1 preceding
+    ) as txn_count_1h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 86400 preceding and 1 preceding
+    ) as txn_count_24h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 604800 preceding and 1 preceding
+    ) as txn_count_7d,
+
+    -- Seconds since this user's previous transaction (null = first transaction on record)
+    event_time_unix - lag(event_time_unix) over (
+        partition by user_id order by event_time_unix
+    ) as seconds_since_last_txn
+
+from txns",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#4,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""COUNT(\""txns\"".\""transaction_id\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 604800 preceding AND 1 preceding)""}","-- models/intermediate/int_velocity_features.sql
+-- Velocity features: how many transactions has this user made recently.
+-- Frames use RANGE BETWEEN ... AND 1 PRECEDING on purpose: they look back over prior
+-- transactions only and explicitly exclude the current row, so a transaction is scored
+-- using nothing but history that existed before it arrived (no label/future leakage).
+
+with txns as (
+    select * from ""memory"".""main"".""stg_transactions""
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 3600 preceding and 1 preceding
+    ) as txn_count_1h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 86400 preceding and 1 preceding
+    ) as txn_count_24h,
+
+    count(transaction_id) over (
+        partition by user_id
+        order by event_time_unix
+        range between 604800 preceding and 1 preceding
+    ) as txn_count_7d,
+
+    -- Seconds since this user's previous transaction (null = first transaction on record)
+    event_time_unix - lag(event_time_unix) over (
+        partition by user_id order by event_time_unix
+    ) as seconds_since_last_txn
+
+from txns",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#5,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""ROW_NUMBER() OVER (PARTITION BY \""source\"".\""transaction_id\"" ORDER BY \""source\"".\""_ingested_at\"" ASC)""}","-- models/staging/stg_transactions.sql
+-- Cleans and dedupes raw bronze events. Both the Kafka producer's `acks=all` retry
+-- behavior and Structured Streaming's at-least-once delivery guarantee can produce
+-- duplicate transaction_id rows on rare occasions; window functions downstream are
+-- pass-sensitive to duplicates (velocity counts inflate), so dedupe here once, in a
+-- single place, rather than in every downstream model.
+
+with source as (
+    select * from ""{{ env_var('UC_CATALOG', 'workspace') }}"".""{{ env_var('UC_SCHEMA', 'fraud_feature_store') }}"".""bronze_transactions""
+),
+
+deduped as (
+    select
+        *,
+        row_number() over (
+            partition by transaction_id
+            order by _ingested_at asc
+        ) as _dedupe_rank
+    from source
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    cast(event_time as long) as event_time_unix,
+    cast(event_time as date) as event_date,
+    amount,
+    is_fraud,
+    V1, V2, V3, V4, V5, V6, V7, V8, V9, V10,
+    V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
+    V21, V22, V23, V24, V25, V26, V27, V28
+from deduped
+where _dedupe_rank = 1",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#6,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""SUM(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 3600 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+    select * from ""memory"".""main"".""stg_transactions""
+),
+
+windowed as (
+    select
+        transaction_id,
+        user_id,
+        event_time,
+        amount,
+
+        sum(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 3600 preceding and 1 preceding
+        ) as total_amount_1h,
+
+        sum(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as total_amount_24h,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#7,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""SUM(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+        user_id,
+        event_time,
+        amount,
+
+        sum(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 3600 preceding and 1 preceding
+        ) as total_amount_1h,
+
+        sum(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as total_amount_24h,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as max_amount_7d
+",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#8,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""AVG(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+            order by event_time_unix
+            range between 3600 preceding and 1 preceding
+        ) as total_amount_1h,
+
+        sum(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as total_amount_24h,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as max_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#9,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""MAX(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as total_amount_24h,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as max_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    total_amount_1h,
+    total_amount_24h,
+    avg_amount_24h,
+    max_amount_24h,
+    min_amount_24h,",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#10,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""MIN(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as max_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    total_amount_1h,
+    total_amount_24h,
+    avg_amount_24h,
+    max_amount_24h,
+    min_amount_24h,
+    max_amount_7d,
+    -- How this transaction compares to the user's recent baseline; ratios spike sharply
+    -- for card-testing / account-takeover style fraud patterns.
+    amount / (coalesce(avg_amount_24h, amount) + 0.01) as amount_vs_avg_24h,
+    amount / (coalesce(max_amount_7d, amount) + 0.01) as amount_vs_max_7d
+from windowed",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#11,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""MAX(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 604800 preceding AND 1 preceding)""}","-- models/intermediate/int_spend_pattern_features.sql
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as avg_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as max_amount_24h,
+
+        min(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as min_amount_24h,
+
+        max(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as max_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    total_amount_1h,
+    total_amount_24h,
+    avg_amount_24h,
+    max_amount_24h,
+    min_amount_24h,
+    max_amount_7d,
+    -- How this transaction compares to the user's recent baseline; ratios spike sharply
+    -- for card-testing / account-takeover style fraud patterns.
+    amount / (coalesce(avg_amount_24h, amount) + 0.01) as amount_vs_avg_24h,
+    amount / (coalesce(max_amount_7d, amount) + 0.01) as amount_vs_max_7d
+from windowed",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#12,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""STDDEV(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 86400 preceding AND 1 preceding)""}","-- models/intermediate/int_volatility_features.sql
+    select * from ""memory"".""main"".""stg_transactions""
+),
+
+windowed as (
+    select
+        transaction_id,
+        user_id,
+        event_time,
+        amount,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as amount_stddev_24h,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as amount_stddev_7d,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as avg_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    amount_stddev_24h,
+    amount_stddev_7d,
+    -- Z-score of the current amount against the user's trailing 7d mean/stddev.
+    -- Null-safe: with fewer than 2 prior transactions stddev is null/0, so we fall
+    -- back to 0 (no volatility signal yet) rather than dividing by zero.",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#13,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""STDDEV(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 604800 preceding AND 1 preceding)""}","-- models/intermediate/int_volatility_features.sql
+        transaction_id,
+        user_id,
+        event_time,
+        amount,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as amount_stddev_24h,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as amount_stddev_7d,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as avg_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    amount_stddev_24h,
+    amount_stddev_7d,
+    -- Z-score of the current amount against the user's trailing 7d mean/stddev.
+    -- Null-safe: with fewer than 2 prior transactions stddev is null/0, so we fall
+    -- back to 0 (no volatility signal yet) rather than dividing by zero.
+    case
+        when coalesce(amount_stddev_7d, 0) = 0 then 0
+        else (amount - avg_amount_7d) / amount_stddev_7d
+    end as amount_zscore_7d
+from windowed",,,,
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#14,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L1,high,window over bronze_transactions looks at later rows,bronze_transactions,models/staging/stg_transactions.sql,model,1.0,leaky,"{""table"":""bronze_transactions"",""window"":""AVG(\""txns\"".\""amount\"") OVER (PARTITION BY \""txns\"".\""user_id\"" ORDER BY \""txns\"".\""event_time_unix\"" range BETWEEN 604800 preceding AND 1 preceding)""}","-- models/intermediate/int_volatility_features.sql
+        transaction_id,
+        user_id,
+        event_time,
+        amount,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 86400 preceding and 1 preceding
+        ) as amount_stddev_24h,
+
+        stddev(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as amount_stddev_7d,
+
+        avg(amount) over (
+            partition by user_id
+            order by event_time_unix
+            range between 604800 preceding and 1 preceding
+        ) as avg_amount_7d
+
+    from txns
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    amount_stddev_24h,
+    amount_stddev_7d,
+    -- Z-score of the current amount against the user's trailing 7d mean/stddev.
+    -- Null-safe: with fewer than 2 prior transactions stddev is null/0, so we fall
+    -- back to 0 (no volatility signal yet) rather than dividing by zero.
+    case
+        when coalesce(amount_stddev_7d, 0) = 0 then 0
+        else (amount - avg_amount_7d) / amount_stddev_7d
+    end as amount_zscore_7d
+from windowed",,,,
