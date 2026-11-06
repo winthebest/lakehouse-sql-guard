@@ -13,6 +13,40 @@ them. The v1 held-out templates now live in `bench/leakage/templates/dev_v1b`: t
 while the v2 rules were designed, so any later run over them is in-sample tracking, not a
 held-out result.
 
+## Real-world dbt projects
+
+The v3 rules, unchanged since `rules-frozen-v3`, were run statically on GitHub dbt projects
+(protocol: [`bench/realworld/search-prereg.yaml`](../bench/realworld/search-prereg.yaml); results:
+[`results/realworld/`](../results/realworld/)). Precision on the new projects is 13 of 14
+findings; on the clean control it is 0 of 14. The findings were judged by two Claude reviewers
+working blind to each other, not by people. What qualifies these numbers:
+
+- **Judgement calls in selection.** Three search hits were copies of one quickstart; screening
+  counted them once (recorded in `screening.csv` before the checker ran), which admitted
+  ChuquEmeka as the third project. Read literally, the criteria would have admitted a copy of
+  novarz instead.
+- **Specs need choices the projects do not make.** DobleL2, ChuquEmeka and mponsclo have no
+  prediction-time column in the training table. For DobleL2 the spec uses `churn_date`, and two
+  of its four L2 findings (billing, tickets) are leaks only under a cutoff before churn; the
+  reviewers agreed on that reading.
+  Three projects keep the label and all history in one source table, while the checker requires
+  a separate temporal table; their specs declare a placeholder table no model reads, which was
+  checked on a toy project to change nothing.
+- **A cast hides the time column.** Windows ordered by `cast(event_time as long)` are not related
+  to `event_time`, so a past-only `RANGE ... 1 PRECEDING` frame is flagged as looking ahead, and
+  a dedupe `ROW_NUMBER()` is flagged too. This produces 13 of the 14 false positives on the
+  control; the 14th is an L2 finding on the label table, which the spec also declares as the
+  history (see the previous point).
+- **Messages do not name the column.** Seven `CURRENT_DATE` findings on DobleL2 have the same
+  message and location, so the reviewers could not map them to feature columns.
+- **Attribution.** The finding names the model holding the leak for 1 of the 15 mutants; the
+  others point at staging or the training model.
+- **Not measured.** Leaks the checker misses on these projects, and replay (no project has
+  snapshot history). The L3 and L5 mutants are all missed; the other mutants are either masked by
+  the control's own findings or recall by construction.
+- **Licenses.** The new projects have no license, so only counts and the reviewers' notes are
+  committed, never their SQL.
+
 ## Held-out v3 (frozen rules and policy)
 
 Rules, policy and harness were frozen at `8928019` (tags `rules-frozen-v3`, `policy-frozen-v3`)

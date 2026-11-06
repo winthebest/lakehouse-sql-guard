@@ -226,6 +226,39 @@ noise near zero counts as a mismatch. Details are in
 [docs/limitations.md](docs/limitations.md#held-out-v3-frozen-rules-and-policy). Reports:
 [leakage](results/leakage/20261106-4587293.md), safety `results/safety/holdout_v3-*`.
 
+### Real-world dbt projects
+
+The frozen v3 rules were run, statically, on dbt projects from GitHub
+([pre-registered search](bench/realworld/search-prereg.yaml), [screening](bench/realworld/screening.csv)).
+Each project is pinned to a commit, and its spec was written from its own docs and committed
+before the checker ran. Every finding was judged by two reviewers working blind to each other,
+both Claude models (the session that ran the check and a separate review agent), not people;
+they agreed on all 31.
+
+| projects | checked | findings | real leaks | precision |
+|---|---|---|---|---|
+| new (found after the freeze): DobleL2, novarz, ChuquEmeka | 3 | 14 | 13 | **0.93** |
+| seen during development: mponsclo | 1 | 3 | 3 | 1.00 |
+| seen during development: fraud feature store (clean control) | 1 | 14 | 0 | **0.00** |
+
+The real leaks are the kind the rules target: a per-user count of frauds that includes the row
+being predicted, all-history aggregates with no cutoff before the churn outcome, "days since last
+activity" measured to `current_date`, and transaction and listening logs that run past the
+project's own cutoff. The clean control is the failure: every one of its rolling windows ends at
+`1 PRECEDING`, but they are ordered by `event_time_unix`, a cast of `event_time` the rules do not
+relate to the time column, so 13 windows are flagged; the 14th finding comes from a spec that
+makes the label table its own history. Three of the five seen projects have no
+training table or no label and were not run. Precision says nothing about missed leaks, which
+were not measured on these projects.
+
+On 15 mutants of the clean control ([operators](bench/realworld/mutation-operators.yaml),
+registered before generation) only 3 add a new finding (the two L6 and the one L7 mutant).
+The 5 L1 and L2 mutants add nothing new because the control is already flagged for those types,
+so they cannot be told apart from it; every L3 and L5 mutant (7) is missed; and the finding names
+the mutated model for 1 of 15. Even the 3 are recall by construction, since the operators were
+written to match the rules. Details:
+[results/realworld](results/realworld/), [docs/limitations.md](docs/limitations.md#real-world-dbt-projects).
+
 ### Second rule set (v2)
 
 Rules, policy and threshold were frozen at tags `rules-frozen-v2` / `policy-frozen-v2`
@@ -357,8 +390,12 @@ ambiguous request meant, and it stops changes, not reads, of protected tables; t
 
 ## Roadmap
 
+- Fix what held-out v3 and the real-world run found, then freeze again and test on new data:
+  bounds written through `UNION`/`EXCEPT`, `ROWS` frames, `CASE`/`RANGE` label filters and time
+  zone shifts; time columns behind a cast (`cast(event_time as long)`); an absolute tolerance
+  near zero in replay's float comparison; specs whose label table is also the history; findings
+  that name the feature column.
 - Learn availability delays from snapshot history instead of declaring them.
-- dbt integration that reads the spec from model metadata.
 - Row-level impact for tables without a unique key, so rollbacks can be guarded.
 - More engines for the executor (Trino, Snowflake Iceberg tables).
 
