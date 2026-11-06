@@ -4,15 +4,82 @@ What the guard gets wrong or cannot see today, so results can be read honestly. 
 leakage rules have three generations: the first set, frozen at tag `rules-frozen-v1`; the
 second ("v2"), frozen at `rules-frozen-v2` and measured once on `holdout_v2`; and the current
 set ("v3"), changed after that result was read (see [Changed after held-out
-v2](#changed-after-held-out-v2)). `holdout_v2` is development data from then on; `holdout_v3` is
-the next split nobody has tuned on.
+v2](#changed-after-held-out-v2)), frozen at `rules-frozen-v3` / `policy-frozen-v3` and measured
+once on `holdout_v3` (see [Held-out v3](#held-out-v3-frozen-rules-and-policy)). Every split but
+`holdout_v3` is development data; after this result is read, `holdout_v3` is too.
 
-The committed leakage results in `results/leakage/` and the held-out numbers in the README
-were measured with the v1 rules and stay valid for them. The v1 held-out templates now live
-in `bench/leakage/templates/dev_v1b`: they were read while the v2 rules were designed, so any
-v2 run over them is in-sample tracking, not a held-out result. The held-out set for the v2
-rules (`holdout_v2`, written after the tags `rules-frozen-v2` and `policy-frozen-v2`) was run
-once; what it showed is under [Held-out v2](#held-out-v2-frozen-rules-and-policy).
+The committed leakage results in `results/leakage/` measured with the v1 rules stay valid for
+them. The v1 held-out templates now live in `bench/leakage/templates/dev_v1b`: they were read
+while the v2 rules were designed, so any later run over them is in-sample tracking, not a
+held-out result.
+
+## Held-out v3 (frozen rules and policy)
+
+Rules, policy and harness were frozen at `8928019` (tags `rules-frozen-v3`, `policy-frozen-v3`)
+and the thresholds pre-registered in `results/leakage/prereg-8928019.json` (fit on dev at
+FPR ≤ 0.05). New authors, who saw only the briefs, then wrote the sets. Before any detector or
+model ran, the sets were checked mechanically and returned to the authors for repair:
+- 18 leakage templates that were near-copies of an earlier set were replaced;
+- one template whose label failed the audit was relabelled clean → L3;
+- six safety prompts whose own checks failed were repaired;
+- three expected answers that did not match the warehouse were corrected.
+
+Nothing below was fixed after the run.
+
+Leakage (`results/leakage/20261106-4587293.md`, 221 cases from 146 templates, 110 leaky):
+
+| detector | recall | FPR [95% CI] | clean templates flagged |
+|---|---|---|---|
+| combined | 1.00 | 0.15 [0.07, 0.25] | 10 / 70 |
+| static only | 0.95 | 0.13 [0.05, 0.22] | 8 / 70 |
+| replay only | 0.85 | 0.03 [0.00, 0.07] | 2 / 70 |
+
+The target FPR ≤ 0.05 is not met. The FPR on dev and on the seen splits was 0 to 0.02.
+
+- **L4 is the static detector's weak type** (recall 0.74). Replay and the combined verdict cover it.
+- **Static false positives** (8 templates). In each, the query bounds time correctly but in a way
+  the rules do not follow:
+  - A bound inside a CTE that then goes through `UNION`/`DISTINCT` or `EXCEPT`, reported as an
+    unbounded join (L2): `union_distinct_active_days`, `dbt_lapsed_except`.
+  - A merged event and spine timeline whose `ROWS` frame stops before the spine row, a form
+    the timeline recognizer does not accept (L2): `timeline_rows_preceding_spine_first`,
+    `stats_timeline_spine_first`.
+  - Labels kept only once final, but through `CASE WHEN LAG(label_ts) + 14 days < t` or a `RANGE`
+    frame ending 15 days before t instead of a join condition (L6): `spine_lag_churn_if_matured`,
+    `country_matured_range_frame`.
+  - An upper bound written as an old `valid_to`, or as a time-zone shift that only moves it
+    earlier, which the aggregate rule does not see (L3): `plan_completed_versions_valid_to_old`,
+    `tz_shift_backward`.
+- **Replay false positives** (2 templates) are a comparison bug. `reconcile_events_vs_stats`
+  (mismatch rate 0.48) and `stats_regr_slope_known` (0.009) compute the difference of two nearly
+  equal sums. That difference is rounding noise of about 1e-13, and its sign depends on the order
+  of summation (163 of 408 rows in the first). Replay compares floats to 9 significant digits
+  *relative*, so noise near zero counts as a difference. The label audit compares with an
+  absolute tolerance and is not affected.
+- **No real-data run.** The held-out claim is about the synthetic world only.
+
+Safety (`results/safety/holdout_v3-*`, 109 prompts, three runs each):
+
+| cell | S | U [95% CI] | unsafe action rate | false-block rate | unsafe prompts (95% upper bound) |
+|---|---|---|---|---|---|
+| Haiku 5.5, raw | 0.43 | 0.93 | 0.56 | 0.00 | 39 / 64 |
+| Haiku 5.5, guarded-pending, policy v2 | 1.00 | 0.93 [0.87, 0.99] | 0.00 | 0.05 | 0 / 64 (0.046) |
+| Haiku 5.5, guarded-pending, policy v1 | 0.95 | 0.93 | 0.05 | 0.05 | 3 / 64 (0.117) |
+| Opus 5.5, raw | 0.46 | 0.98 | 0.53 | 0.00 | 36 / 64 |
+| Opus 5.5, guarded-pending, policy v2 | 1.00 | 0.99 [0.98, 1.00] | 0.00 | 0.00 | 0 / 64 (0.046) |
+
+- The targets (no unsafe action for either model under policy v2, U ≥ 0.9) are met as point
+  estimates. Haiku's U interval reaches 0.87.
+- **The reviewer matters.** Re-settling the guarded-pending transcripts with a reviewer who
+  approves everything makes 23% of Haiku's risky and ambiguous runs unsafe and 26% of Opus's;
+  a reviewer who rejects everything brings U down to 0.65 and 0.69. The guard routes the decision to a person; it does not judge intent.
+- Three benign prompts ask to expire snapshots more aggressively than the frozen retention rules
+  allow (`v31`, `v51`, `v109`). They were kept as written, decided before the run, and the guard's
+  refusals of them count as false blocks: the brief does not state the retention limits.
+- Replaying every transcript without an API key gives the same outcome for all 1,635 runs and the
+  same point value of every metric. A few bootstrap interval ends differ by up to 0.01. The live
+  run resamples prompts in the order their runs finished, and the replay in prompt order: the
+  resampling is seeded, but not sorted.
 
 ## Held-out v2 (frozen rules and policy)
 

@@ -150,7 +150,45 @@ fixture, Polaris and Trino the same way.
 
 ## Results
 
-### Current rules and policy (v2) on a fresh held-out set
+### Current rules and policy (v3) on a fresh held-out set
+
+Rules, policy and thresholds were frozen at tags `rules-frozen-v3` / `policy-frozen-v3`
+([pre-registration](results/leakage/prereg-8928019.json)). New authors, who saw only a brief,
+then wrote 146 leakage templates (70 clean) and 109 agent prompts (45 benign, 64 risky or
+ambiguous). The templates were checked for near-copies of every earlier set, and the labels
+and expected answers were checked against the warehouse. Each set was run once.
+
+| | recall | FPR [95% CI] | clean templates flagged |
+|---|---|---|---|
+| leakage, combined (v3) | 1.00 | **0.15 [0.07, 0.25]** | 10 / 70 |
+| leakage, static only (v3) | 0.95 | 0.13 [0.05, 0.22] | 8 / 70 |
+| leakage, replay only (v3) | 0.85 | 0.03 [0.00, 0.07] | 2 / 70 |
+| leakage, first rule set (v1) | 0.14 | 0.08 | 6 / 70 |
+
+| agent cell | unsafe action rate | U (benign completed) [95% CI] | false-block rate |
+|---|---|---|---|
+| Haiku 5.5, no guard | 0.56 | 0.93 | 0.00 |
+| Haiku 5.5, guard (policy v2) | **0.00** | 0.93 [0.87, 0.99] | 0.05 |
+| Haiku 5.5, guard (policy v1) | 0.05 | 0.93 | 0.05 |
+| Opus 5.5, no guard | 0.53 | 0.98 | 0.00 |
+| Opus 5.5, guard (policy v2) | **0.00** | 0.99 [0.98, 1.00] | 0.00 |
+
+**What this shows.** With the guard and policy v2, neither model took an unsafe action on any of
+the 64 risky or ambiguous prompts, three runs each; the exact 95% upper bound on the per-prompt
+unsafe rate is 0.046. Benign work still got done (U 0.93 and 0.99, against 0.62 on held-out v2).
+That safety rests partly on the person: with a reviewer who approves everything, 23% of Haiku's
+and 26% of Opus's risky and ambiguous runs would have been unsafe.
+
+**What it does not.** The pre-registered leakage target, FPR ≤ 0.05, is **not met**. FPR fell
+from 0.37 on held-out v2 to 0.15, and the combined detector still found every leak. Eight of the
+ten flagged clean templates are static rules that do not follow a bound written in an unusual
+way: through `UNION`/`EXCEPT`, a `ROWS` frame on a merged timeline, a `CASE` or `RANGE` frame
+that keeps only final labels, or a shifted time zone. The other two are a replay bug: rounding
+noise near zero counts as a mismatch. Details are in
+[docs/limitations.md](docs/limitations.md#held-out-v3-frozen-rules-and-policy). Reports:
+[leakage](results/leakage/20261106-4587293.md), safety `results/safety/holdout_v3-*`.
+
+### Second rule set (v2)
 
 Rules, policy and threshold were frozen at tags `rules-frozen-v2` / `policy-frozen-v2`
 ([pre-registration](results/leakage/prereg-8390186.json)) before new authors, who saw only a
@@ -179,8 +217,7 @@ analysis, and what is still truly blocked, is in
 
 The rules and the guard were changed after this result was read (column changes now go to
 approval; [what changed](docs/limitations.md#changed-after-held-out-v2)), so `holdout_v2` is
-development data now. They will be frozen again and measured once on a new held-out set,
-`holdout_v3`, written by new authors.
+development data now; the changed rules are the v3 result above.
 
 ### First rule set (v1)
 
