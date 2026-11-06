@@ -1,0 +1,28 @@
+order,first_found_by,repo,default_branch,pinned_sha,license,stars,verdict,failed_criterion,note
+1,dbt churn,viaminsk/dbt_churn,main,690259475927f4b98f032dcc116366e2bedb09dc,none,0,rejected,2,"monitoring warehouse (bronze/silver/gold facts and dimensions, dbt_project.yml under docs/); churn prediction only listed as future work; no table meant for training or scoring a model"
+2,dbt churn,albaraahegaz/dbt-churn-project,main,1d8abf3b1088009e3c2365b20ed4cd54f5835bfe,none,0,rejected,2,"reporting marts only (churn rate by segment, churn reasons); no entity-keyed feature or label table"
+3,dbt churn,DobleL2/dbt_churn_prediction,main,00b28eafc127754e68bf25d5a161d6954196f409,none,0,qualified,,"README: daily feature pipeline for a churn model; fct_churn_features is the ML-ready per-user table; compiles on dbt-duckdb (10 models, 2 snapshots)"
+4,dbt churn,Pratik-Bhandarkar/dbt-churn-analysis,main,847d71aa6d5768b1bac9ab4d755995f5c5b2c4f8,none,0,rejected,2,"mart_churn_risk is a current-state scoring table (README: doubles as a feature store) with no label, prediction/cutoff time or snapshot date column"
+5,dbt churn,manthanshah94/dbt-churn-feature-store,main,,none,0,excluded,,pre-registered exclusion (seen during development)
+6,dbt churn,julifalvo/customer-intelligence-pipeline,main,dcd8136e14100dab1f3eccdf033817e05992c8b7,mit,0,rejected,2,"mart_customer_health is a rule-based churn score, documented as not ML; no training or scoring table for a model"
+7,dbt feature store,fal-ai/dbt_feature_store,main,,none,38,excluded,,pre-registered exclusion (seen during development)
+8,dbt feature store,fal-ai/dbt_feature_store_example,main,a0c3188b0a8c25ebbf05f27de59db477b8e3c428,none,3,rejected,3,dbt compile fails on dbt-duckdb: feature_store.create_dataset asserts the label source has an entity_column in its meta; no manifest shipped; also built on the excluded fal-ai package
+9,dbt feature store,novarz/dbt-feature-store,main,1be33448ea5fd83cc62252c91e5de299755c185c,none,0,qualified,,"README: feature store example; ft_customers_transactions holds rolling per-customer features at tx_datetime; compiles on dbt-duckdb (3 models, 1 source). Python model ft_transaction_times is Snowpark and not SQL"
+10,dbt feature store,luisleon90/dbt-feature-store,main,51f6e98ec23bf56a83ab21d48188c62676d839bf,none,0,duplicate,,"meets the written criteria and compiles, but is a copy of the same quickstart as #9 (identical rolling_aggregations macro, same three models); counted once with #9 to avoid pseudo-replication. An interpretation, flagged for the controller"
+11,dbt feature store,sfc-gh-rpettus/dbt-feature-store,main,661c421133b09f980b3780c62a3f14b272829b1f,none,0,duplicate,,same as #10: copy of the same quickstart as #9; compiles; counted once
+12,dbt feature store,veronica-zheng-data/dbt-feature-store-snowflake,main,b228088aa04215ad23640d1c10fba8616d74738d,none,0,rejected,2,"pivoted per-feature group tables (group_customers/orders/payments) keyed by id with no label, prediction/cutoff time or snapshot date; built on the jaffle_shop customers/orders/payments tutorial data (criterion 4 as well)"
+13,dbt feature store,veronica-zheng-data/dbt-feature-store-bigquery,main,8e43454e27441160ee6747804d4b816beeec0a2b,none,0,rejected,2,"same repository layout and models as the snowflake variant; no label, prediction/cutoff time or snapshot date; jaffle_shop tutorial data (criterion 4 as well)"
+14,dbt fraud,ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline,dev,123a1111ecaf6f2a4a1f7b4dd5cfc27ea843e6bf,none,5,qualified,,"README: go_predictive_model_features prepares features for fraud prediction models, with the IsFraud label; compiles on dbt-duckdb (9 models). Default branch is dev; third qualifier, so the search stops here"
+15,dbt fraud,usefusefi/dbt-fraud-detection,main,b744e807dca9626c494b3ffc782e59bd28e9ed4b,none,1,rejected,2,"screened after the stopping point, no effect on the selection; two models (stg_transactions, fact_fraud_detection), an aggregate fraud report; no table for training or scoring a model"
+16,dbt fraud,ainazarov/fraud-dbt-hw4,main,158e00e3aba27cb76180379971a845f24d7bbf1f,none,0,rejected,1,"screened after the stopping point, no effect on the selection; no dbt_project.yml (Kafka to ClickHouse homework with plain SQL)"
+17,dbt fraud,ntg2208/dbt-fraud-analytics,master,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+18,dbt fraud,choupara/dbt-fraud-analytics,master,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+19,dbt fraud,bhoomikaa-cse/dbt-fraud-detection,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+20,dbt fraud,AlBeBack-ds/dbt-fraud-transactions,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+21,dbt fraud,prNickinv/dbt_fraud_detection,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+22,dbt fraud,gareddy/DBT-Fraud-Detection-Pipeline,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+23,dbt fraud,ninicai/04-dbt-fraud-pipeline,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+24,dbt fraud,Coder-Rohan24/DBT-Fraud-Detection-Pipeline,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+25,dbt fraud,igorqv/poc-airflow-dbt-fraude-kaggle,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+26,dbt fraud,AnthonyKorie/DBT-Fraud-Detection-Data-Pipeline,main,,mit,0,not_screened,,stopping rule reached: 3 projects qualified at #14
+27,dbt fraud,Chandansahu18/payment-transaction-analytics-platform,main,,none,0,not_screened,,stopping rule reached: 3 projects qualified at #14
