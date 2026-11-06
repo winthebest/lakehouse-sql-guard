@@ -63,9 +63,9 @@ def test_holdout_v2_is_a_reference_for_the_next_held_out_set(tmp_path, capsys):
     assert "holdout_v2/" not in out and "dev, dev_v1b" in out
 
 
-def test_holdout_v3_starts_empty_with_the_spec_of_holdout_v2():
+def test_holdout_v3_uses_the_spec_of_holdout_v2():
     manifest = load_splits()
-    assert load_templates("holdout_v3") == [] and not manifest["holdout_v3"].seen
+    assert len(load_templates("holdout_v3")) == 146
     v2, v3 = (
         yaml.safe_load(manifest[name].spec.read_text(encoding="utf-8"))
         for name in ("holdout_v2", "holdout_v3")

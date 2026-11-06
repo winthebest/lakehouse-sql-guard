@@ -132,12 +132,14 @@ def test_a_split_nobody_tuned_on_is_not_called_in_sample():
     )
 
 
-def test_run_needs_known_splits(tmp_path):
+def test_run_needs_known_splits(tmp_path, monkeypatch):
+    from bench.leakage import run as run_module
     from bench.leakage.cases import SPLITS
     from bench.leakage.run import main, run
 
     assert SPLITS == ("dev", "dev_v1b", "holdout_v2", "holdout_v3") and "L7" in LEAK_TYPES
-    # The next held-out split has no templates until its authors hand them in.
+    # A held-out split has no templates until its authors hand them in.
+    monkeypatch.setattr(run_module, "load_templates", lambda split: [])
     with pytest.raises(SystemExit, match="no templates for split"):
         run(42, tmp_path, False, tmp_path, splits=("holdout_v3",))
     with pytest.raises(SystemExit):
