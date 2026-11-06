@@ -1,0 +1,38 @@
+# Spec for novarz/dbt-feature-store (group: new, no license) at the pinned commit of ../projects.yaml.
+# Written from the project's README, feature_store_w_dbt_notebook.ipynb, models/*.yml and the
+# Snowpark model's column list, before the checker ran on this project.
+# Spec-writing rules: see DobleL2__dbt_churn_prediction.yaml.
+label_table: fraud_transactions
+entity_keys: [customer_id]
+prediction_ts: tx_datetime
+label_columns: [tx_fraud]
+# The checker requires one temporal table in the spec. This project has one source table, which is
+# both the spine and the history of every feature, so no other table exists. The entry below names a
+# table that no model reads: it only satisfies that requirement and changes no analysis.
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [ft_customers_transactions]
+  basis: |
+    - ft_customers_transactions holds the per-customer rolling features of the feature store
+      example (README "Snowflake Feature Store example"; the notebook builds a feature view on it
+      with timestamp_col TX_DATETIME and entity CUSTOMER).
+    - source fraud_transactions is the only table: label TX_FRAUD, event time TX_DATETIME. Column
+      list from models/ft_transaction_times.py; only TX_DATETIME has a documented type (the
+      notebook filters it as a timestamp).
+    - spec requires a temporal table: placeholder entry (see above).
+  not_training:
+    stg_transactions: staging view
+    ft_transaction_times: Snowpark (Python) model, no SQL to check
+  schema:
+    "source:feature_store_source.fraud_transactions":
+      transaction_id: UNKNOWN
+      customer_id: UNKNOWN
+      terminal_id: UNKNOWN
+      tx_datetime: TIMESTAMP
+      tx_amount: UNKNOWN
+      tx_time_seconds: UNKNOWN
+      tx_time_days: UNKNOWN
+      tx_fraud: UNKNOWN
+      tx_fraud_scenario: UNKNOWN

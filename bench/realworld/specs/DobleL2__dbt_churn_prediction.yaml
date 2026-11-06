@@ -1,0 +1,56 @@
+# Spec for DobleL2/dbt_churn_prediction (group: new, no license) at the pinned commit of ../projects.yaml.
+# Written from the project's README, models/*/schema.yml, generate_data.py (the DDL of the raw
+# tables) and the models' file names, before the checker ran on this project.
+#
+# Rules used for every project (spec-writing rules, fixed before any run):
+#   - label table: the relation that carries the project's documented target column under its
+#     documented name (a source or seed, else a staging model declared label_spine);
+#   - prediction_ts: the project's documented prediction time column of that relation, else the
+#     time of the labelled outcome if the relation has one, else a column that the project does
+#     not have (the checker then reports that the output carries no prediction time);
+#   - temporal tables: every raw table that has an event time column; no availability column or
+#     delay is declared unless the project documents one; boundary stays strict.
+label_table: stg_users
+entity_keys: [user_id]
+prediction_ts: churn_date
+label_columns: [is_churned]
+time_columns:
+  app_events: event_timestamp
+  billing: billing_date
+  support_tickets: created_date
+  marketing: campaign_date
+
+realworld:
+  training_sets: [fct_churn_features]
+  meta:
+    "model:stg_users": {role: label_spine}
+  basis: |
+    - fct_churn_features is the training table: README "tabla final de features para predecir
+      churn"; models/marts/schema.yml "Tabla final con features para modelo de churn prediction".
+    - target: models/marts/schema.yml "is_churned: Variable target"; is_churned is built in
+      stg_users from status = 'deactivated', so stg_users is the label spine (trusted as declared).
+    - the project has no prediction time. churn_date is the time of the outcome (raw.users
+      "Fecha de churn si aplica"), the closest documented time on the spine; it is NULL for users
+      who did not churn, and fct_churn_features does not select it, so the checker is expected to
+      say the output does not carry the prediction time.
+    - event times: raw.app_events.event_timestamp, billing.billing_date, support_tickets.created_date,
+      marketing.campaign_date (DDL in generate_data.py).
+  not_training:
+    stg_*: staging views
+    int_*: intermediate aggregates
+    snap_users, snap_users_scd2: snapshots, not read by fct_churn_features
+  schema:
+    "model:stg_users":
+      user_id: INTEGER
+      email: VARCHAR
+      signup_date: DATE
+      country: VARCHAR
+      plan_type: VARCHAR
+      status: VARCHAR
+      churn_date: DATE
+      is_churned: BOOLEAN
+      days_to_churn: BIGINT
+    "source:raw.app_events": {event_id: INTEGER, user_id: INTEGER, event_timestamp: TIMESTAMP, event_type: VARCHAR}
+    "source:raw.billing": {billing_id: INTEGER, user_id: INTEGER, billing_date: DATE, amount: "DECIMAL(10,2)", status: VARCHAR}
+    "source:raw.support_tickets": {ticket_id: INTEGER, user_id: INTEGER, created_date: DATE, ticket_type: VARCHAR, status: VARCHAR}
+    "source:raw.marketing": {campaign_id: INTEGER, user_id: INTEGER, campaign_date: DATE, campaign_type: VARCHAR, channel: VARCHAR, engaged: BOOLEAN}

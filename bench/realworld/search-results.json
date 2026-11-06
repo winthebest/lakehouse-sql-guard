@@ -1,0 +1,434 @@
+{
+ "run_at": "2026-11-07",
+ "command": "gh search repos \"<query>\" --sort stars --limit 30 --json fullName,description,license,pushedAt,isFork,stargazersCount,defaultBranch,url,createdAt",
+ "searches": [
+  {
+   "query": "dbt churn",
+   "results": [
+    {
+     "createdAt": "2026-01-26T20:48:12Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "viaminsk/dbt_churn",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-01-26T21:46:26Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/viaminsk/dbt_churn"
+    },
+    {
+     "createdAt": "2026-10-18T12:41:44Z",
+     "defaultBranch": "main",
+     "description": "Churn Analysis project using dbt",
+     "fullName": "albaraahegaz/dbt-churn-project",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-10-18T15:35:27Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/albaraahegaz/dbt-churn-project"
+    },
+    {
+     "createdAt": "2025-11-14T00:13:38Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "DobleL2/dbt_churn_prediction",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-11-16T23:17:34Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/DobleL2/dbt_churn_prediction"
+    },
+    {
+     "createdAt": "2026-05-11T12:07:07Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "Pratik-Bhandarkar/dbt-churn-analysis",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-05-26T09:34:59Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Pratik-Bhandarkar/dbt-churn-analysis"
+    },
+    {
+     "createdAt": "2026-02-22T20:45:10Z",
+     "defaultBranch": "main",
+     "description": "Customer churn prediction feature pipeline built with dbt + DuckDB",
+     "fullName": "manthanshah94/dbt-churn-feature-store",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-22T21:06:45Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/manthanshah94/dbt-churn-feature-store"
+    },
+    {
+     "createdAt": "2026-09-30T20:14:25Z",
+     "defaultBranch": "main",
+     "description": "End-to-end AI/data pipeline for a B2B SaaS company: data contracts, dbt churn scoring, RAG with citations, FastAPI.",
+     "fullName": "julifalvo/customer-intelligence-pipeline",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-09-30T20:14:31Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/julifalvo/customer-intelligence-pipeline"
+    }
+   ]
+  },
+  {
+   "query": "dbt feature store",
+   "results": [
+    {
+     "createdAt": "2022-02-11T14:07:30Z",
+     "defaultBranch": "main",
+     "description": "Build your feature store with macros right within your dbt repository",
+     "fullName": "fal-ai/dbt_feature_store",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-12-16T14:08:38Z",
+     "stargazersCount": 38,
+     "url": "https://github.com/fal-ai/dbt_feature_store"
+    },
+    {
+     "createdAt": "2021-12-28T22:24:03Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "fal-ai/dbt_feature_store_example",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-02-14T18:15:12Z",
+     "stargazersCount": 3,
+     "url": "https://github.com/fal-ai/dbt_feature_store_example"
+    },
+    {
+     "createdAt": "2025-11-28T08:55:12Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "novarz/dbt-feature-store",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-11-28T12:20:02Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/novarz/dbt-feature-store"
+    },
+    {
+     "createdAt": "2024-08-23T16:31:28Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "luisleon90/dbt-feature-store",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-08-23T16:32:44Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/luisleon90/dbt-feature-store"
+    },
+    {
+     "createdAt": "2024-08-22T16:44:06Z",
+     "defaultBranch": "main",
+     "description": "dbt feature store example with tpch",
+     "fullName": "sfc-gh-rpettus/dbt-feature-store",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-08-23T18:26:33Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/sfc-gh-rpettus/dbt-feature-store"
+    },
+    {
+     "createdAt": "2022-09-16T00:19:09Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "veronica-zheng-data/dbt-feature-store-snowflake",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-02-18T06:25:55Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/veronica-zheng-data/dbt-feature-store-snowflake"
+    },
+    {
+     "createdAt": "2023-07-14T03:32:19Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "veronica-zheng-data/dbt-feature-store-bigquery",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-07-17T00:48:42Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/veronica-zheng-data/dbt-feature-store-bigquery"
+    }
+   ]
+  },
+  {
+   "query": "dbt machine learning features",
+   "results": []
+  },
+  {
+   "query": "dbt fraud",
+   "results": [
+    {
+     "createdAt": "2024-10-24T16:16:43Z",
+     "defaultBranch": "dev",
+     "description": "This Fraud Detection Data Pipeline project processes transaction data from AWS S3 to Snowflake, transforming it with dbt and automating deployment with GitHub Actions. It includes a Power BI dashboard for real-time fraud detection and risk assessment insights.",
+     "fullName": "ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-03T19:53:56Z",
+     "stargazersCount": 5,
+     "url": "https://github.com/ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline"
+    },
+    {
+     "createdAt": "2025-02-24T23:50:20Z",
+     "defaultBranch": "main",
+     "description": "A real-time fraud detection pipeline using dbt, Kafka, and Snowflake. This project showcases how dbt can be leveraged for data transformation, anomaly detection, and real-time analytics in a banking fraud detection use case.",
+     "fullName": "usefusefi/dbt-fraud-detection",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-02-25T00:15:37Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/usefusefi/dbt-fraud-detection"
+    },
+    {
+     "createdAt": "2026-10-13T20:43:21Z",
+     "defaultBranch": "main",
+     "description": "HW4: dbt fraud analytics with ClickHouse",
+     "fullName": "ainazarov/fraud-dbt-hw4",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-10-13T20:43:39Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/ainazarov/fraud-dbt-hw4"
+    },
+    {
+     "createdAt": "2026-04-10T17:00:13Z",
+     "defaultBranch": "master",
+     "description": "",
+     "fullName": "ntg2208/dbt-fraud-analytics",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-04-10T17:32:07Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/ntg2208/dbt-fraud-analytics"
+    },
+    {
+     "createdAt": "2026-05-20T20:50:28Z",
+     "defaultBranch": "master",
+     "description": "",
+     "fullName": "choupara/dbt-fraud-analytics",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-05-20T20:52:35Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/choupara/dbt-fraud-analytics"
+    },
+    {
+     "createdAt": "2026-09-21T16:35:01Z",
+     "defaultBranch": "main",
+     "description": "DBT welfare fraud detection using Isolation Forest anomaly detection with a Streamlit dashboard",
+     "fullName": "bhoomikaa-cse/dbt-fraud-detection",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-09-23T16:00:42Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/bhoomikaa-cse/dbt-fraud-detection"
+    },
+    {
+     "createdAt": "2026-10-18T13:17:57Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "AlBeBack-ds/dbt-fraud-transactions",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-10-18T14:07:07Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/AlBeBack-ds/dbt-fraud-transactions"
+    },
+    {
+     "createdAt": "2025-12-26T23:46:38Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "prNickinv/dbt_fraud_detection",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-12-27T14:36:46Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/prNickinv/dbt_fraud_detection"
+    },
+    {
+     "createdAt": "2025-01-15T13:15:03Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "gareddy/DBT-Fraud-Detection-Pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-01-16T12:44:13Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/gareddy/DBT-Fraud-Detection-Pipeline"
+    },
+    {
+     "createdAt": "2026-06-21T20:55:52Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "ninicai/04-dbt-fraud-pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-06-21T20:55:53Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/ninicai/04-dbt-fraud-pipeline"
+    },
+    {
+     "createdAt": "2025-08-25T13:55:51Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "Coder-Rohan24/DBT-Fraud-Detection-Pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-08-25T14:04:34Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Coder-Rohan24/DBT-Fraud-Detection-Pipeline"
+    },
+    {
+     "createdAt": "2026-08-29T02:10:54Z",
+     "defaultBranch": "main",
+     "description": "Projeto com Airflow, DBT core e arquivo do Kaggle sobre fraude",
+     "fullName": "igorqv/poc-airflow-dbt-fraude-kaggle",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-08-29T02:17:56Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/igorqv/poc-airflow-dbt-fraude-kaggle"
+    },
+    {
+     "createdAt": "2026-03-03T17:30:39Z",
+     "defaultBranch": "main",
+     "description": "This Fraud Detection Data Pipeline project processes transaction data from AWS S3 to Snowflake, transforming it with dbt and automating deployment with GitHub Actions. It includes a Power BI dashboard for real-time fraud detection and risk assessment insights.",
+     "fullName": "AnthonyKorie/DBT-Fraud-Detection-Data-Pipeline",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-03-05T18:19:27Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/AnthonyKorie/DBT-Fraud-Detection-Data-Pipeline"
+    },
+    {
+     "createdAt": "2026-06-07T09:44:50Z",
+     "defaultBranch": "main",
+     "description": "End-to-end payments analytics on synthetic Indian transaction data - Python ingestion, PostgreSQL medallion warehouse, dbt fraud-risk marts, automated QA (pytest + dbt tests via GitHub Actions), along with Power BI dashboards.",
+     "fullName": "Chandansahu18/payment-transaction-analytics-platform",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-07-21T16:38:04Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Chandansahu18/payment-transaction-analytics-platform"
+    }
+   ]
+  },
+  {
+   "query": "dbt training dataset",
+   "results": []
+  }
+ ]
+}

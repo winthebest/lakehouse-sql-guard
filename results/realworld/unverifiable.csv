@@ -1,0 +1,85 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+DobleL2/dbt_churn_prediction#fct_churn_features#1,DobleL2/dbt_churn_prediction,new,fct_churn_features,SPEC,low,output column 'churn_date' must pass through stg_users.churn_date so rows can be checked against it,,models/marts/fct_churn_features.sql,model,1.0,leaky,,(withheld: the project has no license),,,,
+ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline#go_predictive_model_features#1,ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline,new,go_predictive_model_features,SPEC,low,output column 'transactiondate' must pass through transactions_staging.transactiondate so rows can be checked against it,,my_fraud_detection_project/models/gold/go_predictive_model_features.sql,model,0.9975,leaky,,(withheld: the project has no license),,,,
+mponsclo/music-streaming-churn-prediction#ml_churn_features#1,mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,SPEC,low,spec column stg_train.prediction_ts not in schema,,models/marts/ml_churn_features.sql,model,0.9995,leaky,,"-- models/marts/ml_churn_features.sql (no line matches the finding)
+-- Final wide feature table for churn prediction.
+-- Joins train labels with member demographics, transaction features,
+-- and listening behavior. LEFT JOINs preserve all train users;
+-- NULLs from missing joins are filled with 0 where appropriate.
+
+with train as (
+    select * from ""memory"".""main"".""stg_train""
+),
+
+members as (
+    select * from ""memory"".""main"".""stg_members""
+),
+
+txn_features as (
+    select * from ""memory"".""main"".""int_transaction_features""
+),
+
+log_features as (
+    select * from ""memory"".""main"".""int_user_log_features""
+)
+
+select
+    t.msno,
+    t.is_churn,
+
+    -- Data presence flags (missingness itself is predictive)
+    case when m.msno is not null then 1 else 0 end as has_member_data,
+    case when tf.msno is not null then 1 else 0 end as has_transaction_data,
+    case when m.age is not null then 1 else 0 end as has_age,
+
+    -- Member features
+    m.age,
+    m.gender,
+    m.city,
+    m.registered_via,
+    m.tenure_days,
+
+    -- Transaction features: last transaction snapshot
+    tf.last_payment_method,
+    tf.last_auto_renew,",,,,
+mponsclo/music-streaming-churn-prediction#ml_churn_features#2,mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,SPEC,low,output column 'prediction_ts' must pass through stg_train.prediction_ts so rows can be checked against it,,models/marts/ml_churn_features.sql,model,0.9995,leaky,,"-- models/marts/ml_churn_features.sql (no line matches the finding)
+-- Final wide feature table for churn prediction.
+-- Joins train labels with member demographics, transaction features,
+-- and listening behavior. LEFT JOINs preserve all train users;
+-- NULLs from missing joins are filled with 0 where appropriate.
+
+with train as (
+    select * from ""memory"".""main"".""stg_train""
+),
+
+members as (
+    select * from ""memory"".""main"".""stg_members""
+),
+
+txn_features as (
+    select * from ""memory"".""main"".""int_transaction_features""
+),
+
+log_features as (
+    select * from ""memory"".""main"".""int_user_log_features""
+)
+
+select
+    t.msno,
+    t.is_churn,
+
+    -- Data presence flags (missingness itself is predictive)
+    case when m.msno is not null then 1 else 0 end as has_member_data,
+    case when tf.msno is not null then 1 else 0 end as has_transaction_data,
+    case when m.age is not null then 1 else 0 end as has_age,
+
+    -- Member features
+    m.age,
+    m.gender,
+    m.city,
+    m.registered_via,
+    m.tenure_days,
+
+    -- Transaction features: last transaction snapshot
+    tf.last_payment_method,
+    tf.last_auto_renew,",,,,

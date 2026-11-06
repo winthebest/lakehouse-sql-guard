@@ -1,0 +1,72 @@
+# Projects checked in the real-world validation. Every project is cloned at the pinned commit into
+# the git-ignored `.realworld/` directory; nothing of a project is committed here except short
+# excerpts of MIT / Apache-2.0 code (with attribution) and our own notes.
+#
+# group `new`: selected by the pre-registered search (search-prereg.yaml, screening.csv). This is
+#   the main evidence: nobody looked at these projects while the rules were developed.
+# group `seen`: read during development; reported separately, labelled "seen during development".
+#
+# publish: `code` = short excerpts may be quoted with attribution (license file in the clone);
+#          `aggregate_only` = no license, so the clone is used locally and only counts and our own
+#          notes are published.
+projects:
+  - repo: DobleL2/dbt_churn_prediction
+    group: new
+    sha: 00b28eafc127754e68bf25d5a161d6954196f409
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 3
+  - repo: novarz/dbt-feature-store
+    group: new
+    sha: 1be33448ea5fd83cc62252c91e5de299755c185c
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: dbt
+    screening_order: 9
+  - repo: ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline
+    group: new
+    sha: 123a1111ecaf6f2a4a1f7b4dd5cfc27ea843e6bf
+    default_branch: dev
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 14
+
+  - repo: mponsclo/music-streaming-churn-prediction
+    group: seen
+    sha: df40a47b6305af269f4855b1b49ef021c6e823ed
+    default_branch: main
+    license: MIT
+    publish: code
+    dbt_subdir: "."
+  - repo: SarrangTech/fraud-detection-feature-store
+    group: seen
+    sha: f7d8a259af379a3c39bacd36235e53fb65eb271c
+    default_branch: main
+    license: MIT
+    publish: code
+    dbt_subdir: dbt
+  - repo: manthanshah94/dbt-churn-feature-store
+    group: seen
+    sha: 536016e1cffeb19d5671b5942c559a2e789b2b19
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+  - repo: hisato-kawaji/dbt-duckdb-demo
+    group: seen
+    sha: 0a4ff22ae5ad81b4d6e2b03b6747cb107722a9f2
+    default_branch: main
+    license: MIT
+    publish: code
+    dbt_subdir: "."
+  - repo: dbt-labs/jaffle_shop_duckdb
+    group: seen
+    sha: 20cc904370818ceab08cf19f8fd196e9e81def88
+    default_branch: duckdb
+    license: Apache-2.0
+    publish: code
+    dbt_subdir: "."

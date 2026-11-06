@@ -1,0 +1,11 @@
+# Spec for dbt-labs/jaffle_shop_duckdb (group: seen, Apache-2.0) at the pinned commit of
+# ../projects.yaml. Written from the README and the models before any check in this validation.
+#
+# Not applicable: the classic dbt tutorial (customers and orders marts). No model builds a
+# training or scoring table; there is no label and no prediction time.
+
+realworld:
+  applicable: false
+  reason: >
+    the dbt tutorial project (customers and orders reporting marts); no training or scoring table,
+    no label and no prediction time
