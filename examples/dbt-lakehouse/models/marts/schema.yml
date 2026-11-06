@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: training_churn
+    description: Churn training set, one row per customer and prediction date.
+    config:
+      meta:
+        leakage:
+          role: training_set
+    columns:
+      - name: customer_id
+        data_tests: [not_null]
+      - name: cutoff_ts
+        data_tests: [not_null]
+      - name: churned
+        data_tests: [not_null]
+      - name: orders_7d
+        data_tests: [not_null]

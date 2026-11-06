@@ -1,0 +1,23 @@
+name: 'nightly_shop'
+
+config-version: 2
+version: '0.1'
+
+profile: 'nightly_shop'
+
+model-paths: ["models"]
+
+clean-targets:
+    - "build"
+    - "logs"
+
+require-dbt-version: [">=1.8.0", "<2.0.0"]
+
+models:
+  nightly_shop:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

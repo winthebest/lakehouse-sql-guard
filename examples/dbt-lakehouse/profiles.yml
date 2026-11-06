@@ -1,0 +1,16 @@
+# Run dbt with `--profiles-dir .`. The sources are Iceberg tables in a REST catalog (Lakekeeper in
+# the end-to-end demo); dbt-duckdb's `iceberg` plugin reads them with PyIceberg. The catalog is
+# described by environment variables so no address or credential sits in this file.
+nightly_shop:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'nightly_shop.duckdb') }}"
+      plugins:
+        - module: iceberg
+          config:
+            catalog: lakehouse
+            type: rest
+            uri: "{{ env_var('ICEBERG_REST_URI') }}"
+            warehouse: "{{ env_var('ICEBERG_REST_WAREHOUSE') }}"
