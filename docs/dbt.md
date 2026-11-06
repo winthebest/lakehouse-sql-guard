@@ -67,6 +67,28 @@ tables if you want them replayed. dbt's database and schema become the relations
 (`db.raw.orders` -> `raw.orders`); set `iceberg_table` in a source's meta, or `relations` in
 `--spec`, when the catalog table has another name. Static analysis and replay both apply it.
 
+## On a lakehouse with nightly commits
+
+[examples/dbt-lakehouse](../examples/dbt-lakehouse) is the project of the
+[end-to-end demo](mcp.md#end-to-end-demo). Its sources are Iceberg tables in a REST catalog
+(Lakekeeper), read by dbt-duckdb's `iceberg` plugin, and `load-lakehouse.py` writes them the way a
+nightly job would: one Iceberg commit per night, and one row in five arrives one to three days late.
+The training set joins `int_customer_orders_7d`, whose 7-day window is bounded on `ordered_at`
+only. `dbt build` passes, `sqlguard leakage dbt --replay --catalog lakehouse --catalog-namespace raw
+--suggest-fix` reports L4 against that model, replay shows the feature values differ, and the
+suggested change (one more join condition, `loaded_at < cutoff_ts`) makes the check clean.
+
+**`sqlguard.logical-ts`.** The loader writes 29 commits within a few seconds, so their commit
+times cannot tell one night from the next. Each commit therefore sets the snapshot property
+`sqlguard.logical-ts` to the night it stands for (ISO-8601), and replay uses it instead of the
+commit time. A real nightly job commits when the data lands and needs no property; set it only for a
+history you simulate or backfill. The demo says so in its output.
+
+The suggested fix is a diff of the inlined query, not a file edit: the demo applies it by copying
+`fix/int_customer_orders_7d.sql` over the model (the two files differ by that one line). The fix
+carries `semantics: changed` with a caveat (it cannot show that only the bound changed), because a
+join sits above the values; that is printed as is.
+
 ## What is not checked
 
 A model that declares `time_column`, `role: static` or `role: label_spine` is read as a physical

@@ -148,6 +148,44 @@ rehearsed and approved (a compare-and-swap on the catalog), and removes the stac
 `docker/run-integration.sh` runs the integration tests on Lakekeeper, the Iceberg REST
 fixture, Polaris and Trino the same way.
 
+### End-to-end demo
+
+```bash
+docker/demo-e2e.sh        # about two minutes; needs Docker and python3, no API key
+```
+
+![The end-to-end demo in a terminal](docs/assets/demo-e2e.gif)
+
+One command starts Lakekeeper (an Iceberg REST catalog) on an S3-compatible store, runs the story
+below with the real tools, and removes every container and volume of the `sqlguard-lakehouse`
+Compose project again, also when something fails. The full output is in
+[docs/assets/demo-e2e.txt](docs/assets/demo-e2e.txt); `docs/assets/demo-e2e.cast` plays with
+`asciinema play`.
+
+1. **Leakage.** 29 nightly Iceberg commits with late rows are written to the catalog. They are
+   written seconds apart, so each commit records the night it stands for in the snapshot property
+   `sqlguard.logical-ts`, which replay pins to (a real nightly job does not need it). `dbt build`
+   passes every test, and `sqlguard leakage dbt --replay --suggest-fix` still finds the leak: a
+   window bounded on event time only in the intermediate model `int_customer_orders_7d`, not in
+   the training set that joins it. Replay shows 50 of 127 feature rows differ from what was
+   knowable at prediction time. The suggested fix is one join condition (`loaded_at < cutoff_ts`);
+   applied, the check is clean and replay passes. The project is
+   [examples/dbt-lakehouse](examples/dbt-lakehouse).
+2. **An agent through MCP.** A scripted MCP client (no model; `--agent claude` drives Claude Code
+   headless instead) asks to delete 30 of the 100 rows of `prod.orders`. The action is held as
+   `pending_approval`, the approval UI shows the row diff, and the reviewer rejects it. A narrower
+   request is approved and published by snapshot id. Another job writes to the table between the
+   review and the click, so the next action ends `stale`. A rollback of that write is approved and
+   done.
+
+<p>
+<img src="docs/assets/approval-ui-pending.png" alt="The approval UI: a pending DELETE of 30 rows with its diff" width="49%">
+<img src="docs/assets/approval-ui-stale.png" alt="The approval UI: an action that went stale after another write" width="49%">
+</p>
+
+How it is wired and what the reviewer in the demo is (and is not):
+[docs/mcp.md](docs/mcp.md#end-to-end-demo).
+
 ## Results
 
 ### Current rules and policy (v3) on a fresh held-out set
