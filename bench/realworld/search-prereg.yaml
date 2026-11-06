@@ -1,0 +1,51 @@
+# Pre-registration of the search for real-world dbt projects nobody looked at during development.
+# Committed before any search below is run. Nothing here changes after the first result is seen;
+# a project that fails a criterion is listed with the reason, never re-admitted by a looser rule.
+
+registered_at: "2026-11-07"
+rules: rules-frozen-v3        # the leakage rules every project is checked with (src/sqlguard unchanged since the tag)
+
+searches:                      # run in this order with the GitHub CLI, results in the order GitHub returns them
+  - gh search repos "dbt churn" --sort stars --limit 30
+  - gh search repos "dbt feature store" --sort stars --limit 30
+  - gh search repos "dbt machine learning features" --sort stars --limit 30
+  - gh search repos "dbt fraud" --sort stars --limit 30
+  - gh search repos "dbt training dataset" --sort stars --limit 30
+
+# Already read during development, so never part of the new group (they form the "seen" group).
+excluded:
+  - mponsclo/music-streaming-churn-prediction
+  - SarrangTech/fraud-detection-feature-store
+  - manthanshah94/dbt-churn-feature-store
+  - hisato-kawaji/dbt-duckdb-demo
+  - dbt-labs/jaffle_shop_duckdb
+  - dbt-labs/jaffle-shop
+  - dbt-labs/mrr-playbook
+  - fal-ai/dbt_feature_store
+  - heikalazzouna-svg/credit-risk-mlops
+  - omnata-labs/dbt-ml-preprocessing
+
+criteria:                      # all must hold; checked on the default branch at the pinned commit
+  - has a dbt_project.yml
+  - at least one model builds a table meant for training or scoring a model (features keyed by an
+    entity, with a label, a prediction or cutoff time, or a snapshot date), stated in its name,
+    docs or README
+  - compiles with dbt-duckdb without credentials, or ships a manifest.json; seeds or sample data
+    may be absent (only compiled SQL is checked)
+  - not a fork of an excluded project, not a template generated from one, not a tutorial copy of
+    jaffle_shop
+  - any license; a project without a license is checked locally and only aggregate results and
+    our own adjudication notes are published, never its code
+
+selection:
+  order: deduplicated union of the searches, in the order above
+  stop: after 3 projects qualify (minimum 2), or after 60 candidates have been screened
+  record: every candidate screened, with the criterion it failed, in screening.csv next to this file
+
+per_project:
+  - pin the commit SHA before reading any model SQL beyond what screening needs
+  - write the spec (bench/realworld/specs/<owner>__<repo>.yaml) from the project's sources, docs and
+    seeds only, and commit it before the detector runs; the project's SQL is never edited
+  - every finding is adjudicated by hand (true, false, unsure, with a reason) by the controller and by
+    an independent reviewer; a disagreement is recorded as unsure
+  - report: models checked, findings, precision on findings, unverifiable count, run time
