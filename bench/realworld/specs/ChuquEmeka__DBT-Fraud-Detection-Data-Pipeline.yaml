@@ -1,0 +1,53 @@
+# Spec for ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline (group: new, no license) at the pinned commit
+# of ../projects.yaml. Written from the README, models/*/schema.yml and the bronze model's column
+# list, before the checker ran on this project.
+# Spec-writing rules: see DobleL2__dbt_churn_prediction.yaml.
+label_table: transactions_staging
+entity_keys: [transactionid]
+prediction_ts: transactiondate
+label_columns: [isfraud]
+# One source table is the spine and the history of every feature: placeholder entry that no model
+# reads (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [go_predictive_model_features]
+  basis: |
+    - go_predictive_model_features is the training table: README "prepares features for fraud
+      prediction models"; its last column is the IsFraud label.
+    - label IsFraud and time TransactionDate ("The timestamp of the transaction.") are columns of
+      the source transactions_staging (README, Key Attributes). The column list is the bronze
+      model's select list; the README documents TransactionDate as a timestamp.
+    - go_predictive_model_features does not select TransactionDate, so the checker is expected to
+      say the output does not carry the prediction time.
+  not_training:
+    br_*, si_*: bronze and silver layers
+    go_real_time_fraud_detection, go_fraud_detection_dashboard_metrics, go_merchant_risk_assessment, go_user_behavior_metrics: reporting / aggregates (README)
+  schema:
+    "source:fraud_detection.transactions_staging":
+      transactionid: UNKNOWN
+      userid: UNKNOWN
+      transactiondate: TIMESTAMP
+      transactionamount: UNKNOWN
+      transactiontype: UNKNOWN
+      merchantid: UNKNOWN
+      currency: UNKNOWN
+      transactionstatus: UNKNOWN
+      devicetype: UNKNOWN
+      ip_address: UNKNOWN
+      paymentmethod: UNKNOWN
+      locationcoordinates: UNKNOWN
+      suspiciousflag: UNKNOWN
+      isfraud: UNKNOWN
+      reviewstatus: UNKNOWN
+      anomalyscore: UNKNOWN
+      transactiontime: UNKNOWN
+      age: UNKNOWN
+      gender: UNKNOWN
+      accountcreationdate: UNKNOWN
+      location: UNKNOWN
+      accountstatus: UNKNOWN
+      deviceid: UNKNOWN
+      userprofilecompleteness: UNKNOWN
+      previousfraudattempts: UNKNOWN

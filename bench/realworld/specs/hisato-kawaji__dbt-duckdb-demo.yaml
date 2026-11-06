@@ -1,0 +1,12 @@
+# Spec for hisato-kawaji/dbt-duckdb-demo (group: seen, MIT) at the pinned commit of ../projects.yaml.
+# Written from the README and the models before any check in this validation.
+#
+# Not applicable: the README presents a demo of dbt features (seed, ref/source, materializations,
+# tests, an SCD2 snapshot, macros). No model is a training or scoring table: customer_summary is a
+# lifetime-value report ("顧客ごとのLTV・注文回数サマリ") and there is no label or prediction time.
+
+realworld:
+  applicable: false
+  reason: >
+    a dbt feature demo with no model that builds a training or scoring table; no label and no
+    prediction time (customer_summary is a lifetime-value report)

@@ -1,0 +1,64 @@
+# Spec for mponsclo/music-streaming-churn-prediction (group: seen, MIT) at the pinned commit of
+# ../projects.yaml. Written from the project's README, docs/1-data.md, docs/2-features.md and
+# models/sources.yml, before the checker ran on this project in this validation.
+# Spec-writing rules: see ../specs/DobleL2__dbt_churn_prediction.yaml.
+label_table: stg_train
+entity_keys: [msno]
+# The project has no prediction time column: its cutoff is the constant date '2017-03-01' written
+# in stg_members.sql, and the label table (train_v2) has only msno and is_churn. The spec names the
+# column the checker needs; the checker is expected to say the output does not carry it.
+prediction_ts: prediction_ts
+label_columns: [is_churn]
+time_columns:
+  stg_transactions: transaction_date
+  stg_user_logs: date
+static_tables: [stg_members]
+
+realworld:
+  training_sets: [ml_churn_features]
+  meta:
+    "model:stg_train": {role: label_spine}
+    "model:stg_members": {role: static}
+    "model:stg_transactions": {time_column: transaction_date}
+    "model:stg_user_logs": {time_column: date}
+  basis: |
+    - ml_churn_features is the training table: its header comment "Final wide feature table for
+      churn prediction"; docs/2-features.md "one wide Parquet mart (36 features)".
+    - the raw files are read with read_csv_auto inside the staging models, so the staging models
+      are the physical tables: stg_train (label is_churn), stg_members (demographics, README
+      "Demographics: age, gender, city, registration channel": static), stg_transactions and
+      stg_user_logs (README "Payment history", "Daily listening": temporal).
+    - no availability column or ingestion delay is documented.
+    - column names and types: models/sources.yml and the staging select lists; the dates are
+      YYYYMMDD integers in the raw files and try_strptime results (TIMESTAMP) in stg_transactions.
+  schema:
+    "model:stg_train": {msno: VARCHAR, is_churn: BIGINT}
+    "model:stg_members":
+      msno: VARCHAR
+      city: BIGINT
+      age: BIGINT
+      gender: VARCHAR
+      registered_via: BIGINT
+      registration_init_time: BIGINT
+      tenure_days: BIGINT
+    "model:stg_transactions":
+      msno: VARCHAR
+      payment_method_id: BIGINT
+      payment_plan_days: BIGINT
+      plan_list_price: BIGINT
+      actual_amount_paid: BIGINT
+      is_auto_renew: BIGINT
+      is_cancel: BIGINT
+      transaction_date: TIMESTAMP
+      membership_expire_date: TIMESTAMP
+      has_discount: INTEGER
+    "model:stg_user_logs":
+      msno: VARCHAR
+      date: BIGINT
+      num_25: BIGINT
+      num_50: BIGINT
+      num_75: BIGINT
+      num_985: BIGINT
+      num_100: BIGINT
+      num_unq: BIGINT
+      total_secs: DOUBLE

@@ -1,0 +1,15 @@
+# Spec for manthanshah94/dbt-churn-feature-store (group: seen, no license) at the pinned commit of
+# ../projects.yaml. Written from the README, seeds and models before any check in this validation.
+# Spec-writing rules: see ../specs/DobleL2__dbt_churn_prediction.yaml.
+#
+# A spec cannot be written: the checker needs a label table with label columns and a prediction
+# time, and this project documents none. fct_customer_features is a feature table (README "ML-ready
+# customer features for churn prediction"); its churn signals (is_inactive_60d, is_disengaged,
+# is_one_and_done) are engineered features, not a target, and the cutoff is the wall clock
+# (current_date). The project is recorded as not applicable and is not run.
+
+realworld:
+  applicable: false
+  reason: >
+    no label column or table and no prediction time (README: features only; recency is measured
+    from current_date), so the leakage spec cannot be written
