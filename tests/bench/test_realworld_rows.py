@@ -142,7 +142,11 @@ def test_needles_prefer_the_window_frame_over_the_location():
             )
         },
     }
-    assert rows.needles(finding)[0] == "range between 3600 preceding and 1 preceding"
+    assert (
+        rows.needles(finding)[0]
+        == "count(x)over(partitionbyuorderbytrangebetween3600precedingand1preceding)"
+    )
+    assert "rangebetween3600precedingand1preceding" in rows.needles(finding)
     assert "bronze" in rows.needles(finding)
 
 

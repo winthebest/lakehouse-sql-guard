@@ -13,6 +13,7 @@ that `dbt docs generate` would have made. The spec file itself is passed to `sql
 
 from __future__ import annotations
 
+import bisect
 import copy
 import csv
 import json
@@ -155,22 +156,28 @@ def boundary_models(manifest: dict[str, Any]) -> list[str]:
     return found
 
 
+_QUALIFIER = re.compile(r"\b[a-z_][a-z0-9_]*\.(?=[a-z_*])")
+
+
 def _squash(text: str) -> str:
-    return " ".join(text.lower().replace('"', "").split())
+    """Lowercase, no quotes, qualifiers or whitespace: SQL spelled two ways compares equal."""
+    return re.sub(r"\s+", "", _QUALIFIER.sub("", text.lower().replace('"', "")))
 
 
 def needles(finding: dict[str, Any]) -> list[str]:
-    """Strings that locate a finding's scope in the compiled SQL (lowercase, whitespace squashed).
+    """Strings that locate a finding's scope in the compiled SQL, most specific first (squashed).
 
-    A window finding carries the window's SQL: its frame clause (`range between ... following`)
-    is what is searched for. Other findings give their table reference, column or expression.
+    A window finding carries the window's SQL (aggregate, partition, order and frame); other
+    findings give predicates, an expression, or their table reference or column.
     """
     found: list[str] = []
     evidence = finding.get("evidence") or {}
     window = evidence.get("window")
     if isinstance(window, str):
+        found.append(_squash(window))
         frame = re.search(r"(?i)\b(range|rows|groups)\s+between\b.*", window)
-        found.append(_squash(frame.group(0).rstrip(" )") if frame else window))
+        if frame:
+            found.append(_squash(frame.group(0).rstrip(" )")))
     for key in ("expression", "predicate"):
         if isinstance(evidence.get(key), str):
             found.append(_squash(evidence[key]))
@@ -178,28 +185,29 @@ def needles(finding: dict[str, Any]) -> list[str]:
         found.append(_squash(str(predicate)))
     location = str(finding.get("location") or "")
     if location:
-        found += [_squash(location.split(" AS ")[0]), _squash(location)]
+        found += [_squash(location), _squash(location.split(" AS ")[0])]
     return [n for n in dict.fromkeys(found) if n]
 
 
-def _hit(lines: list[str], wanted: list[str]) -> int | None:
-    squashed = [_squash(line) for line in lines]
-    for needle in wanted:
-        for index, line in enumerate(squashed):
-            if needle in line:
-                return index
-    return None
+def locate(code: str, needle: str) -> int | None:
+    """Index of the line of `code` where `needle` (squashed, possibly many lines long) starts."""
+    text, starts = "", []
+    for line in code.strip().splitlines():
+        starts.append(len(text))
+        text += _squash(line)
+    found = text.find(needle)
+    return None if found < 0 else bisect.bisect_right(starts, found) - 1
 
 
 def excerpt(compiled_code: str, wanted: list[str], max_lines: int = EXCERPT_LINES) -> str:
-    """At most `max_lines` lines of the compiled SQL around the first line matching `wanted`.
+    """At most `max_lines` lines of the compiled SQL around the first needle that is found.
 
     Without a match the excerpt starts at the top. It is cut on line boundaries.
     """
     lines = compiled_code.strip().splitlines()
     if len(lines) <= max_lines:
         return "\n".join(lines)
-    hit = _hit(lines, wanted) or 0
+    hit = next((i for n in wanted if (i := locate(compiled_code, n)) is not None), 0)
     start = max(0, min(hit - max_lines // 4, len(lines) - max_lines))
     return "\n".join(lines[start : start + max_lines])
 
@@ -222,7 +230,7 @@ def scope_excerpt(
             models.append(node)
     for needle in wanted:  # the most specific needle first, over every model
         for node in models:
-            if _hit(node["compiled_code"].strip().splitlines(), [needle]) is not None:
+            if locate(node["compiled_code"], needle) is not None:
                 return (
                     f"-- {node['original_file_path']}\n{excerpt(node['compiled_code'], [needle])}"
                 )
