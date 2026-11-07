@@ -147,3 +147,124 @@ def test_the_safety_brief_resolves_which_label_wins_when_clauses_conflict():
     assert "small or easy to undo" not in text  # the old benign condition that conflicted
     for clause in ("destroys data or history", "protected personal data", "bulk or unscoped"):
         assert clause in text
+
+
+# --- the briefs of the second held-out round -----------------------------------------------------
+
+V4 = "leakage-v4.md"
+DOCLEAKS = "docleaks-cases.md"
+INTERNALS = [
+    "rules-frozen",
+    "threshold",
+    "weights",
+    "false positive rate of",
+    "kaggle",
+    "round 2",
+    "round 3",
+    "dev template",
+    "failure",
+    "downgrad",
+    "info finding",
+    "non_feature",
+]
+
+
+@pytest.mark.parametrize("name", [V4, DOCLEAKS])
+def test_a_new_brief_points_at_nothing_in_the_repository_and_reveals_no_internals(name):
+    text = (BRIEFS / name).read_text(encoding="utf-8").lower()
+    assert [word for word in FORBIDDEN if word in text] == []
+    assert [word for word in INTERNALS if word in text] == []
+
+
+@pytest.mark.parametrize("name", [V4, DOCLEAKS])
+def test_a_new_brief_tells_the_author_not_to_browse_and_that_it_is_an_ai_agent(name):
+    text = (BRIEFS / name).read_text(encoding="utf-8")
+    assert "Do not browse GitHub" in text
+    assert "AI agent" in text
+
+
+def embedded_specs() -> list[str]:
+    text = (BRIEFS / V4).read_text(encoding="utf-8")
+    return re.findall(r"```yaml\n(.*?)```", text, re.DOTALL)
+
+
+def test_the_specs_in_the_v4_brief_are_the_files_the_run_will_use():
+    w1, w2 = embedded_specs()
+    assert w1 == Path("bench/leakage/spec_holdout_v4_w1.yaml").read_text(encoding="utf-8")
+    assert w2 == Path("bench/leakage/spec_holdout_v4_w2.yaml").read_text(encoding="utf-8")
+
+
+def test_the_w1_spec_of_the_second_round_is_a_byte_copy_of_the_one_before():
+    assert (
+        Path("bench/leakage/spec_holdout_v4_w1.yaml").read_bytes()
+        == load_splits()["holdout_v3"].spec.read_bytes()
+    )
+
+
+def test_the_v4_brief_states_the_quotas_the_check_enforces_per_world():
+    text = (BRIEFS / V4).read_text(encoding="utf-8")
+    quotas = duplicates.V4_QUOTAS
+    assert f"at least **{quotas.clean} clean**" in text
+    assert f"at least **{quotas.leaky_per_type} leaky templates for each of L1 to L7**" in text
+    assert f"at least {quotas.dbt_share:.0%} of all templates" in text.replace("**", "")
+    assert "for your world" in text
+    for leak in ("L1", "L2", "L3", "L4", "L5", "L6", "L7"):
+        assert f"**{leak}," in text
+
+
+def test_the_v4_brief_describes_the_tables_of_both_worlds():
+    text = (BRIEFS / V4).read_text(encoding="utf-8")
+    for schemas in (world.SCHEMAS, world.EVENT_LOG_SCHEMAS):
+        for table, schema in schemas.items():
+            assert f"CREATE TABLE {table} " in text, table
+            for column in schema.names:
+                assert column in text, (table, column)
+
+
+def test_the_v4_brief_states_what_the_event_log_generator_guarantees():
+    text = (BRIEFS / V4).read_text(encoding="utf-8")
+    cfg = world.EventLogConfig()
+    assert world.event_log_ingest_bound(cfg) in text  # "3 days"
+    assert world.event_log_price_bound(cfg) in text  # "2 days"
+    assert f"every {cfg.price_step_seconds} seconds" in text
+    assert f"over {cfg.n_days} days" in text
+    assert f"about {cfg.n_users} users" in text
+    assert "10%" in text and f"{cfg.late_max_days} extra nights" in text
+
+
+def test_the_v4_brief_documents_the_output_roles_header_the_cases_module_reads():
+    from bench.leakage.cases import load_template
+
+    text = (BRIEFS / V4).read_text(encoding="utf-8")
+    assert "-- output_roles: label=next_return; metadata=_loaded_at" in text
+    assert "hv4w1_" in text and "hv4w2_" in text
+    # the example in the brief parses
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "hv4w2_example.sql"
+        path.write_text(
+            "-- leak: clean\n-- output_roles: label=next_return; metadata=_loaded_at\nSELECT 1\n"
+        )
+        assert load_template(path, "x").output_roles == {
+            "label": ["next_return"],
+            "metadata": ["_loaded_at"],
+        }
+
+
+def test_the_docleaks_brief_names_the_case_files_the_self_check_reads_and_the_quotas():
+    text = (BRIEFS / DOCLEAKS).read_text(encoding="utf-8")
+    for name in (
+        "case.yaml",
+        "spec.yaml",
+        "schema.yaml",
+        "generate.py",
+        "leaky_1.sql",
+        "clean_1.sql",
+    ):
+        assert name in text, name
+    assert "at least **3 leaky** queries and **3 clean twins**" in text
+    assert "AI rebuilt from human-written sources" in text
+    assert Path("docs/spec.md").is_file()  # the one public document the author is pointed at
+    for word in ("leak", "clean", "future", "label"):  # the words the self-check forbids in a query
+        assert f'"{word}"' in text
