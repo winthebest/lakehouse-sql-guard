@@ -250,8 +250,17 @@ class _Flow:
 _FLOWS: dict[int, _Flow] = {}
 
 
+def _renames_columns(analysis: QueryAnalysis) -> bool:
+    """Does a FROM item give new names to the columns of what it reads (`st AS a(id, t)`)? The
+    trace follows columns by name, so it would lose them there."""
+    return any(
+        isinstance(alias.parent, exp.Table) and alias.args.get("columns")
+        for alias in analysis.qualified.find_all(exp.TableAlias)
+    )
+
+
 def _flow(analysis: QueryAnalysis) -> _Flow | None:
-    if analysis.resolver is None:
+    if analysis.resolver is None or _renames_columns(analysis):
         return None
     flow = _FLOWS.get(id(analysis))
     if flow is None:

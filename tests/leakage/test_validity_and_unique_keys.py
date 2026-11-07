@@ -212,3 +212,51 @@ def test_unique_keys_accept_one_key_or_several_and_are_optional():
 def test_malformed_unique_keys_are_rejected(value):
     with pytest.raises(SpecError, match="unique_keys"):
         LeakageSpec.from_dict({**ROW_SPEC, "unique_keys": value})
+
+
+# --- the key may only stand for the row when both sides are the same key -----------------------
+
+KEYED = {
+    **ROW_SPEC,
+    "unique_keys": {"labels": [["row_id"], ["other_id"]]},
+}
+KEYED_SCHEMA = {"labels": {**SCHEMA["labels"], "other_id": "BIGINT"}}
+
+
+def keyed_findings(sql: str, schema=KEYED_SCHEMA, **overrides) -> set[str]:
+    spec = LeakageSpec.from_dict({**KEYED, **overrides})
+    return {f.rule_id for f in static_findings(sql, spec, schema)}
+
+
+@pytest.mark.parametrize(
+    "join",
+    [
+        "ON f.other_id = l.row_id",
+        "ON f.row_id = l.other_id",
+        "ON f.row_id = l.label_ts",
+        "ON f.label_ts = l.row_id",
+        "ON f.row_id = l.user_id",
+    ],
+)
+def test_two_different_keys_or_a_key_and_a_time_are_not_the_same_row(join):
+    sql = f"SELECT l.user_id, l.label_ts, l.churned, f.x AS v FROM labels l JOIN labels f {join}"
+    assert keyed_findings(sql), join
+    assert keyed_findings(sql.replace(" JOIN labels f", " LEFT JOIN labels f"))
+
+
+def test_a_subquery_on_the_key_is_not_the_spine_row_either():
+    sql = (
+        "SELECT l.user_id, l.label_ts, l.churned, "
+        "EXISTS (SELECT 1 FROM labels f WHERE f.row_id = l.row_id AND f.churned = 1) AS v "
+        "FROM labels l"
+    )
+    assert keyed_findings(sql)
+    scalar = sql.replace("EXISTS (SELECT 1 FROM", "(SELECT MAX(f.churned) FROM").replace(
+        " AND f.churned = 1", ""
+    )
+    assert keyed_findings(scalar)
+
+
+def test_the_same_key_on_both_sides_still_makes_the_second_read_the_same_row():
+    sql = SELF_JOIN.format(join="ON l.row_id = f.row_id")
+    assert row_findings(sql, unique_keys={"labels": [["row_id"], ["other_id"]]}) == set()

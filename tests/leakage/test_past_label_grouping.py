@@ -126,3 +126,21 @@ def test_a_join_to_a_table_that_is_not_static_is_not_a_plain_source():
         .replace("b.genre", "b.v AS genre")
     )
     assert rules(sql, time_columns={"sales": "sale_date", "events": "event_ts"})
+
+
+def test_a_column_of_the_sum_read_by_position_is_a_use_of_the_label():
+    sql = fact(LAG).replace(
+        "SELECT * FROM feat",
+        "SELECT feat.book_id, feat.sale_date, feat.daily_quantity, feat.f, "
+        "(SELECT #3 * 2 FROM daily d2 WHERE d2.book_id = feat.book_id "
+        "AND d2.sale_date = feat.sale_date) AS f2 FROM feat",
+    )
+    assert rules(sql), "twice today's target is a feature"
+
+
+def test_a_limit_in_the_chain_makes_the_earliest_day_a_partial_sum():
+    sql = fact(LAG).replace(
+        "LEFT JOIN books b ON s.book_id = b.book_id",
+        "LEFT JOIN books b ON s.book_id = b.book_id ORDER BY s.sale_date DESC LIMIT 1000",
+    )
+    assert rules(sql)

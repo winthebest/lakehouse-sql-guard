@@ -52,14 +52,48 @@ def test_the_baseline_is_written_in_the_form_the_snapshot_writes(baseline):
     assert BASELINE.read_text(encoding="utf-8") == snapshot.dumps(baseline)
 
 
-@pytest.mark.skip(reason="enabled when the v4 rules are compared with the v3 baseline")
-def test_the_verdicts_of_the_current_rules_equal_the_baseline(baseline):
+UNCHANGED_SPLITS = ("dev", "dev_v1b", "holdout_v2", "real")
+
+
+@pytest.fixture(scope="module")
+def now():
     warehouse = snapshot.ROOT / ".warehouse" / "bench"
-    now = snapshot.leakage_verdicts(42, warehouse)
+    return snapshot.leakage_verdicts(42, warehouse)
+
+
+def verdicts(reading):
+    return {mode: reading[mode][0] for mode in ("static", "combined")}
+
+
+@pytest.mark.parametrize("split", UNCHANGED_SPLITS)
+def test_the_verdicts_of_the_splits_without_a_known_fix_have_not_changed(baseline, now, split):
     changed = {
-        (split, case_id): (now[split][case_id], was)
-        for split, cases in baseline["leakage"].items()
-        for case_id, was in cases.items()
-        if now[split][case_id] != was
+        case_id: (verdicts(was), verdicts(now[split][case_id]))
+        for case_id, was in baseline["leakage"][split].items()
+        if verdicts(now[split][case_id]) != verdicts(was)
     }
     assert not changed
+
+
+def test_no_leaky_template_of_holdout_v3_lost_its_verdict_and_no_clean_one_gained_a_flag(
+    baseline, now
+):
+    lost, gained = [], []
+    for case_id, was in baseline["leakage"]["holdout_v3"].items():
+        before, after = verdicts(was), verdicts(now["holdout_v3"][case_id])
+        for mode in before:
+            if "_clean_" in case_id:
+                if before[mode] != "leaky" and after[mode] == "leaky":
+                    gained.append((case_id, mode))
+            elif before[mode] == "leaky" and after[mode] != "leaky":
+                lost.append((case_id, mode))
+    assert not lost and not gained
+
+
+def test_only_holdout_v3_changed_the_rule_ids_it_reports(baseline, now):
+    """The rule ids of the other splits are the ones the v3 rules reported."""
+    for split in UNCHANGED_SPLITS:
+        for case_id, was in baseline["leakage"][split].items():
+            assert {m: was[m][2] for m in was} == {m: now[split][case_id][m][2] for m in was}, (
+                case_id
+            )

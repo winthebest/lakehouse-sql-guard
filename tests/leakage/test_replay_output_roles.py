@@ -86,3 +86,13 @@ def test_the_label_columns_of_the_spec_are_still_compared_without_a_declaration(
 FROM labels l"""
     result = replay(catalog, sql)
     assert result.status is ReplayStatus.MISMATCH
+
+
+def test_a_features_list_that_names_a_column_the_query_lacks_hides_nothing(catalog):
+    # the lookahead is `next_churned`; the list spells it `next_chrned` (and so omits it)
+    sql = BASE.format(bound=CLEAN)
+    typo = replay(catalog, sql, output_roles={"features": ["n", "next_chrned"]})
+    assert typo.status is ReplayStatus.MISMATCH
+    assert "next_churned" in typo.mismatched_columns
+    exact = replay(catalog, sql, output_roles={"features": ["n"]})
+    assert exact.status is ReplayStatus.PASS

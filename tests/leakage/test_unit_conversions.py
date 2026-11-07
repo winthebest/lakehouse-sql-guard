@@ -128,3 +128,61 @@ FROM spine s LEFT JOIN prices p ON p.user_id = s.user_id AND p.at < s.at - INTER
 GROUP BY ALL"""
     spec = LeakageSpec.from_dict(SPEC)
     assert {f.rule_id for f in static_findings(sql, spec, SCHEMA)} == set()
+
+
+# --- shapes found by an independent attack on the conversions ----------------------------------
+
+NEGATIVE = [
+    "p.ts_s * -1000 < s.ts_ms * -1",
+    f"p.ts_s * -1000 < s.ts_ms * -1 + {TWO_DAYS_MS}",
+    "p.ts_s / -1 < s.ts_ms / -1000",
+    "s.ts_ms * -1 > p.ts_s * -1000",
+    "(p.ts_s + 1) * -1000 < s.ts_ms * -1",
+]
+
+
+@pytest.mark.parametrize("bound", NEGATIVE)
+def test_a_negative_factor_turns_the_comparison_round_so_it_bounds_nothing(bound):
+    assert rules(bound), bound
+
+
+def test_a_negative_factor_cannot_hide_the_labels_of_later_rows():
+    spec = {
+        "label_known_after": "0 seconds",
+        "time_columns": {"interactions": "ts_ms"},
+        "time_units": {"interactions": "milliseconds"},
+    }
+    sql = (
+        "SELECT s.user_id, s.ts_ms, s.correct, AVG(h.correct) AS history FROM interactions s "
+        "LEFT JOIN interactions h ON h.user_id = s.user_id AND h.ts_ms * -1 < s.ts_ms * -1 "
+        "GROUP BY ALL"
+    )
+    assert {
+        f.rule_id for f in static_findings(sql, LeakageSpec.from_dict({**SPEC, **spec}), SCHEMA)
+    }
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "p.ts_s * 1e-300 * 1e-300 < s.ts_ms * 1e-300 * 1e-300",
+        "p.ts_s / 1e300 / 1e300 < s.ts_ms / 1e300 / 1e300",
+        "p.ts_s * 1e300 * 1e300 < s.ts_ms * 1e300 * 1e300",
+    ],
+)
+def test_a_factor_that_underflows_or_overflows_is_not_a_unit_and_does_not_crash(bound):
+    assert "PARSE" not in rules(bound)
+    assert rules(bound)
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "to_timestamp(p.ts_s * 0.9999999991) < to_timestamp(s.ts_ms / 1000)",
+        "p.ts_s * 999.9999999 < s.ts_ms",
+        "p.ts_s < CAST(s.ts_ms / 1000 AS BIGINT)",
+        "p.ts_s * 1000 < CAST(s.ts_ms / 1000 AS BIGINT) * 1000",
+    ],
+)
+def test_a_factor_that_is_nearly_a_unit_or_a_rounding_cast_bounds_nothing(bound):
+    assert rules(bound), bound

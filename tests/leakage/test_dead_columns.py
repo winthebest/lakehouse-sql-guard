@@ -98,3 +98,29 @@ def test_an_unused_column_is_not_a_reason_to_trust_a_trace_that_could_not_finish
 def test_static_findings_expose_the_same_split():
     findings = static_findings(DEAD, LeakageSpec.from_dict({**SPEC, **ROLES}), SCHEMA)
     assert any(f.evidence.get("non_feature_only") and f.rule_id == "L7" for f in findings)
+
+
+# --- ways a column is read that a trace by name does not see ------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # the consumer renames the columns of the CTE it reads
+        "WITH st AS (SELECT user_id, CURRENT_TIMESTAMP AS t FROM entities) "
+        "SELECT l.user_id, l.label_ts, l.churned, date_diff('day', l.label_ts, a.tt) AS age "
+        "FROM labels l JOIN st AS a(user_id, tt) ON a.user_id = l.user_id",
+        "WITH st AS (SELECT user_id, CURRENT_TIMESTAMP AS t FROM entities) "
+        "SELECT l.user_id, l.label_ts, l.churned FROM labels l "
+        "JOIN st AS a(uid, tt) ON a.uid = l.user_id WHERE a.tt > l.label_ts",
+        # a column read by its position (DuckDB)
+        "WITH st AS (SELECT user_id, label_ts, churned, "
+        "LEAD(churned) OVER (PARTITION BY user_id ORDER BY label_ts) AS nx FROM labels) "
+        "SELECT st.user_id, st.label_ts, st.churned, #4 AS feat FROM st",
+        "WITH st AS (SELECT user_id, label_ts, churned, CURRENT_TIMESTAMP AS t FROM labels) "
+        "SELECT st.user_id, st.label_ts, st.churned FROM st WHERE #4 > st.label_ts",
+    ],
+)
+def test_a_column_read_by_a_rename_or_a_position_is_not_dead(sql):
+    got = scored(sql, **ROLES)
+    assert got & {"L1", "L6", "L7", "PARSE"}, sql

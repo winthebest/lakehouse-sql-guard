@@ -814,25 +814,20 @@ class _Number:
 
 # DuckDB's to_timestamp, epoch_ms and make_timestamp are one sqlglot node told apart by the scale
 _UNIX_SCALE = {None: 1.0, 0: 1.0, 3: 1e-3, 6: 1e-6}
-_NUMBER_TYPES = {
-    exp.DataType.Type.BIGINT,
-    exp.DataType.Type.INT,
-    exp.DataType.Type.SMALLINT,
-    exp.DataType.Type.TINYINT,
-    exp.DataType.Type.DOUBLE,
-    exp.DataType.Type.FLOAT,
-    exp.DataType.Type.DECIMAL,
-}
+# a cast to an integer type rounds (DuckDB) or truncates (Spark) and DECIMAL rounds: not read
+_NUMBER_TYPES = {exp.DataType.Type.DOUBLE}
 
 
 def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, float] | None:
-    """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`."""
+    """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`.
+
+    Only a positive, finite constant: a negative factor turns every comparison round."""
     k = _constant(node.expression)
-    if k is not None and k != 0 and math.isfinite(k):
+    if k is not None and k > 0 and math.isfinite(k):
         return node.this, k
     if isinstance(node, exp.Mul):
         k = _constant(node.this)
-        if k is not None and k != 0 and math.isfinite(k):
+        if k is not None and k > 0 and math.isfinite(k):
             return node.expression, k
     return None
 
@@ -883,12 +878,13 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
                 mult, pending, divided = mult / k, pending * k, True
             new, node = True, operand
         elif isinstance(node, exp.Cast | exp.TryCast) and node.to and node.to.this in _NUMBER_TYPES:
-            divided = divided or isinstance(node.this, exp.Div)
             node = node.this
         else:
             break
     if not new or not isinstance(node, exp.Column):
         return None
+    if not (math.isfinite(mult) and mult > 0 and math.isfinite(pending)):
+        return None  # a factor that under- or overflows is no unit
     if not to_time and (offset or up or down):
         return None  # an interval added to a number
     return _Number(node, mult, pending, to_time, divided, offset, up, down)
@@ -928,6 +924,9 @@ class Resolved:
     # An integer column turned into a timestamp by to_timestamp / epoch_ms / make_timestamp:
     # "tz" (to_timestamp, a timestamptz) or "naive". Two kinds are only comparable with themselves.
     converted: str = ""
+    # (table, column) of the unique key this stands for: a value read as "the prediction time of the
+    # row with this key". It only equals another value of the same key, never a time or another key.
+    keyed_by: tuple[str, str] | None = None
 
     @property
     def exact(self) -> bool:
@@ -1028,9 +1027,11 @@ class _Resolver:
                 return [made] if made else None
             if peeled is None:
                 return None
+            standing_for = None
             if keyed and raw and self._unique_key(ref, column.name):
                 # a column that never repeats names one row of the label table: it stands for the
                 # prediction_ts of that row, as a surrogate key built from the whole identity does
+                standing_for = (ref.table, column.name.lower())
                 column = exp.column(self.spec.prediction_ts, table=column.table)
                 peeled = replace(peeled, column=column)
             shift = self.pending_seconds(peeled.pending, ref, column.name)
@@ -1064,6 +1065,7 @@ class _Resolver:
                     bool(peeled.zones),
                     aware,
                     peeled.retyped,
+                    keyed_by=standing_for,
                 )
             ]
         if not isinstance(source, Scope):
@@ -1158,6 +1160,7 @@ class _Resolver:
                         peeled.retyped or g.retyped,
                         g.scale,
                         g.converted,
+                        g.keyed_by,
                     )
                 )
         return resolved
@@ -1200,7 +1203,7 @@ class _Resolver:
         seconds = number.pending * base
         earlier = (inner.offset, inner.up, inner.down, inner.trunc) if inner else (0.0,) * 4
         if number.to_time:
-            if not math.isclose(effective, number.to_time, rel_tol=1e-9):
+            if not math.isclose(effective, number.to_time, rel_tol=1e-12):
                 return None
             cut = number.to_time if number.divided else 0.0
             return Resolved(
@@ -1834,6 +1837,9 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
     if any(op.args.get("by_name") for op in tree.find_all(exp.SetOperation)):
         tree = tree.copy()  # the BY NAME rewrite works in place
     qualified = qualify_statement(_positional(tree), schema, spec.dialect)
+    if qualified.find(exp.PositionalColumn) is not None:
+        # a column read by its position (`#2`, DuckDB) is traced by no rule that follows names
+        raise ValueError("positional column references (#n) are not analyzed")
     every_scope = list(traverse_scope(qualified))
     live = _live_scopes(every_scope)
     scopes = [s for s in every_scope if id(s) in live]
@@ -2001,6 +2007,11 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
         a = _prediction_terms(node.left, scope, resolver, keyed=True)
         b = _prediction_terms(node.right, scope, resolver, keyed=True)
         if a and b and scope is not None:
+            keys = {term.keyed_by for term in (*a, *b)}
+            if keys != {None} and (len(keys) != 1 or scope.is_subquery):
+                # a unique key stands for the row only against the same key, and only where the
+                # rows are joined (a subquery on it computes a value the output row then shows)
+                continue
             # a COALESCE is one of its arguments; a column fed by a UNION or EXCEPT is, in each
             # row, the column of the branch the row came from
             alternatives = (
@@ -2177,10 +2188,10 @@ def _scaled_kind(got: Resolved, resolver: _Resolver) -> float | str | None:
     if got.converted:
         return f"conv:{got.converted}"
     if got.scale:
-        return round(got.scale, 12)
+        return float(f"{got.scale:.12g}")
     native = resolver._native_scale(got.ref, got.column)
     if native is not None:
-        return round(native, 12)
+        return float(f"{native:.12g}")
     return "plain" if resolver.is_timestamp(got.ref, got.column) else None
 
 
@@ -3076,7 +3087,10 @@ class _PastWindows:
         select = source.expression
         if not isinstance(select, exp.Select) or isinstance(select.parent, exp.SetOperation):
             return None
-        if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
+        if any(
+            select.args.get(k)
+            for k in ("group", "having", "distinct", "qualify", "limit", "offset")
+        ):
             return None
         if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
             return None
