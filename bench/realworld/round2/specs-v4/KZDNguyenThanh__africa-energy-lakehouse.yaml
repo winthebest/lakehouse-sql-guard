@@ -1,0 +1,86 @@
+# Spec for KZDNguyenThanh/africa-energy-lakehouse, dbt_project/ subdirectory (group: round2, no
+# license) at the pinned commit of ../projects.yaml. Written from the README, models/gold/schema.yml,
+# models/silver/schema.yml and the header comment of the training model (in Vietnamese), before the
+# checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Assumptions the project does not settle:
+#   - The label (target_kwh, the model's alias of monthly_electricity_kwh) and every feature are
+#     columns of the same household-year survey row; the training table is a row-level selection of
+#     silver_households, which is therefore the label table and there is no separate history
+#     (single-table case of the round 1 specs).
+#   - The project documents no prediction time. `year` ("Survey year, constrained to 2018-2025") is the
+#     time of the observation the label belongs to, so it is used by the spec rule for the time of the
+#     labelled outcome. It is a year, not a timestamp.
+#   - silver_households is built from bronze files inside the model, so the model is the physical
+#     table (declared label_spine and trusted).
+#
+# v4 additions: output_roles.label. (The label table stays a placeholder history entry: the survey
+# rows have no event time other than the year.)
+label_table: silver_households
+entity_keys: [household_id]
+prediction_ts: year
+label_columns: [monthly_electricity_kwh]
+output_roles:
+  # dbt_project/models/gold/gold_ml_features.sql:56-57 ("-- TARGET VARIABLE" above
+  # monthly_electricity_kwh AS target_kwh); ml/benchmark_models.py:58-60 drops target_kwh from X.
+  label: [target_kwh]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [gold_ml_features]
+  meta:
+    "model:silver_households": {role: label_spine}
+  basis: |
+    - gold_ml_features is the training table: schema.yml "Wide, flat feature table for ML regression.
+      Restricted to electrified households with monthly_electricity_kwh > 0"; the header
+      (in Vietnamese) says it is the flat wide table kept for ML regression training, with
+      monthly_electricity_kwh as the label (exposed as target_kwh).
+    - silver_households.yml: "year: Survey year, constrained to 2018-2025 in the cleaning step".
+    - column list: the silver model's select list; only documented types are given.
+  not_training:
+    gold_agg_country_year, gold_dim_*, gold_fact_consumption: analytical star schema
+  schema:
+    "model:silver_households":
+      household_id: UNKNOWN
+      country: UNKNOWN
+      year: INTEGER
+      is_urban: UNKNOWN
+      settlement_type: UNKNOWN
+      household_size: UNKNOWN
+      income_quintile: UNKNOWN
+      education_head: UNKNOWN
+      has_electricity_access: UNKNOWN
+      connection_type: UNKNOWN
+      connection_quality: UNKNOWN
+      hours_electricity_available: UNKNOWN
+      primary_lighting_source: UNKNOWN
+      primary_cooking_fuel: UNKNOWN
+      monthly_electricity_kwh: UNKNOWN
+      monthly_energy_bill_usd: UNKNOWN
+      connection_fee_usd: UNKNOWN
+      distance_to_grid_km: UNKNOWN
+      years_connected: UNKNOWN
+      appliance_count: UNKNOWN
+      has_phone_charging: UNKNOWN
+      has_radio: UNKNOWN
+      has_tv: UNKNOWN
+      has_fridge: UNKNOWN
+      has_fan: UNKNOWN
+      has_electric_iron: UNKNOWN
+      has_electric_kettle: UNKNOWN
+      satisfaction_score: UNKNOWN
+      willingness_to_pay_monthly_usd: UNKNOWN
+      barriers_list: UNKNOWN
+      barriers_raw: UNKNOWN
+      barrier_count: UNKNOWN
+      uses_multiple_sources: UNKNOWN
+      has_backup_source: UNKNOWN
+      grid_extension_planned: UNKNOWN
+      region: UNKNOWN
+      scenario: UNKNOWN
+      _ingested_at: UNKNOWN

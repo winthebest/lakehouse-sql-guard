@@ -1,0 +1,19 @@
+# Spec for mgrody1/Gamebot, dbt/ subdirectory (group: round2, MIT) at the pinned commit of
+# ../projects.yaml. Written from the README, docs/gamebot_warehouse_schema_guide.md and the gold
+# models' yml, before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Not applicable: the gold tables ml_features_non_edit and ml_features_hybrid are castaway x season
+# matrices with documented label columns (target_winner, target_finalist, target_jury,
+# target_placement) built from season-level bronze tables. None of the bronze tables the project
+# documents has an event-time or prediction-time column (they are keyed by season and episode
+# numbers), and the project states no cutoff: the features aggregate whole seasons. The checker needs
+# a time column on a source table, so a spec cannot be written without inventing one.
+
+realworld:
+  applicable: false
+  reason: >
+    season-level winner-prediction matrices with labels but no event-time or prediction-time column
+    in any documented source table and no documented cutoff (features aggregate whole seasons), so
+    the leakage spec cannot be written

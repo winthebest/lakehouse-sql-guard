@@ -1,0 +1,86 @@
+# Spec for LNshuti/soma, dbt/ subdirectory (group: round2, Apache-2.0) at the pinned commit of
+# ../projects.yaml. Written from the README, docs/data-pipeline.md (DDL of the raw tables),
+# docs/ml-models/demand-forecasting.md and dbt/models/sources.yml, before the checker ran on any
+# round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Assumptions the project does not settle:
+#   - The documented label is "quantity sold per time period"; demand_forecasting_features derives it
+#     (daily_quantity) from raw.sales, which is also the history of every lag and rolling feature.
+#     raw.sales is therefore the label table and the history (single-table case of the round 1
+#     specs), with `quantity` as the label column and sale_date, the time of each labelled sale, as
+#     prediction_ts.
+#   - Books and publishers are master data (docs: "Book catalog and metadata", "Publisher master
+#     data") with no event time: declared static.
+#
+# v4 additions (this file is the round 2 spec plus the fields below; nothing else is changed):
+#   time_columns: the label table is also the history, so the placeholder entry is gone;
+#   label_known_after: 0 and output_roles.label, each with the project file and line that say so.
+label_table: sales
+entity_keys: [book_id]
+prediction_ts: sale_date
+label_columns: [quantity]
+# Labels of earlier days are known when a later day is predicted: the project's own training script
+# builds quantity_lag_1 and quantity_lag_7 as `shift(1)` and `shift(7)` of daily_quantity
+# (src/models/forecasting/demand_model.py:89-90), and docs/ml-models/demand-forecasting.md:28-29
+# lists "Previous day quantity" and "Previous week quantity" as model features.
+label_known_after: 0
+output_roles:
+  # daily_quantity is the model's target column: src/models/forecasting/demand_model.py:31
+  # (`self.target_column = "daily_quantity"`); docs/ml-models/demand-forecasting.md:18
+  # ("Target: Quantity sold per time period"). The model derives it in
+  # dbt/models/ml_features/demand_forecasting_features.sql:7.
+  label: [daily_quantity]
+  # No metadata column is declared: no file of the project says which columns are not features
+  # (feature_created_at, dbt_updated_at appear only in the SQL), so those findings stay.
+time_columns:
+  sales: sale_date
+static_tables: [books, publishers]
+
+realworld:
+  training_sets: [demand_forecasting_features]
+  basis: |
+    - demand_forecasting_features is the training table of the demand forecasting model: models/ml_features
+      folder, docs/ml-models/demand-forecasting.md ("Input: Historical sales data with engineered
+      features", lag features quantity_lag_1/7/30 = previous day / week / month, "Target: Quantity sold
+      per time period").
+    - raw table columns and types: docs/data-pipeline.md (raw.sales, raw.books, raw.publishers).
+  not_training:
+    book_features: item-level aggregates for the recommender; the docs name no label for it
+    marts, analytics, experiments: reporting models
+  schema:
+    "source:raw.sales":
+      transaction_id: VARCHAR
+      book_id: VARCHAR
+      sale_date: DATE
+      quantity: INTEGER
+      unit_price: DECIMAL
+      discount_percent: DECIMAL
+      total_amount: DECIMAL
+      channel: VARCHAR
+      customer_type: VARCHAR
+      region: VARCHAR
+      created_at: TIMESTAMP
+    "source:raw.books":
+      book_id: VARCHAR
+      isbn: VARCHAR
+      title: VARCHAR
+      author: VARCHAR
+      publisher_id: VARCHAR
+      genre: VARCHAR
+      publication_year: INTEGER
+      page_count: INTEGER
+      price: DECIMAL
+      format: VARCHAR
+      language: VARCHAR
+      created_at: TIMESTAMP
+    "source:raw.publishers":
+      publisher_id: VARCHAR
+      publisher_name: VARCHAR
+      publisher_type: VARCHAR
+      country: VARCHAR
+      established_year: INTEGER
+      total_titles: INTEGER
+      active_status: VARCHAR
+      created_at: TIMESTAMP

@@ -1,0 +1,110 @@
+# Spec for gusdiaso/lh_nautical_athena (group: round2, no license) at the pinned commit of
+# ../projects.yaml (dbt project at the root, models in src/dbt). Written from the README,
+# docs/dicionario_features_ml_produto_loja_mes.md (feature dictionary) and the yml of the models in
+# src/dbt/models/ml, before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (column `cutoff`, "Mes de corte ... so entra informacao ate ele";
+# label target_3m = demand in the 3 months after the cutoff).
+#
+# Assumptions the project does not settle:
+#   - The cutoff panel (ml_cutoff_panel) carries the cutoff, the past-window sums and the label, and
+#     feeds the feature table directly, so it is the label spine and is trusted as declared; its own
+#     SQL is not checked. ml_seasonal_trend ("recalculated at each cutoff with data only up to the
+#     cutoff") is not declared: it is inlined and checked, and it reads the monthly demand table.
+#   - ml_complete_monthly_demand (one row per product x store x month, month_start_date) is the history
+#     the seasonal model reads; it is declared temporal and trusted. Product and store dimensions have
+#     no event time: static.
+#   - month_start_date and cutoff are typed DATE because the yml describes them as the first day of a
+#     month; no other type is documented.
+#   - No availability column or ingestion delay is documented.
+label_table: ml_cutoff_panel
+entity_keys: [sk_product, sk_location]
+prediction_ts: cutoff
+label_columns: [target_3m]
+time_columns:
+  ml_complete_monthly_demand: month_start_date
+static_tables: [dim_products, dim_locations]
+
+realworld:
+  training_sets: [ml_features_produto_loja_mes]
+  meta:
+    "model:ml_cutoff_panel": {role: label_spine}
+    "model:ml_complete_monthly_demand": {time_column: month_start_date}
+    "model:dim_products": {role: static}
+    "model:dim_locations": {role: static}
+  basis: |
+    - ml_features_produto_loja_mes is the training table: feature dictionary "Grao: uma linha por
+      produto (SKU) x loja x mes de corte", target_3m is "a variavel a prever", filtered to
+      is_target_complete = true for training.
+    - ml_cutoff_panel.yml: one row per product x store x cutoff month, past 12 and 3 month windows and
+      the label ("soma da demanda real da propria serie nos 3 meses seguintes ao corte").
+    - ml_complete_monthly_demand.yml: month_start_date "Primeiro dia do mes completo ao qual a demanda
+      se refere".
+  not_training:
+    agg_demand_daily, agg_demand_weekly, agg_demand_monthly, agg_demand_quarterly: demand aggregates
+    ml_seasonal_trend: feature source of the training table (inlined)
+    marts, intermediate, staging: warehouse layers
+  schema:
+    "model:ml_cutoff_panel":
+      sk_product: UNKNOWN
+      sk_location: UNKNOWN
+      cutoff: DATE
+      sum_12m: UNKNOWN
+      sum_3m: UNKNOWN
+      months_with_sale_12m: UNKNOWN
+      months_since_last_sale: UNKNOWN
+      has_full_history_12m: UNKNOWN
+      has_full_target_3m: UNKNOWN
+      target_3m: UNKNOWN
+    "model:ml_complete_monthly_demand":
+      sk_product: UNKNOWN
+      sk_location: UNKNOWN
+      month_start_date: DATE
+      demand_quantity: UNKNOWN
+    "model:dim_products":
+      sk_product: UNKNOWN
+      nk_product_variant_id: UNKNOWN
+      nk_product_id: UNKNOWN
+      sku: UNKNOWN
+      product_name: UNKNOWN
+      description: UNKNOWN
+      nk_brand_id: UNKNOWN
+      brand_name: UNKNOWN
+      brand_country: UNKNOWN
+      is_brand_active: UNKNOWN
+      nk_category_id: UNKNOWN
+      category_name: UNKNOWN
+      category_slug: UNKNOWN
+      nk_parent_category_id: UNKNOWN
+      is_category_active: UNKNOWN
+      ncm_code: UNKNOWN
+      unit_of_measure: UNKNOWN
+      sale_price: UNKNOWN
+      cost_price: UNKNOWN
+      gross_margin_amount: UNKNOWN
+      gross_margin_percentage: UNKNOWN
+      weight_kg: UNKNOWN
+      icms_rate: UNKNOWN
+      ipi_rate: UNKNOWN
+      total_tax_rate: UNKNOWN
+      is_profitable: UNKNOWN
+      is_product_active: UNKNOWN
+      is_variant_active: UNKNOWN
+      is_technical_member: UNKNOWN
+    "model:dim_locations":
+      sk_location: UNKNOWN
+      nk_location_id: UNKNOWN
+      location_name: UNKNOWN
+      location_type: UNKNOWN
+      postal_code: UNKNOWN
+      street: UNKNOWN
+      number: UNKNOWN
+      complement: UNKNOWN
+      district: UNKNOWN
+      city: UNKNOWN
+      state: UNKNOWN
+      state_name: UNKNOWN
+      region: UNKNOWN
+      country: UNKNOWN
+      is_active: UNKNOWN
+      is_technical_member: UNKNOWN

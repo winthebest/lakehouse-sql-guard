@@ -1,0 +1,59 @@
+# Spec for Helooeverybody/AI-thuc-chien, Track02_Day17_Data-Pipeline-Engineering/dbt (group: round2, no
+# license) at the pinned commit of ../projects.yaml. Written from that lab's README, dbt/models/sources.yml,
+# dbt/models/gold/schema.yml, dbt/models/silver/schema.yml and the header of gold_training_set.sql (all in
+# Vietnamese), before the checker ran on any round 2 project. The repository is a collection of course
+# labs; only this lab's dbt project is pinned (the lab on data reliability has a second project).
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Assumptions the project does not settle:
+#   - gold_training_set is "the training set of the ticket classification model" (gold schema.yml;
+#     grain one row per ticket). Its label label_resolved (1 if status is resolved or closed) is
+#     derived in the model from silver_tickets.status, "the latest state of each ticket, built from
+#     CDC". silver_tickets is the only table it reads, so it is the label table and the history
+#     (single-table case of the round 1 specs).
+#   - The lab documents no prediction time and no column as the time of the outcome, so prediction_ts
+#     names a column the project does not have; the checker is expected to say the output does not
+#     carry one.
+#   - The lab's incremental logic has deliberate defects (it is an exercise on incremental models);
+#     the spec describes the table as documented, not as the exercise intends it to be fixed.
+label_table: silver_tickets
+entity_keys: [ticket_id]
+prediction_ts: prediction_ts
+label_columns: [label_resolved]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [gold_training_set]
+  meta:
+    "model:silver_tickets": {role: label_spine}
+  basis: |
+    - gold_training_set: schema.yml (Vietnamese) says it is the training set of the ticket
+      classification model, grain one row per ticket; the README data flow ends in gold_training_set
+      -> Classifier.
+    - silver_tickets: schema.yml says it holds the latest state of each ticket, built from CDC;
+      sources.yml describes bronze_tickets_cdc as Postgres CDC with op = c / u / d.
+    - column list: the silver model's select list; no types are documented.
+  not_training:
+    gold_feature_daily: daily features for the routing agent (no label)
+    gold_doc_chunks: text chunks for a RAG index
+    silver_events, silver_transcripts, quarantine_tickets: other silver tables
+  schema:
+    "model:silver_tickets":
+      ticket_id: UNKNOWN
+      customer_id: UNKNOWN
+      customer_name: UNKNOWN
+      segment: UNKNOWN
+      priority: UNKNOWN
+      category: UNKNOWN
+      channel: UNKNOWN
+      status: UNKNOWN
+      csat: UNKNOWN
+      first_response_sec: UNKNOWN
+      subject: UNKNOWN
+      body: UNKNOWN
+      updated_at: UNKNOWN
+      _ingested_at: UNKNOWN
