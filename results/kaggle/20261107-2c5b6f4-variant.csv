@@ -1,0 +1,161 @@
+case,file,label,leak_type,also_matches,disputed,mode,class,score,leak_types,replay_status,rows_compared,rows_mismatched,detail
+kl03,leaky_1.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_1.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_1.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_2.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_2.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_2.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_3.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_3.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_3.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl04,leaky_1.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,
+kl04,leaky_1.sql,leaky,L1,,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl04,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,
+kl04,clean_1.sql,clean,,,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl04,leaky_2.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,
+kl04,leaky_2.sql,leaky,L1,,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl04,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,
+kl04,clean_2.sql,clean,,,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl04,leaky_3.sql,leaky,L3,L1,0,static,leaky,0.9000,L3,,0,0,
+kl04,leaky_3.sql,leaky,L3,L1,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl04,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,
+kl04,clean_3.sql,clean,,,0,replay,error,,,,0,0,"KeyError: 'Field ""visitstarttime"" does not exist in schema' [replay.py:257 __init__]"
+kl05,leaky_1.sql,leaky,L1,,1,static,leaky,0.9999,"L1,L6",,0,0,
+kl05,leaky_1.sql,leaky,L1,,1,replay,leaky,1.0000,"L1,L6",mismatch,30,27,
+kl05,clean_1.sql,clean,,,1,static,leaky,0.9975,L6,,0,0,
+kl05,clean_1.sql,clean,,,1,replay,leaky,0.9975,L6,pass,30,0,
+kl05,leaky_2.sql,leaky,L1,,1,static,leaky,0.9999,"L1,L6",,0,0,
+kl05,leaky_2.sql,leaky,L1,,1,replay,leaky,1.0000,"L1,L6",mismatch,30,22,
+kl05,clean_2.sql,clean,,,1,static,leaky,0.9975,L6,,0,0,
+kl05,clean_2.sql,clean,,,1,replay,leaky,0.9975,L6,pass,30,0,
+kl05,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9950,"L3,L6",,0,0,
+kl05,leaky_3.sql,leaky,L3,L1,1,replay,leaky,0.9995,"L3,L6",mismatch,30,22,
+kl05,clean_3.sql,clean,,,1,static,leaky,0.9975,L6,,0,0,
+kl05,clean_3.sql,clean,,,1,replay,leaky,0.9975,L6,pass,30,0,
+kl06,leaky_1.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_1.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_1.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_1.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_2.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_2.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_2.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_2.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_3.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_3.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_3.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_3.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_1.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_1.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_1.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_1.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_2.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_2.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_2.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_2.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_3.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_3.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_3.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_3.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl08,leaky_1.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,
+kl08,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl08,clean_1.sql,clean,,,0,static,leaky,0.9950,"L2,L6",,0,0,
+kl08,clean_1.sql,clean,,,0,replay,leaky,0.9950,"L2,L6",unverifiable,0,0,
+kl08,leaky_2.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,
+kl08,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl08,clean_2.sql,clean,,,0,static,leaky,0.9975,L6,,0,0,
+kl08,clean_2.sql,clean,,,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl08,leaky_3.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl08,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl08,clean_3.sql,clean,,,0,static,leaky,0.9950,"L2,L6",,0,0,
+kl08,clean_3.sql,clean,,,0,replay,leaky,0.9950,"L2,L6",unverifiable,0,0,
+kl09,leaky_1.sql,leaky,L1,,1,static,leaky,0.9500,L1,,0,0,
+kl09,leaky_1.sql,leaky,L1,,1,replay,leaky,0.9500,L1,unverifiable,0,0,
+kl09,clean_1.sql,clean,,,1,static,clean,0.0000,,,0,0,
+kl09,clean_1.sql,clean,,,1,replay,clean,0.0000,,unverifiable,0,0,
+kl09,leaky_2.sql,leaky,L1,,1,static,leaky,0.9000,L2,,0,0,
+kl09,leaky_2.sql,leaky,L1,,1,replay,leaky,0.9000,L2,unverifiable,0,0,
+kl09,clean_2.sql,clean,,,1,static,leaky,0.9000,L2,,0,0,
+kl09,clean_2.sql,clean,,,1,replay,leaky,0.9000,L2,unverifiable,0,0,
+kl09,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9000,L3,,0,0,
+kl09,leaky_3.sql,leaky,L3,L1,1,replay,leaky,0.9000,L3,unverifiable,0,0,
+kl09,clean_3.sql,clean,,,1,static,clean,0.0000,,,0,0,
+kl09,clean_3.sql,clean,,,1,replay,clean,0.0000,,unverifiable,0,0,
+kl10,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl10,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl10,clean_1.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl10,clean_1.sql,clean,,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl10,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl10,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl10,clean_2.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl10,clean_2.sql,clean,,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl10,leaky_3.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,
+kl10,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl10,clean_3.sql,clean,,,0,static,leaky,0.9975,L6,,0,0,
+kl10,clean_3.sql,clean,,,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl11,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl11,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl11,clean_1.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl11,clean_1.sql,clean,,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl11,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl11,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl11,clean_2.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl11,clean_2.sql,clean,,,0,replay,leaky,0.9500,L6,unverifiable,0,0,
+kl11,leaky_3.sql,leaky,L6,,0,static,leaky,0.9998,"L2,L6",,0,0,
+kl11,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9998,"L2,L6",unverifiable,0,0,
+kl11,clean_3.sql,clean,,,0,static,leaky,0.9998,"L2,L6",,0,0,
+kl11,clean_3.sql,clean,,,0,replay,leaky,0.9998,"L2,L6",unverifiable,0,0,
+kl12,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl12,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl12,clean_1.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl12,clean_1.sql,clean,,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl12,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl12,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl12,clean_2.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl12,clean_2.sql,clean,,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl12,leaky_3.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,
+kl12,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl12,clean_3.sql,clean,,,0,static,leaky,0.9500,L6,,0,0,
+kl12,clean_3.sql,clean,,,0,replay,leaky,0.9500,L6,pass,51,0,
+kl14,leaky_1.sql,leaky,L3,L1,1,static,leaky,0.9000,L3,,0,0,
+kl14,leaky_1.sql,leaky,L3,L1,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl14,clean_1.sql,clean,,,1,static,clean,0.0000,,,0,0,
+kl14,clean_1.sql,clean,,,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl14,leaky_2.sql,leaky,L6,L3,1,static,leaky,0.9998,"L2,L6",,0,0,
+kl14,leaky_2.sql,leaky,L6,L3,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl14,clean_2.sql,clean,,,1,static,leaky,0.9998,"L2,L6",,0,0,
+kl14,clean_2.sql,clean,,,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl14,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9000,L2,,0,0,
+kl14,leaky_3.sql,leaky,L3,L1,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl14,clean_3.sql,clean,,,1,static,clean,0.0000,,,0,0,
+kl14,clean_3.sql,clean,,,1,replay,error,,,,0,0,"KeyError: 'Field ""transactiondt"" does not exist in schema' [replay.py:257 __init__]"
+kl15,leaky_1.sql,leaky,L6,L5,0,static,leaky,0.9975,L6,,0,0,
+kl15,leaky_1.sql,leaky,L6,L5,0,replay,leaky,0.9975,L6,unverifiable,0,0,
+kl15,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,
+kl15,clean_1.sql,clean,,,0,replay,clean,0.0000,,unverifiable,0,0,
+kl15,leaky_2.sql,leaky,L6,L1,0,static,leaky,0.9999,"L1,L6",,0,0,
+kl15,leaky_2.sql,leaky,L6,L1,0,replay,leaky,0.9999,"L1,L6",unverifiable,0,0,
+kl15,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,
+kl15,clean_2.sql,clean,,,0,replay,clean,0.0000,,unverifiable,0,0,
+kl16,leaky_1.sql,leaky,L6,L3,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_1.sql,leaky,L6,L3,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_1.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_2.sql,leaky,L5,L6,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_2.sql,leaky,L5,L6,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_2.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_3.sql,leaky,L5,L6,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_3.sql,leaky,L5,L6,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_3.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl17,leaky_1.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,
+kl17,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9975,L6,pass,25,0,
+kl17,clean_1.sql,clean,,,0,static,leaky,0.9975,L6,,0,0,
+kl17,clean_1.sql,clean,,,0,replay,leaky,0.9975,L6,pass,25,0,
+kl17,leaky_2.sql,leaky,L1,L3,0,static,leaky,0.9998,"L3,L6",,0,0,
+kl17,leaky_2.sql,leaky,L1,L3,0,replay,leaky,1.0000,"L3,L6",mismatch,25,19,
+kl17,clean_2.sql,clean,,,0,static,leaky,0.9975,L6,,0,0,
+kl17,clean_2.sql,clean,,,0,replay,leaky,0.9975,L6,pass,25,0,
