@@ -178,3 +178,71 @@ expectations:
       The case author's four questions are answered by what the checker does: integer time columns
       and the unit (not expressible; no field carries it), empty entity_keys (rejected), 0 seconds
       (rejected), schema format (converted by the harness).
+
+# --- Secondary variant, registered after the primary run -----------------------------------------
+# The primary run (above, results/kaggle/20261107-6bc64b8.*) stands unchanged: it is the result of
+# the checker on the cases as authored. Its outcome was 80 of 80 queries rejected at spec load, so
+# it says nothing about the rules. This section registers a second, clearly labelled run that
+# applies the one workaround the repository already uses, so that the rules are measured on the cases
+# whose specs the checker accepts. It is committed before that run and before its code.
+variant_spec_workaround:
+  status: "secondary; not an evaluation of the cases as authored"
+  precedent: >
+    docs/limitations.md ("Real-world dbt projects"): projects that keep the label and all history
+    in one table declare a placeholder temporal table that no model reads, because the spec
+    requires one temporal table. bench/realworld/specs/*.yaml write it as
+    `time_columns: {unused_placeholder_events: occurred_at}`.
+  spec_rewrite:
+    rule: >
+      The spec given to the checker is the case's spec.yaml with one change to `time_columns`: the
+      entry of the label table is removed, and if the mapping is then empty it becomes
+      {unused_placeholder_events: occurred_at}. The label table stays the label table. Every other
+      field (entity_keys, prediction_ts, label_columns, static_tables, outcome_columns, boundary,
+      label_known_after, availability_columns, max_ingest_delay, relations) keeps its value.
+    not_changed: >
+      No dummy key, no changed duration, no change to a case file, schema.yaml, SQL, label, or
+      generator. The placeholder table is not added to the --schema file or to the warehouse, as in
+      the real-world specs. The rewrite is code in evaluate.py (flag --variant) with a test; the
+      rewritten specs are written to the temporary work directory, not into the cases.
+  placeholder_probe: >
+    Run before this section was written, on non-case data: the synthetic churn world of
+    bench/leakage (spec.yaml) with and without an extra `unused_placeholder_events: occurred_at`
+    entry, one leaky and one clean query, statically and with replay. Verdict, score, leak types and
+    replay status were identical in all eight pairs. The checker was not run on any case under this
+    rewrite before this commit.
+  runs: >
+    Exactly as in `runs` above (static and replay, 80 queries each, same CLI, timeout, warehouses),
+    with the rewritten spec. Results go to results/kaggle/<date>-<sha>-variant.{json,csv,md}; the
+    primary files are not touched. One run.
+  expected_errors:
+    - "kl03 and kl16: empty entity_keys (rejected before and after the rewrite)"
+    - "kl06 and kl07: label_known_after 0 seconds (rejected before and after the rewrite)"
+    - "These four cases (24 queries) stay errors in the variant and are reported as errors."
+    - "The other ten cases (56 queries, 28 leaky and 28 clean) are expected to load."
+  expected_limitation: >
+    With the label table no longer declared as temporal, the checker does not know it holds
+    history. Features computed over the label table itself (same-table self-joins, window frames,
+    aggregates over the spine) may therefore be invisible to it or classified differently from the
+    way a separate history table would be. Misses on those queries are a limit of the workaround as
+    much as of the rules, and the variant cannot separate the two.
+  expectations_from_code:
+    # Predictions from reading analysis.py and replay.py, not results.
+    - >
+      Replay: the replayer keeps only datetime-typed prediction times. For the cases whose
+      prediction column is an integer (kl04, kl08, kl14) or a DATE (kl09, kl10, kl11, kl15), replay
+      is expected to end unverifiable ("no label prediction time appears in the query output"),
+      which by itself does not change the static verdict. Only kl05, kl12 and kl17 (TIMESTAMP) are
+      expected to be replayed.
+    - >
+      Integer time columns: a bare number only counts as seconds when both sides went through
+      epoch(), so integer-time bounds are expected to be misread or ignored.
+  metrics: >
+    The same as the primary run for every rule and mode, over all 14 cases (80 queries), with and
+    without the disputed cases (kl05, kl09, kl14). In addition, because the four rejected cases
+    contribute only errors, the same tables over the ten cases the rewrite lets load (kl04, kl05,
+    kl08, kl09, kl10, kl11, kl12, kl14, kl15, kl17; 56 queries), with and without the disputed
+    cases (7 cases, 38 queries). Counts of leaky, clean, unverifiable and error outcomes are
+    reported separately as before; no threshold, weight or seed changes.
+  not_done:
+    - "no further rewrite if a case still errors or a query is misjudged: no second variant is run after seeing these results"
+    - "the variant never replaces or is merged into the primary numbers"
