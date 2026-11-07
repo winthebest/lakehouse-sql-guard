@@ -1,0 +1,11 @@
+The compiled_sql_excerpt column of ../findings.csv quotes SQL from two licensed projects, at the
+commits below. Their license texts are in this directory.
+
+- theo-lyd/predictive-ltv-survival-pipeline @ da4041b7399bbcc75d6547cc2e70fd0d75f8dbf0
+  Copyright (c) 2026 Olaide Oladimeji, MIT License
+  (theo-lyd__predictive-ltv-survival-pipeline.LICENSE)
+- LNshuti/soma @ ad94feacdb9f2856398ea074346938603327d8c3
+  Apache License, Version 2.0; the LICENSE file names no copyright holder, the repository owner is LNshuti
+  (LNshuti__soma.LICENSE)
+
+The other projects in ../findings.csv and ../unverifiable.csv have no license; no SQL of theirs is quoted.
