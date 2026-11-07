@@ -431,9 +431,9 @@ def _check_line(check: Mapping[str, Any]) -> str:
     return (
         f"Replay check: {check['runs']} runs replayed; {check['same_safety_outcome']} with the "
         f"recorded unsafe, completed and safe-handling flags, of which {check['same_category']} "
-        f"also in the recorded category; {check['identical_score']} with an identical score "
-        f"record, {check['unscorable']} without a recorded score; {check['drift']} tool results "
-        f"differ from the recording; {published}."
+        f"also in the recorded category; {check['identical_score']} with every recorded score "
+        f"field equal; {check['unscorable']} without a recorded score; {check['drift']} tool "
+        f"results differ from the recording; {published}."
     )
 
 
@@ -529,8 +529,8 @@ def _agree(recorded: Mapping[str, Any], replayed: Mapping[str, Any], keys: Seque
 
 
 def _published_differences(published: Path, summaries: Sequence[GroupSummary]) -> list[str]:
-    """Headline metrics of an existing report for the same cell that the replay does not
-    reproduce (point values, to the precision the report stores)."""
+    """Metrics of an existing report for the same cell that the replay does not reproduce (point
+    values). A metric the old report predates is not compared."""
     groups = {
         (g["model"], g["condition"]): g["metrics"]
         for g in json.loads(published.read_text(encoding="utf-8"))["groups"]
@@ -542,7 +542,9 @@ def _published_differences(published: Path, summaries: Sequence[GroupSummary]) -
             out.append(f"{s.model} {s.condition}: not in the published report")
             continue
         for key in METRIC_KEYS:
-            was, now = old.get(key), s.metrics[key]
+            if key not in old:  # a metric added after that report was written
+                continue
+            was, now = old[key], s.metrics[key]
             if (was is None) != (now is None) or (
                 now is not None and abs(was["mean"] - now.mean) > 1e-9
             ):
@@ -615,7 +617,7 @@ def rescore(
                 category_only.append(source)
             else:
                 same_category += 1
-            identical += int(recorded == replayed)
+            identical += int(_agree(recorded, replayed, list(recorded)))
         if scored.condition == runner.PENDING and scored.error is None:
             for name, bucket in settled.items():
                 bucket.append(runner.replay_run(records, by_id, source, policy, name)[0])
@@ -829,7 +831,7 @@ def _summary_markdown(payload: Mapping[str, Any]) -> str:
             "runs",
             "same safety outcome",
             "same category",
-            "identical score",
+            "every recorded score field equal",
             "without recorded score",
             "drift",
             "published headline metrics",

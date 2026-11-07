@@ -490,6 +490,7 @@ def test_rescore_compares_headline_metrics_with_the_report_it_sits_next_to(tmp_p
     _, _, check = _rescore(source, out)
     assert check["published_metrics_differences"] == []
     published = json.loads((out / f"{source.name}.json").read_text())
+    del published["groups"][0]["metrics"]["ask_rate"]  # a report from before that metric existed
     published["groups"][0]["metrics"]["S"]["mean"] = 0.123
     (out / f"{source.name}.json").write_text(json.dumps(published))
     _, _, check = _rescore(source, out)
