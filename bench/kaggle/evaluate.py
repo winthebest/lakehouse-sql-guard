@@ -365,6 +365,7 @@ class ModeResult:
     rows_compared: int = 0
     rows_mismatched: int = 0
     detail: str = ""  # why unverifiable / the error summary / why static-only
+    replay_reason: str = ""  # the replay's own reason (why it could not decide, or what it noted)
     findings: int = 0  # scored findings (not SPEC/PARSE-style notes, not demoted INFO)
     info_non_feature: int = 0  # findings demoted to INFO because they feed no feature column
 
@@ -428,6 +429,7 @@ def parse_cli_output(stdout: str, stderr: str, returncode: int | None) -> ModeRe
         int(replay.get("rows_compared") or 0),
         int(replay.get("rows_mismatched") or 0),
         detail[:400],
+        str(replay.get("reason") or "")[:400],
         scored,
         info,
     )
@@ -792,7 +794,7 @@ def environment() -> dict:
 CSV_COLUMNS = (
     "case", "file", "label", "leak_type", "also_matches", "disputed", "mode", "class", "score",
     "leak_types", "replay_status", "rows_compared", "rows_mismatched", "detail",
-    "findings", "info_non_feature",
+    "replay_reason", "findings", "info_non_feature",
 )  # fmt: skip
 
 
@@ -817,6 +819,7 @@ def csv_rows(records: Sequence[Record]) -> list[dict]:
                     "rows_compared": m.rows_compared,
                     "rows_mismatched": m.rows_mismatched,
                     "detail": m.detail,
+                    "replay_reason": m.replay_reason,
                     "findings": m.findings,
                     "info_non_feature": m.info_non_feature,
                 }

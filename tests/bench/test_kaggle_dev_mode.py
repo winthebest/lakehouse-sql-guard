@@ -10,18 +10,9 @@ import yaml
 from bench.kaggle import evaluate as ev
 
 
-def cli(findings):
-    return json.dumps(
-        [
-            {
-                "file": "q.sql",
-                "verdict": "leaky",
-                "score": 0.9,
-                "leak_types": [],
-                "findings": findings,
-            }
-        ]
-    )
+def cli(findings, replay=None):
+    entry = {"file": "q.sql", "verdict": "leaky", "score": 0.9, "leak_types": []}
+    return json.dumps([{**entry, "findings": findings, **({"replay": replay} if replay else {})}])
 
 
 def test_demoted_findings_are_counted_apart_from_scored_ones_and_notes():
@@ -35,6 +26,13 @@ def test_demoted_findings_are_counted_apart_from_scored_ones_and_notes():
     result = ev.parse_cli_output(cli(findings), "", 1)
     assert (result.findings, result.info_non_feature) == (2, 2)
     assert {"findings", "info_non_feature"} <= set(ev.CSV_COLUMNS)
+
+
+def test_the_replay_reason_is_kept_for_every_verdict():
+    reason = "integer prediction time without a declared unit"
+    result = ev.parse_cli_output(cli([], {"status": "unverifiable", "reason": reason}), "", 0)
+    assert result.replay_reason == reason and result.replay_status == "unverifiable"
+    assert "replay_reason" in ev.CSV_COLUMNS
 
 
 def test_a_dev_run_does_not_need_the_registered_source_tree(monkeypatch):
