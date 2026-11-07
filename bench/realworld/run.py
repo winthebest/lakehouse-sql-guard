@@ -98,9 +98,16 @@ def run_checker(
 
 
 def check_project(
-    project: Project, spec: dict[str, Any], prepared: bool = False, specs: Path = SPECS
+    project: Project,
+    spec: dict[str, Any],
+    prepared: bool = False,
+    specs: Path = SPECS,
+    info_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list, list]:
     """Result record of one project and its finding rows (full view).
+
+    The rows returned are scored findings. Findings the checker demoted to INFO (they feed no
+    feature column) are not among them; they are appended to `info_rows` when it is given.
 
     `prepared`: the project directory already holds the files to check (a mutant), so nothing is
     fetched and `dbt deps` is not repeated.
@@ -192,7 +199,9 @@ def check_project(
         "unverifiable": sum(1 for m in checked_models if m["verdict"] == "unverifiable"),
         "errors": sum(1 for m in checked_models if m["verdict"] == "error"),
     }
-    return record, leaks + info, unchecked
+    if info_rows is not None:
+        info_rows += info
+    return record, leaks, unchecked
 
 
 def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -267,10 +276,12 @@ def main(argv: list[str] | None = None) -> int:
     full_rows: list[dict[str, Any]] = []
     public_rows: list[dict[str, Any]] = []
     unchecked_public: list[dict[str, Any]] = []
+    info_public: list[dict[str, Any]] = []
     for project in projects:
+        shown: list[dict[str, Any]] = []
         try:
             record, leaks, unchecked = check_project(
-                project, load_spec(project, args.specs_dir), specs=args.specs_dir
+                project, load_spec(project, args.specs_dir), specs=args.specs_dir, info_rows=shown
             )
         except (
             rows.RealworldError,
@@ -287,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         full_rows += leaks
         public_rows += [rows.public_row(r, project.publish) for r in leaks]
         unchecked_public += [rows.public_row(r, project.publish) for r in unchecked]
+        info_public += [rows.public_row(r, project.publish) for r in shown]
         print(
             f"{project.group:4} {project.repo}: {record['status']}"
             + (
@@ -321,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out / "unverifiable.csv",
         rows.keep_adjudication(unchecked_public, args.out / "unverifiable.csv", ran),
     )
+    rows.write_csv(args.out / "info-non-feature.csv", info_public)
     rows.write_csv(args.out / "models.csv", rows.model_rows(records), rows.MODEL_COLUMNS)
     rows.write_csv(args.full_csv, rows.keep_adjudication(full_rows, args.full_csv, ran))
     print(json.dumps(result["summary"], indent=2))

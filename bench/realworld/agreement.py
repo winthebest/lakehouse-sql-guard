@@ -118,3 +118,43 @@ def burden(findings: Sequence[dict[str, Any]], models: Sequence[dict[str, Any]])
         "verdict_coverage": round(len(decided) / len(models), 4) if models else None,
         "findings_per_model": round(n / len(models), 3) if models else None,
     }
+
+
+def finding_key(row: dict[str, Any]) -> tuple[str, str, str, str, str]:
+    """What names a finding across two runs whose finding numbers differ: the project, the
+    training model, the rule, the flagged location and the start of the message."""
+    return (
+        str(row.get("project", "")),
+        str(row.get("training_model", "")),
+        str(row.get("rule", "")),
+        str(row.get("location", "")),
+        str(row.get("message", ""))[:80],
+    )
+
+
+def carry_verdicts(
+    new: Sequence[dict[str, Any]], old: Sequence[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(rows that already have a hand verdict, rows that are new) of `new`.
+
+    A row that matches an adjudicated row of `old` by `finding_key` takes its controller, reviewer,
+    final and reason cells. Two old rows with one key and different verdicts leave the new row
+    unjudged, to be looked at again. Rows with the same key in `new` take the verdict in turn.
+    """
+    pool: dict[tuple, list[dict[str, Any]]] = {}
+    for row in old:
+        if str(row.get("final") or "").strip():
+            pool.setdefault(finding_key(row), []).append(row)
+    disputed = {key for key, rows in pool.items() if len({r["final"] for r in rows}) > 1}
+    carried: list[dict[str, Any]] = []
+    fresh: list[dict[str, Any]] = []
+    for row in new:
+        key = finding_key(row)
+        if key in disputed or not pool.get(key):
+            fresh.append(row)
+            continue
+        source = pool[key].pop(0)
+        carried.append(
+            row | {c: source.get(c, "") for c in ("controller", "reviewer", "final", "reason")}
+        )
+    return carried, fresh

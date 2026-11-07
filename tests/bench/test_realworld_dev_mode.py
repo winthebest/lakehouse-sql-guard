@@ -172,3 +172,52 @@ def test_burden_counts_strict_loose_effective_fp_and_coverage():
     assert got["findings_per_model"] == pytest.approx(34 / 12, abs=1e-3)
     assert agreement.burden([], [])["precision_strict"] is None
     assert math.isclose(agreement.burden([], [])["findings"], 0)
+
+
+# --- verdicts carried to a new run -------------------------------------------------------------
+
+
+def row(rule="L6", location="x", message="m" * 100, number=1, final="", **cells):
+    return {
+        "id": f"o/p#m#{number}",
+        "project": "o/p",
+        "training_model": "m",
+        "rule": rule,
+        "location": location,
+        "message": message,
+        "controller": cells.get("controller", ""),
+        "reviewer": cells.get("reviewer", ""),
+        "final": final,
+        "reason": cells.get("reason", ""),
+    }
+
+
+def test_a_verdict_follows_the_finding_even_when_its_number_changed():
+    old = [row(number=3, final="false", controller="false", reviewer="false", reason="staging")]
+    carried, fresh = agreement.carry_verdicts([row(number=1)], old)
+    assert fresh == [] and carried[0]["final"] == "false" and carried[0]["reason"] == "staging"
+    assert carried[0]["id"] == "o/p#m#1"
+
+
+def test_a_finding_that_is_not_in_the_old_run_is_new():
+    carried, fresh = agreement.carry_verdicts(
+        [row(location="y")], [row(location="x", final="true")]
+    )
+    assert carried == [] and len(fresh) == 1
+
+
+def test_an_unjudged_old_row_gives_nothing_to_carry():
+    carried, fresh = agreement.carry_verdicts([row()], [row(final="")])
+    assert carried == [] and len(fresh) == 1
+
+
+def test_two_old_rows_that_disagree_leave_the_new_one_to_be_judged_again():
+    old = [row(number=1, final="true"), row(number=2, final="false")]
+    carried, fresh = agreement.carry_verdicts([row(number=5)], old)
+    assert carried == [] and len(fresh) == 1
+
+
+def test_rows_with_one_key_take_the_verdicts_in_turn():
+    old = [row(number=1, final="false"), row(number=2, final="false")]
+    carried, fresh = agreement.carry_verdicts([row(number=7), row(number=8), row(number=9)], old)
+    assert len(carried) == 2 and len(fresh) == 1
