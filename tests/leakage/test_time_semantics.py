@@ -384,3 +384,328 @@ FROM sp"""
     assert check(sql, MS_SPEC, MS_SCHEMA) == ("clean", set())
 
 
+# --- windows that read only the labels of earlier rows -------------------------------------------
+
+KEY_PART = "PARTITION BY user_id ORDER BY ts"
+SEL_PLAYS = "SELECT user_id, ts, correct"
+
+
+def windowed(expr: str, source: str = "plays") -> str:
+    return f"{SEL_PLAYS}, {expr} AS feat FROM {source}"
+
+
+def over(func: str, frame: str = "", partition: str = "PARTITION BY user_id", order: str = "ts"):
+    return f"{func} OVER ({partition} ORDER BY {order}{' ' + frame if frame else ''})"
+
+
+PAST_CLEAN = {
+    "previous label": windowed(over("LAG(correct, 1)")),
+    "label seven rows back": windowed(over("LAG(correct, 7)")),
+    "previous label, offset left to its default": windowed(over("LAG(correct)")),
+    "previous label with a constant default": windowed(over("LAG(correct, 1, 0)")),
+    "running rate that stops one row before": windowed(
+        over("AVG(correct)", "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING")
+    ),
+    "trailing sum that stops two rows before": windowed(
+        over("SUM(correct)", "ROWS BETWEEN 7 PRECEDING AND 2 PRECEDING")
+    ),
+    "first label of the history": windowed(
+        over("FIRST_VALUE(correct)", "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING")
+    ),
+    "the window over a finer partition": windowed(
+        over("LAG(correct, 1)", partition="PARTITION BY user_id, task")
+    ),
+    "a filter on the rows the window reads": (
+        f"{SEL_PLAYS}, {over('LAG(correct, 1)')} AS feat FROM plays WHERE task = 0"
+    ),
+    "range that ends an interval before the row": windowed(
+        over("AVG(correct)", "RANGE BETWEEN INTERVAL 7 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING")
+    ),
+    "a named window": (
+        f"{SEL_PLAYS}, AVG(correct) OVER w AS feat FROM plays WINDOW w AS "
+        "(PARTITION BY user_id ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
+    ),
+    "through a cte": (
+        f"WITH p AS (SELECT * FROM plays) {SEL_PLAYS}, {over('LAG(correct, 1)')} AS feat FROM p"
+    ),
+}
+PAST_LEAKY = {
+    "frame reaches the current row": windowed(
+        over("AVG(correct)", "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW")
+    ),
+    "trailing frame whose end is left to the default": windowed(
+        over("AVG(correct)", "ROWS 3 PRECEDING")
+    ),
+    "default frame includes the row": windowed(over("AVG(correct)")),
+    "frame looks ahead": windowed(over("AVG(correct)", "ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING")),
+    "next label": windowed(over("LEAD(correct, 1)")),
+    "lag by zero rows is the row itself": windowed(over("LAG(correct, 0)")),
+    "lag by a negative number reads ahead": windowed(over("LAG(correct, -1)")),
+    "lag by a column": windowed(over("LAG(correct, task)")),
+    "label as the default of the lag": windowed(over("LAG(correct, 1, correct)")),
+    "descending order reads later rows": windowed(over("LAG(correct, 1)", order="ts DESC")),
+    "ties broken by another column": windowed(
+        over(
+            "AVG(correct)",
+            "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING",
+            order="ts, task",
+        )
+    ),
+    "ordered by something that is not the prediction time": windowed(
+        over("LAG(correct, 1)", order="task")
+    ),
+    "no partition while the spec has a key": windowed(over("LAG(correct, 1)", partition="")),
+    "previous label plus the label itself": windowed(over("LAG(correct, 1)") + " + correct"),
+    "label inside the partition": windowed(
+        over("LAG(correct, 1)", partition="PARTITION BY user_id, correct")
+    ),
+    "a window over a join": (
+        "SELECT p.user_id, p.ts, p.correct, "
+        + over("LAG(p.correct, 1)", partition="PARTITION BY p.user_id", order="p.ts")
+        + " AS feat FROM plays p JOIN plays q ON q.user_id = p.user_id AND q.ts = p.ts"
+    ),
+    "rows frame of a range": windowed(
+        over("AVG(correct)", "RANGE BETWEEN INTERVAL 7 DAY PRECEDING AND CURRENT ROW")
+    ),
+    "an aggregate that is not windowed": (
+        f"{SEL_PLAYS}, (SELECT AVG(h.correct) FROM plays h "
+        "WHERE h.user_id = plays.user_id) AS feat FROM plays"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", PAST_CLEAN)
+def test_a_window_over_earlier_labels_is_not_a_use_of_the_target(name):
+    assert check(PAST_CLEAN[name], with_delay("0 seconds"), PLAYS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("name", PAST_LEAKY)
+def test_a_window_that_can_reach_the_row_or_a_later_one_is_still_a_use_of_the_target(name):
+    verdict, rules = check(PAST_LEAKY[name], with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+@pytest.mark.parametrize("delay", [None, "1 hour", "14 days"])
+@pytest.mark.parametrize("name", ["previous label", "trailing sum that stops two rows before"])
+def test_earlier_labels_are_only_known_when_the_delay_is_zero(name, delay):
+    spec = PLAYS_SPEC if delay is None else with_delay(delay)
+    verdict, rules = check(PAST_CLEAN[name], spec, PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+KEYS_TWO = {**PLAYS_SPEC, "entity_keys": ["user_id", "task"], "label_known_after": "0 seconds"}
+
+
+def test_a_window_partitioned_by_part_of_the_key_mixes_rows_stamped_alike():
+    # (user_id, task, ts) is the row; ordering within user_id alone leaves rows of two tasks tied
+    whole = windowed(over("LAG(correct, 1)", partition="PARTITION BY user_id, task"))
+    part = windowed(over("LAG(correct, 1)", partition="PARTITION BY user_id"))
+    assert check(whole, KEYS_TWO, PLAYS_SCHEMA) == ("clean", set())
+    verdict, rules = check(part, KEYS_TWO, PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+def test_the_window_of_a_series_needs_no_partition():
+    spec = {**SERIES_SPEC, "label_known_after": "0 seconds"}
+    clean = "SELECT ts, target, LAG(target, 1) OVER (ORDER BY ts) AS prev FROM bars"
+    leaky = "SELECT ts, target, LAG(target, 1) OVER (ORDER BY ts) + target AS prev FROM bars"
+    assert check(clean, spec, SERIES_SCHEMA) == ("clean", set())
+    assert check(leaky, spec, SERIES_SCHEMA)[1] == {"L6"}
+    ahead = "SELECT ts, target, LEAD(target, 1) OVER (ORDER BY ts) AS nxt FROM bars"
+    assert "L6" in check(ahead, spec, SERIES_SCHEMA)[1]
+
+
+RANGE_ROWS = {
+    "an interval longer than the delay": (
+        "RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 15 DAY PRECEDING",
+        "clean",
+    ),
+    "an interval shorter than the delay": (
+        "RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 7 DAY PRECEDING",
+        "leaky",
+    ),
+    "an interval equal to the delay": (
+        "RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 14 DAY PRECEDING",
+        "leaky",
+    ),
+    "a frame that ends at the row": (
+        "RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND CURRENT ROW",
+        "leaky",
+    ),
+    "rows are not time": ("ROWS BETWEEN 30 PRECEDING AND 15 PRECEDING", "leaky"),
+}
+
+
+@pytest.mark.parametrize("name", RANGE_ROWS)
+def test_a_range_window_is_known_once_its_end_is_older_than_the_label_delay(name):
+    frame, expected = RANGE_ROWS[name]
+    sql = windowed(over("AVG(correct)", frame))
+    verdict, rules = check(sql, with_delay("14 days"), PLAYS_SCHEMA)
+    assert verdict == ("clean" if expected == "clean" else "leaky")
+    assert ("L6" in rules) == (expected == "leaky")
+
+
+def test_an_interval_equal_to_the_delay_is_known_when_the_boundary_is_inclusive():
+    sql = windowed(
+        over(
+            "AVG(correct)",
+            "RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 14 DAY PRECEDING",
+        )
+    )
+    spec = {**with_delay("14 days"), "boundary": "inclusive"}
+    assert check(sql, spec, PLAYS_SCHEMA) == ("clean", set())
+
+
+MS_PLAYS_SPEC = {
+    **PLAYS_SPEC,
+    "time_units": {"plays": "milliseconds"},
+}
+MS_PLAYS_SCHEMA = {"plays": {**PLAYS_SCHEMA["plays"], "ts": "BIGINT"}}
+RANGE_MS = {
+    "one millisecond before, no delay": (
+        "RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING",
+        "0 seconds",
+        True,
+    ),
+    "row itself, no delay": (
+        "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+        "0 seconds",
+        False,
+    ),
+    "a day and a millisecond, a day of delay": (
+        "RANGE BETWEEN UNBOUNDED PRECEDING AND 86400001 PRECEDING",
+        "1 day",
+        True,
+    ),
+    "a second, a day of delay": (
+        "RANGE BETWEEN UNBOUNDED PRECEDING AND 1000 PRECEDING",
+        "1 day",
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", RANGE_MS)
+def test_a_range_over_an_integer_time_counts_its_offset_in_the_declared_unit(name):
+    frame, delay, safe = RANGE_MS[name]
+    sql = windowed(over("AVG(correct)", frame))
+    verdict, rules = check(sql, {**MS_PLAYS_SPEC, "label_known_after": delay}, MS_PLAYS_SCHEMA)
+    assert (verdict == "clean") is safe
+    assert ("L6" in rules) is not safe
+
+
+def test_a_range_offset_that_is_not_a_constant_proves_nothing():
+    sql = windowed(over("AVG(correct)", "RANGE BETWEEN UNBOUNDED PRECEDING AND task PRECEDING"))
+    for spec in ({**MS_PLAYS_SPEC, "label_known_after": "1 day"}, with_delay("0 seconds")):
+        verdict, rules = check(sql, spec, MS_PLAYS_SCHEMA)
+        assert verdict == "leaky" and "L6" in rules
+
+
+def test_a_range_offset_in_an_unknown_unit_proves_nothing_against_a_positive_delay():
+    sql = windowed(over("AVG(correct)", "RANGE BETWEEN UNBOUNDED PRECEDING AND 86400001 PRECEDING"))
+    spec = {**PLAYS_SPEC, "label_known_after": "1 day"}
+    assert check(sql, spec, MS_PLAYS_SCHEMA)[1] >= {"L6"}
+
+
+# labels summed per row of the series first, then lagged (a daily total of a transaction label)
+DAILY = """WITH daily AS (
+  SELECT user_id, ts, SUM(correct) AS total FROM plays GROUP BY user_id, ts)
+SELECT user_id, ts, {expr} AS feat FROM daily"""
+GROUPED_CLEAN = {
+    "daily total of a week ago": over("LAG(total, 7)"),
+    "trailing total that stops a day before": over(
+        "AVG(total)", "ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING"
+    ),
+}
+GROUPED_LEAKY = {
+    "average that includes the day": over("AVG(total)", "ROWS BETWEEN 7 PRECEDING AND CURRENT ROW"),
+    "growth against a week ago reads the day itself": f"total / {over('LAG(total, 7)')} - 1",
+    "total passed through": "total",
+    "day total used beside the lag": f"{over('LAG(total, 7)')} + total",
+}
+
+
+@pytest.mark.parametrize("name", GROUPED_CLEAN)
+def test_a_label_summed_per_prediction_row_may_be_read_through_earlier_rows(name):
+    sql = DAILY.format(expr=GROUPED_CLEAN[name])
+    assert check(sql, with_delay("0 seconds"), PLAYS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("name", GROUPED_LEAKY)
+def test_a_label_summed_per_prediction_row_is_still_the_target_on_the_row_itself(name):
+    verdict, rules = check(
+        DAILY.format(expr=GROUPED_LEAKY[name]), with_delay("0 seconds"), PLAYS_SCHEMA
+    )
+    assert verdict == "leaky" and "L6" in rules
+
+
+GROUPED_NOT_UNIQUE = {
+    "grouped finer than the row": (
+        "WITH daily AS (SELECT user_id, ts, task, SUM(correct) AS total FROM plays "
+        "GROUP BY user_id, ts, task) "
+        f"SELECT user_id, ts, {over('LAG(total, 1)')} AS feat FROM daily"
+    ),
+    "grouped coarser than the row": (
+        "WITH daily AS (SELECT user_id, MAX(ts) AS ts, SUM(correct) AS total FROM plays "
+        "GROUP BY user_id) "
+        f"SELECT user_id, ts, {over('LAG(total, 1)')} AS feat FROM daily"
+    ),
+    "not grouped, windowed over every row": (
+        "WITH daily AS (SELECT user_id, ts, correct + 1 AS total FROM plays) "
+        f"SELECT user_id, ts, {over('LAG(total, 1)')} AS feat FROM daily"
+    ),
+    "grouped but never read through a window": (
+        "WITH daily AS (SELECT user_id, ts, SUM(correct) AS total FROM plays GROUP BY user_id, ts) "
+        "SELECT user_id, ts, total AS feat FROM daily"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", GROUPED_NOT_UNIQUE)
+def test_rows_that_are_not_one_per_key_and_time_stay_a_use_of_the_target(name):
+    verdict, rules = check(GROUPED_NOT_UNIQUE[name], with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+# --- column lineage of a window over earlier labels ---------------------------------------------
+
+
+def lineage_sources(sql: str, spec: dict, schema: dict) -> dict[str, set[str]]:
+    from sqlguard.core.lineage import full_lineage
+    from sqlguard.leakage.analysis import analyze
+
+    parsed = LeakageSpec.from_dict(spec)
+    analysis = analyze(sql, parsed, schema)
+    tree, lineage_schema = analysis.lineage_input()
+    found = full_lineage(tree, lineage_schema, parsed.dialect)
+    return {c.lower(): {f"{s.table}.{s.column}".lower() for s in srcs} for c, srcs in found.items()}
+
+
+def test_lineage_of_a_window_over_earlier_labels_has_no_label_source():
+    sql = windowed(over("AVG(correct)", "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"))
+    got = lineage_sources(sql, with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert "plays.correct" not in got["feat"]
+    assert got["correct"] == {"plays.correct"}  # the passthrough label is still the label
+
+
+def test_lineage_keeps_the_other_columns_a_window_over_earlier_labels_reads():
+    sql = windowed(over("LAG(correct + task, 1)"))
+    got = lineage_sources(sql, with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert "plays.task" in got["feat"] and "plays.correct" not in got["feat"]
+
+
+def test_lineage_of_a_label_beside_the_window_is_untouched():
+    sql = windowed(over("LAG(correct, 1)") + " + correct")
+    assert "plays.correct" in lineage_sources(sql, with_delay("0 seconds"), PLAYS_SCHEMA)["feat"]
+
+
+def test_neutralizing_the_window_for_lineage_leaves_the_analysed_tree_alone():
+    from sqlguard.leakage.analysis import analyze
+
+    sql = windowed(over("LAG(correct, 1)"))
+    analysis = analyze(sql, LeakageSpec.from_dict(with_delay("0 seconds")), PLAYS_SCHEMA)
+    before = analysis.qualified.sql()
+    analysis.lineage_input()
+    analysis.lineage_input()
+    assert analysis.qualified.sql() == before
+    assert analysis.past_label_args and not analysis.label_uses
