@@ -991,18 +991,22 @@ def test_path_wrapper_and_using_shapes_stay_clean(sql):
     assert verdict(sql) == ("clean", set())
 
 
-def test_cutoff_scalar_subquery_over_the_label_table_is_a_time_split():
-    """A time split cut at a time computed from the labels is clean; only the scalar-subquery
-    form is recognized, a cutoff held in a CTE is still flagged."""
+def test_cutoff_over_the_label_table_is_a_time_split_only_when_it_picks_rows():
+    """A time split cut at a time computed from the labels is clean, as a scalar subquery or held
+    in a CTE; the cutoff read as a feature, or a lower bound anchored at the maximum, is flagged."""
     computed = f"{FEAT} WHERE l.label_ts < (SELECT MAX(label_ts) FROM labels)"
     literal = f"{FEAT} WHERE l.label_ts < TIMESTAMP '2026-01-20'"
     in_cte = (
         f"WITH cut AS (SELECT MAX(label_ts) AS c FROM labels) {SEL}, s.total_spend "
         f"FROM labels l {STATS} CROSS JOIN cut WHERE l.label_ts < cut.c"
     )
+    as_feature = in_cte.replace(f"{SEL}, s.total_spend", f"{SEL}, s.total_spend, cut.c AS feat")
+    latest_only = in_cte.replace("l.label_ts < cut.c", "l.label_ts >= cut.c")
     assert verdict(computed) == ("clean", set())
     assert verdict(literal) == ("clean", set())
-    assert verdict(in_cte)[0] == "leaky"
+    assert verdict(in_cte) == ("clean", set())
+    assert verdict(as_feature)[0] == "leaky"
+    assert verdict(latest_only)[0] == "leaky"
 
 
 @pytest.fixture(scope="module")

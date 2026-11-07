@@ -2256,37 +2256,55 @@ def _preserves_rows(alias: str, select: exp.Select) -> bool:
     return not select.args.get("group")  # a grouping-free aggregate always yields one row
 
 
+def _cutoff_aggregate(projection: exp.Expression) -> exp.Expression | None:
+    """The aggregate a cutoff projection is made of: itself, or with a constant interval or number
+    added or subtracted (`MAX(label_ts) - INTERVAL 30 DAY`), else None."""
+    node = projection.unalias()
+    while isinstance(node, exp.Paren | exp.Cast | exp.Add | exp.Sub):
+        if isinstance(node, exp.Add | exp.Sub):
+            offset = node.expression
+            if not isinstance(offset, exp.Interval) and _constant(offset) is None:
+                return None
+        node = node.this
+    return node if isinstance(node, _CUTOFF_AGGREGATES) else None
+
+
 def _global_scans(analysis: QueryAnalysis, resolver: _Resolver) -> None:
     """Uncorrelated `(SELECT MAX(label_ts) FROM labels)` used as a time-split cutoff.
 
     The scan yields one number computed from prediction times only and is compared with the
     spine's prediction_ts to choose which rows to train on; it is not a feature and not a
-    per-row temporal join, so it needs no bound of its own.
+    per-row temporal join, so it needs no bound of its own. The number may be shifted by a
+    constant, and may be held in a CTE or derived table (`cutoff.c`) instead of a scalar
+    subquery, as long as every read of it is such a comparison.
     """
     spec = analysis.spec
     for ref in analysis.refs:
         if ref.kind != "label" or ref.on_spine:
             continue
         scope, select = ref.scope, ref.scope.expression
-        if not scope.is_subquery or not isinstance(select, exp.Select) or scope.external_columns:
+        if (
+            not (scope.is_subquery or scope.is_cte or scope.is_derived_table)
+            or not isinstance(select, exp.Select)
+            or scope.external_columns
+        ):
             continue
         shapes_ok = (
             len(scope.selected_sources) == 1
             and not any(select.args.get(k) for k in ("joins", "group", "having", "qualify"))
             and not select.find(exp.Window)
-            and all(isinstance(p.unalias(), _CUTOFF_AGGREGATES) for p in select.selects)
+            and all(_cutoff_aggregate(p) is not None for p in select.selects)
             and sum(1 for _ in select.find_all(exp.Select)) == 1
         )
         if not shapes_ok:
             continue
-        columns = list(select.find_all(exp.Column))
         reads_time_only = all(
             (got := resolver.resolve(c, scope)) is not None
             and got.ref is ref
             and got.column == spec.prediction_ts
-            for c in columns
+            for c in select.find_all(exp.Column)
         )
-        if reads_time_only and _used_as_spine_cutoff(select, resolver):
+        if reads_time_only and _used_as_spine_cutoff(analysis, scope, resolver):
             ref.global_scan = True
             ref.time_column = None
             analysis.global_scans.append(ref)
@@ -2307,18 +2325,59 @@ def _anchored_at_maximum(aggregate: exp.Expression) -> bool:
     return value is None or value >= 1
 
 
-def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
-    """Is the scan compared, in a row filter, with nothing but spine prediction times?
+def _readers_of(analysis: QueryAnalysis, scope: Scope, resolver: _Resolver) -> list | None:
+    """The columns that read a CTE or derived table, or None when a whole row of it is read."""
+    found = []
+    for node in analysis.qualified.find_all(exp.Column, exp.TableColumn):
+        reader = resolver.scope_of(node)
+        alias = node.table if isinstance(node, exp.Column) else node.name
+        if reader is None or not alias:
+            continue
+        source = resolver._source(reader, alias, local=False)
+        if source is None or source[0] is not scope:
+            continue
+        if isinstance(node, exp.TableColumn):
+            return None
+        found.append(node)
+    return found
+
+
+def _used_as_spine_cutoff(analysis: QueryAnalysis, scope: Scope, resolver: _Resolver) -> bool:
+    """Is every read of the scan compared, in a row filter, with nothing but spine prediction times?
 
     As an upper bound (`label_ts < cutoff`) it picks the training rows. As a lower bound anchored
     at the global maximum (`label_ts >= cutoff`, `BETWEEN cutoff AND ...`) it keeps only the
     latest rows, so which rows exist depends on later predictions: not accepted. Equality and
     IN are the same thing and are not accepted either.
     """
-    subquery = select.parent
-    if not isinstance(subquery, exp.Subquery):
-        return False
-    child, node = subquery, subquery.parent
+    select = scope.expression
+    if scope.is_subquery:
+        sites = [select.parent] if isinstance(select.parent, exp.Subquery) else []
+    else:
+        sites = [_scalar_site(c) for c in _readers_of(analysis, scope, resolver) or []]
+    return bool(sites) and all(_is_cutoff_read(site, select, analysis, resolver) for site in sites)
+
+
+def _scalar_site(column: exp.Column) -> exp.Expression:
+    """`(SELECT c FROM cutoff)` stands for the value of `c`: the scalar subquery is the read."""
+    inner = column.parent
+    if isinstance(inner, exp.Alias):
+        inner = inner.parent
+    if (
+        isinstance(inner, exp.Select)
+        and len(inner.expressions) == 1
+        and inner.expressions[0].unalias() is column
+        and not any(inner.args.get(k) for k in ("where", "group", "having", "joins", "limit"))
+        and isinstance(inner.parent, exp.Subquery)
+    ):
+        return inner.parent
+    return column
+
+
+def _is_cutoff_read(
+    site: exp.Expression, select: exp.Select, analysis: QueryAnalysis, resolver: _Resolver
+) -> bool:
+    child, node = site, site.parent
     while isinstance(node, exp.Paren | exp.Add | exp.Sub | exp.Cast):
         if isinstance(node, exp.Sub) and node.this is not child:
             return False
@@ -2333,15 +2392,24 @@ def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
         lower = child is node.args["low"]
     else:
         return False
-    if lower and any(_anchored_at_maximum(p.unalias()) for p in select.selects):
+    if lower and any(_anchored_at_maximum(_cutoff_aggregate(p)) for p in select.selects):
         return False
     context = _row_filter(node)
-    if context is None:
-        return False
     scope = resolver.scope_of(node)
+    # it must choose which rows are trained on: a WHERE or HAVING of the SELECT that produces the
+    # spine rows. A join condition or a subquery only decides what a feature holds.
+    if (
+        context is None
+        or context.kind == "on"
+        or scope is None
+        or not _produces_spine_rows(scope, analysis)
+    ):
+        return False
     others = [
-        c for c in node.find_all(exp.Column) if not any(a is subquery for a in _ancestors(c, node))
+        c for c in node.find_all(exp.Column) if not any(a is site for a in _ancestors(c, node))
     ]
+    if site in others:
+        others.remove(site)
     if not others:
         return False
     return all(resolver.is_spine_time(column, scope) for column in others)

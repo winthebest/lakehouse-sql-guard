@@ -685,3 +685,68 @@ def test_an_approximate_distinct_count_of_the_spine_ignores_how_many_rows_were_j
 @pytest.mark.parametrize("name", ["approx_count_distinct", "approx_distinct"])
 def test_an_approximate_distinct_count_of_the_joined_table_is_a_use_of_all_its_rows(name):
     assert "L3" in rules(filtered_sum(f"{name}(e.user_id)"))
+
+
+# --- a time-split cutoff computed from prediction times -------------------------------------------
+
+SPLIT_VALUE = "MAX(label_ts) - INTERVAL 30 DAY"
+
+
+def split_where(cutoff: str, op: str = "<") -> str:
+    return f"SELECT {KEYS} FROM labels l WHERE l.label_ts {op} {cutoff}"
+
+
+def split_with(value: str, use: str, op: str = "<") -> str:
+    return f"""WITH cutoff AS (SELECT {value} AS c FROM labels)
+SELECT {KEYS} FROM labels l CROSS JOIN cutoff WHERE l.label_ts {op} {use}"""
+
+
+def test_a_cutoff_with_arithmetic_on_the_aggregate_picks_training_rows():
+    assert_pair(
+        split_where(f"(SELECT {SPLIT_VALUE} FROM labels)"),
+        split_where(f"(SELECT {SPLIT_VALUE} FROM labels)", ">="),
+        "L3",
+    )
+    assert rules(split_where("(SELECT MIN(label_ts) + INTERVAL 1 YEAR FROM labels)")) == set()
+    assert rules(split_where("(SELECT quantile_cont(label_ts, 0.8) FROM labels)")) == set()
+
+
+def test_a_cutoff_held_in_a_cte_or_a_derived_table_picks_training_rows():
+    assert_pair(
+        split_with(SPLIT_VALUE, "cutoff.c"),
+        split_with(SPLIT_VALUE, "cutoff.c", ">="),
+        "L3",
+    )
+    assert rules(split_with("MAX(label_ts)", "(SELECT c FROM cutoff)")) == set()
+    derived = f"""SELECT {KEYS} FROM labels l,
+  (SELECT {SPLIT_VALUE} AS c FROM labels) k WHERE l.label_ts < k.c"""
+    assert rules(derived) == set()
+    assert "L3" in rules(derived.replace("< k.c", ">= k.c"))
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # the cutoff reaches a feature, not a row filter
+        f"SELECT {KEYS}, (SELECT {SPLIT_VALUE} FROM labels) AS cutoff_ts FROM labels l",
+        f"""WITH cutoff AS (SELECT {SPLIT_VALUE} AS c FROM labels)
+SELECT {KEYS}, cutoff.c AS cutoff_ts FROM labels l CROSS JOIN cutoff""",
+        # the cutoff depends on more than prediction times
+        f"SELECT {KEYS} FROM labels l WHERE l.label_ts < "
+        "(SELECT MAX(label_ts) FROM labels WHERE churned = 1)",
+        f"SELECT {KEYS} FROM labels l WHERE l.label_ts < "
+        "(SELECT MAX(label_ts) + INTERVAL 1 DAY * churned FROM labels)",
+        # one cutoff per entity is a feature of the entity's own history
+        f"""WITH cutoff AS (SELECT user_id, MAX(label_ts) AS c FROM labels GROUP BY user_id)
+SELECT {KEYS} FROM labels l JOIN cutoff ON cutoff.user_id = l.user_id
+WHERE l.label_ts < cutoff.c""",
+        # compared with something that is not a prediction time
+        f"""WITH cutoff AS (SELECT {SPLIT_VALUE} AS c FROM labels)
+SELECT {KEYS} FROM labels l CROSS JOIN cutoff WHERE l.churned < cutoff.c""",
+        # the cutoff is read both in the filter and as a feature
+        f"""WITH cutoff AS (SELECT {SPLIT_VALUE} AS c FROM labels)
+SELECT {KEYS}, cutoff.c AS again FROM labels l CROSS JOIN cutoff WHERE l.label_ts < cutoff.c""",
+    ],
+)
+def test_a_cutoff_used_any_other_way_is_still_flagged(query):
+    assert rules(query), query
