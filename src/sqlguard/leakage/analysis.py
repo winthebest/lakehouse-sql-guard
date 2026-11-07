@@ -2406,8 +2406,14 @@ class _PastWindows:
       (all of them, as the series has none);
     * its frame ends before the current row: `LAG` with a constant offset of at least 1, or a ROWS
       frame whose end is `n PRECEDING` with n >= 1, both only when the labels are final the moment
-      they are stamped (`label_known_after: 0`); or a RANGE frame ending an offset before the row
-      that is longer than `label_known_after` (as long, with an inclusive boundary).
+      they are stamped (`label_known_after: 0`) or, for LAG, when the value is read only in a CASE
+      branch whose condition says the previous row was stamped longer than `label_known_after`
+      before the current one; or a RANGE frame ending an offset before the row that is longer
+      than `label_known_after` (as long, with an inclusive boundary).
+
+    A RANGE frame holds every row of its partition stamped that long before the current one,
+    whichever entity it belongs to, so its partition may be coarser than the entity keys (a
+    cohort), and its rows may come from the label table joined to static tables.
 
     A label column that is summed per row first (`daily AS (SELECT key, ts, SUM(label) AS total
     ... GROUP BY key, ts)`) is not a use of the target when every read of `total` is in such a
@@ -2536,6 +2542,37 @@ class _PastWindows:
         ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
         return ref if ref is not None and self._spine_only(ref) else None
 
+    def _static_joined(self, scope: Scope) -> TableRef | None:
+        """The label reference when `scope` selects (and filters) its rows, beside tables of
+        static attributes, without regrouping. A join may repeat or drop a row, which a frame that
+        stops long enough before the current row does not mind: every row in it is final."""
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            return None
+        if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
+            return None
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
+            return None
+        refs = []
+        for _, source in scope.selected_sources.values():
+            ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+            if ref is None:
+                return None
+            refs.append(ref)
+        spine = [r for r in refs if r.kind == "label"]
+        if len(spine) != 1 or not self._spine_only(spine[0]):
+            return None
+        return spine[0] if all(r.kind in ("label", "static") for r in refs) else None
+
+    def _by_value(self, parts: _WindowParts) -> bool:
+        """Is this a RANGE frame, which holds rows by how far back they are stamped?"""
+        frame = parts.spec
+        return (
+            isinstance(frame, exp.WindowSpec)
+            and str(frame.args.get("kind") or "").upper() == "RANGE"
+            and isinstance(parts.func, exp.AggFunc | exp.FirstValue | exp.LastValue | exp.NthValue)
+        )
+
     def _spine_only(self, ref: TableRef) -> bool:
         return ref.kind == "label" and ref.on_spine and not ref.temporal_paths
 
@@ -2543,7 +2580,7 @@ class _PastWindows:
         spec, resolver = self.spec, self.resolver
         parts = _window_parts(window)
         scope = resolver.scope_of(window)
-        if scope is None or not self._earlier_rows_only(parts):
+        if scope is None:
             return []
         select = scope.expression
         if (
@@ -2554,6 +2591,7 @@ class _PastWindows:
         ):
             return []
         ((_, source),) = scope.selected_sources.values()
+        cohort = self._by_value(parts)
         if isinstance(source, exp.Table):
             ref = resolver.refs.get(id(source))
             if ref is None or not self._spine_only(ref):
@@ -2563,6 +2601,8 @@ class _PastWindows:
             holds_label = self._grouped_label
         elif isinstance(source, Scope) and (ref := self._plain_rows(source)) is not None:
             holds_label = self._table_label  # a CTE that only selects and filters the label rows
+        elif cohort and isinstance(source, Scope) and (ref := self._static_joined(source)):
+            holds_label = self._table_label  # ... or also reads static tables beside them
         else:
             return []
 
@@ -2572,10 +2612,14 @@ class _PastWindows:
                 g.ref is ref and g.exact and (name is None or g.column == name) for g in got
             )
 
+        if not self._earlier_rows_only(
+            window, parts, lambda node: same_row_column(node, spec.prediction_ts)
+        ):
+            return []
         first = parts.order[0].this
         if parts.order[0].args.get("desc") or not same_row_column(first, spec.prediction_ts):
             return []
-        for key in spec.entity_keys:
+        for key in () if cohort else spec.entity_keys:
             if not any(same_row_column(p, key) for p in parts.partition_by):
                 return []
         if parts.func.find(exp.Select, exp.Window) is not None:
@@ -2603,9 +2647,92 @@ class _PastWindows:
             for inner in projection.find_all(exp.Column)
         )
 
-    def _earlier_rows_only(self, parts: _WindowParts) -> bool:
+    def _guarded(self, window: exp.Window, parts: _WindowParts, steps: float, is_stamp) -> bool:
+        """Is the window read only in a CASE branch whose condition says that the row it reads was
+        stamped long enough before the current one for its label to be final?
+
+        The condition is `LAG(ts) + I < ts` and its spellings, with `LAG(ts)` over the very window
+        of the label, `ts` the current row's prediction time, and `I` at least `label_known_after`
+        (longer than it when the comparison is not strict and the boundary is).
+        """
+        node = window
+        while node.parent is not None and not isinstance(node.parent, exp.Select):
+            parent = node.parent
+            if isinstance(parent, exp.If) and parent.args.get("true") is node:
+                for term in _conjuncts(parent.this):
+                    if self._says_final(term, parts, steps, is_stamp):
+                        return True
+            node = parent
+        return False
+
+    def _says_final(
+        self, term: exp.Expression, parts: _WindowParts, steps: float, is_stamp
+    ) -> bool:
+        """Does the comparison say that LAG(ts) lies at least `label_known_after` before ts?"""
+        if not isinstance(term, _COMPARISONS):
+            return False
+        left = self._linear(term.left, parts, steps, is_stamp)
+        right = self._linear(term.right, parts, steps, is_stamp)
+        if left is None or right is None:
+            return False
+        before, stamp, seconds = (left[0] - right[0], left[1] - right[1], left[2] - right[2])
+        op = _OPS[type(term)]
+        # before * LAG(ts) + stamp * ts + seconds  OP  0
+        if (before, stamp) == (1, -1):  # LAG(ts) - ts + seconds OP 0  ->  LAG(ts) OP ts - seconds
+            upper, margin = op, seconds
+        elif (before, stamp) == (-1, 1):  # ts - LAG(ts) + seconds OP 0 -> LAG(ts) OP' ts + seconds
+            upper, margin = _FLIP[op], -seconds
+        else:
+            return False
+        if upper not in ("<", "<="):
+            return False  # a lower bound on the earlier row's time says nothing
+        delay = self.spec.label_known_after
+        if delay is None or margin <= 0:
+            return False
+        return (
+            margin >= delay if upper == "<" or self.spec.boundary == "inclusive" else margin > delay
+        )
+
+    def _linear(
+        self, node: exp.Expression, parts: _WindowParts, steps: float, is_stamp
+    ) -> tuple[int, int, float] | None:
+        """`node` as (times LAG(ts), times ts, seconds): the sums and differences of the previous
+        row's prediction time, the current one and fixed intervals; None for anything else."""
+        node = _unparen(node)
+        if isinstance(node, exp.Window):
+            return (1, 0, 0.0) if self._same_lag(node, parts, steps, is_stamp) else None
+        if isinstance(node, exp.Column):
+            return (0, 1, 0.0) if is_stamp(node) else None
+        if isinstance(node, exp.Interval):
+            got = _amount_seconds(node, None)
+            return (0, 0, got[0]) if got is not None and got[1] == 0 else None
+        if isinstance(node, exp.Add | exp.Sub):
+            a = self._linear(node.this, parts, steps, is_stamp)
+            b = self._linear(node.expression, parts, steps, is_stamp)
+            if a is None or b is None:
+                return None
+            sign = 1 if isinstance(node, exp.Add) else -1
+            return (a[0] + sign * b[0], a[1] + sign * b[1], a[2] + sign * b[2])
+        return None
+
+    def _same_lag(self, node: exp.Expression, parts: _WindowParts, steps: float, is_stamp) -> bool:
+        """Is `node` `LAG(prediction_ts [, steps]) OVER` the window of the label?"""
+        if not isinstance(node, exp.Window):
+            return False
+        other = _window_parts(node)
+        if not isinstance(other.func, exp.Lag) or not is_stamp(other.func.this):
+            return False
+        offset = other.func.args.get("offset")
+        if (1.0 if offset is None else _constant(offset)) != steps:
+            return False
+        return [p.sql() for p in other.partition_by] == [p.sql() for p in parts.partition_by] and [
+            o.sql() for o in other.order
+        ] == [o.sql() for o in parts.order]
+
+    def _earlier_rows_only(self, window: exp.Window, parts: _WindowParts, is_stamp) -> bool:
         """Do the function, ordering and frame keep the window to rows stamped strictly before
-        the current one, whose labels are final?"""
+        the current one, whose labels are final? `is_stamp` says whether a node is the prediction
+        time of the rows the window reads."""
         spec = self.spec
         delay, func, frame, order = spec.label_known_after, parts.func, parts.spec, parts.order
         if delay is None or not order:
@@ -2614,12 +2741,13 @@ class _PastWindows:
             offset = func.args.get("offset")
             steps = 1.0 if offset is None else _constant(offset)
             default = func.args.get("default")
-            return (
-                delay == 0
-                and len(order) == 1
-                and _whole_at_least_one(steps)
-                and (default is None or _is_constant(default))
-            )
+            if (
+                len(order) != 1
+                or not _whole_at_least_one(steps)
+                or not (default is None or _is_constant(default))
+            ):
+                return False
+            return delay == 0 or self._guarded(window, parts, steps, is_stamp)
         if (
             not isinstance(func, exp.AggFunc | exp.FirstValue | exp.LastValue | exp.NthValue)
             or frame is None

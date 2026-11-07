@@ -490,3 +490,113 @@ def test_a_named_window_over_a_timeline_ends_before_the_spine_row():
 def test_the_same_named_window_with_one_thing_wrong_is_still_flagged(variant):
     for named in (True, False):
         assert rules(timeline(named=named, **variant)), (variant, named)
+
+
+# --- labels that are final by the time a window or a guard reads them -----------------------------
+
+FINAL = {"label_known_after": "14 days"}
+
+
+def cohort_rate(frame: str, order: str = "label_ts", source: str | None = None) -> str:
+    source = source or (
+        "SELECT l.user_id, l.label_ts, l.churned, en.country "
+        "FROM labels l LEFT JOIN entities en ON en.user_id = l.user_id"
+    )
+    return f"""WITH spine AS ({source})
+SELECT user_id, label_ts, churned, country, AVG(churned) OVER w AS cohort_rate
+FROM spine
+WINDOW w AS (PARTITION BY country ORDER BY {order} {frame})"""
+
+
+def test_the_final_labels_of_a_cohort_in_a_range_frame_that_stops_long_enough_before():
+    assert_pair(
+        cohort_rate("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 15 DAY PRECEDING"),
+        cohort_rate("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 10 DAY PRECEDING"),
+        "L6",
+        **FINAL,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame, order",
+    [
+        ("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 14 DAY PRECEDING", "label_ts"),
+        ("RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW", "label_ts"),
+        ("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 15 DAY FOLLOWING", "label_ts"),
+        ("ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING", "label_ts"),
+        ("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 15 DAY PRECEDING", "label_ts DESC"),
+        ("RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 15 DAY PRECEDING", "user_id"),
+    ],
+)
+def test_a_cohort_frame_that_does_not_stop_in_time_still_reads_the_outcome(frame, order):
+    assert "L6" in rules(cohort_rate(frame, order), **FINAL), (frame, order)
+
+
+def test_a_cohort_over_rows_joined_to_a_table_with_history_is_not_accepted():
+    source = (
+        "SELECT l.user_id, l.label_ts, l.churned, e.user_id AS country "
+        "FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts"
+    )
+    frame = "RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 15 DAY PRECEDING"
+    assert "L6" in rules(cohort_rate(frame, source=source), **FINAL)
+
+
+def previous_label(guard: str, then: str = "LAG(churned) OVER w", otherwise: str = "") -> str:
+    return f"""SELECT user_id, label_ts, churned,
+  CASE WHEN {guard} THEN {then} {otherwise} END AS previous_label
+FROM labels
+WINDOW w AS (PARTITION BY user_id ORDER BY label_ts)"""
+
+
+def test_the_previous_label_is_history_when_the_guard_says_it_was_final():
+    assert_pair(
+        previous_label("LAG(label_ts) OVER w + INTERVAL 14 DAY < label_ts"),
+        previous_label("LAG(label_ts) OVER w + INTERVAL 7 DAY < label_ts"),
+        "L6",
+        **FINAL,
+    )
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        "LAG(label_ts) OVER w < label_ts - INTERVAL 15 DAY",
+        "label_ts - LAG(label_ts) OVER w > INTERVAL 14 DAY",
+        "label_ts > LAG(label_ts) OVER w + INTERVAL 14 DAY",
+        "LAG(label_ts) OVER w + INTERVAL 14 DAY <= label_ts - INTERVAL 1 SECOND",
+        "LAG(label_ts) OVER w IS NOT NULL AND LAG(label_ts) OVER w + INTERVAL 20 DAY < label_ts",
+    ],
+)
+def test_other_spellings_of_the_same_guard(guard):
+    assert "L6" not in rules(previous_label(guard), **FINAL), guard
+
+
+@pytest.mark.parametrize(
+    "guard, then, otherwise",
+    [
+        ("LAG(label_ts) OVER w + INTERVAL 14 DAY <= label_ts", "LAG(churned) OVER w", ""),
+        ("LAG(label_ts) OVER w + INTERVAL 14 DAY > label_ts", "LAG(churned) OVER w", ""),
+        ("LAG(label_ts) OVER w + INTERVAL 14 DAY < label_ts", "0", "ELSE LAG(churned) OVER w"),
+        ("label_ts - LAG(label_ts) OVER w < INTERVAL 20 DAY", "LAG(churned) OVER w", ""),
+        ("LAG(label_ts, 1) OVER w + INTERVAL 14 DAY < label_ts", "LAG(churned, 2) OVER w", ""),
+        (
+            "LAG(label_ts) OVER w + INTERVAL 14 DAY < label_ts OR user_id > 0",
+            "LAG(churned) OVER w",
+            "",
+        ),
+        ("label_ts + INTERVAL 14 DAY < LAG(label_ts) OVER w", "LAG(churned) OVER w", ""),
+        ("LEAD(label_ts) OVER w + INTERVAL 14 DAY < label_ts", "LEAD(churned) OVER w", ""),
+    ],
+)
+def test_a_guard_that_does_not_make_the_previous_label_final_is_still_flagged(
+    guard, then, otherwise
+):
+    assert "L6" in rules(previous_label(guard, then, otherwise), **FINAL), guard
+
+
+def test_the_guard_must_read_the_same_window_as_the_label():
+    query = """SELECT user_id, label_ts, churned,
+  CASE WHEN LAG(label_ts) OVER (PARTITION BY user_id ORDER BY label_ts) + INTERVAL 14 DAY < label_ts
+       THEN LAG(churned) OVER (ORDER BY label_ts) END AS previous_label
+FROM labels"""
+    assert "L6" in rules(query, **FINAL)
