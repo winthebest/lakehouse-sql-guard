@@ -454,6 +454,10 @@ PAST_LEAKY = {
     "ordered by something that is not the prediction time": windowed(
         over("LAG(correct, 1)", order="task")
     ),
+    "ordered by the day of the prediction time, which ties rows of one key": windowed(
+        over("LAG(correct, 1)", order="CAST(ts AS DATE)")
+    ),
+    "ordered by the label": windowed(over("LAG(correct, 1)", order="correct")),
     "no partition while the spec has a key": windowed(over("LAG(correct, 1)", partition="")),
     "previous label plus the label itself": windowed(over("LAG(correct, 1)") + " + correct"),
     "label inside the partition": windowed(

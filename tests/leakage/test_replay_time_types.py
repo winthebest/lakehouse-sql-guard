@@ -451,6 +451,15 @@ def test_rows_in_flight_are_scored_over_the_whole_table_when_there_is_no_key():
     }
 
 
+def test_the_row_counts_behind_a_fix_key_a_series_by_its_prediction_time(single_series):
+    from sqlguard.leakage.fixes import key_counts
+
+    spec = series_spec()
+    counts = key_counts(Replayer(single_series, spec), spec, "SELECT label_ts, y FROM series")
+    assert counts is not None and len(counts) == 6 * 12
+    assert set(counts.values()) == {1}
+
+
 # --- prediction times that are dates or integers -------------------------------------------------
 
 
