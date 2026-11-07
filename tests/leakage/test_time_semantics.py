@@ -847,3 +847,86 @@ def test_neutralizing_the_window_for_lineage_leaves_the_analysed_tree_alone():
     analysis.lineage_input()
     assert analysis.qualified.sql() == before
     assert analysis.past_label_args and not analysis.label_uses
+
+
+# --- bundles of questions that share a timestamp ----------------------------------------------
+
+# An interaction log in which the questions of one bundle carry the same millisecond timestamp: a
+# cumulative rate is only safe when it stops before the row's timestamp, not merely one row back.
+BUNDLE_SPEC = {
+    "label_table": "train",
+    "entity_keys": ["user_id"],
+    "prediction_ts": "timestamp",
+    "label_columns": ["answered_correctly"],
+    "time_columns": {"train": "timestamp"},
+    "time_units": {"train": "milliseconds"},
+    "static_tables": [],
+    "label_known_after": "0 seconds",
+}
+BUNDLE_SCHEMA = {
+    "train": {
+        "row_id": "BIGINT",
+        "timestamp": "BIGINT",
+        "user_id": "INTEGER",
+        "content_type_id": "TINYINT",
+        "task_container_id": "SMALLINT",
+        "answered_correctly": "TINYINT",
+    }
+}
+BUNDLE_HEAD = "SELECT row_id, user_id, timestamp, answered_correctly,"
+BUNDLE_QUERIES = {
+    "range that stops a millisecond before the row": (
+        BUNDLE_HEAD
+        + """ AVG(answered_correctly) OVER (PARTITION BY user_id ORDER BY timestamp
+    RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS rate
+FROM train WHERE content_type_id = 0""",
+        "clean",
+    ),
+    "named range window over a filtered cte": (
+        """WITH q AS (SELECT * FROM train WHERE content_type_id = 0)
+"""
+        + BUNDLE_HEAD
+        + """ SUM(answered_correctly) OVER w AS prior_correct, COUNT(*) OVER w AS prior_answered
+FROM q WINDOW w AS (PARTITION BY user_id ORDER BY timestamp
+    RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)""",
+        "clean",
+    ),
+    "running rate that includes the row": (
+        BUNDLE_HEAD
+        + """ AVG(answered_correctly) OVER (PARTITION BY user_id ORDER BY timestamp, row_id
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS rate
+FROM train WHERE content_type_id = 0""",
+        "leaky",
+    ),
+    "one row back, with ties broken by the bundle": (
+        """WITH q AS (SELECT * FROM train WHERE content_type_id = 0)
+"""
+        + BUNDLE_HEAD
+        + """ SUM(answered_correctly) OVER w AS prior_correct, COUNT(*) OVER w AS prior_answered
+FROM q WINDOW w AS (PARTITION BY user_id ORDER BY timestamp, task_container_id, row_id
+    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)""",
+        "leaky",
+    ),
+    "one row back, ties left to chance": (
+        BUNDLE_HEAD
+        + """ AVG(answered_correctly) OVER (PARTITION BY user_id ORDER BY timestamp
+    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS rate
+FROM train WHERE content_type_id = 0""",
+        # accepted because the spec says (user_id, timestamp) names one row
+        "clean",
+    ),
+    "the whole history of the user": (
+        BUNDLE_HEAD
+        + """ AVG(answered_correctly) OVER (PARTITION BY user_id) AS rate
+FROM train WHERE content_type_id = 0""",
+        "leaky",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", BUNDLE_QUERIES)
+def test_cumulative_rates_over_a_log_with_tied_timestamps(name):
+    sql, expected = BUNDLE_QUERIES[name]
+    verdict, rules = check(sql, BUNDLE_SPEC, BUNDLE_SCHEMA)
+    assert verdict == expected, (verdict, rules)
+    assert ("L6" in rules) == (expected == "leaky")
