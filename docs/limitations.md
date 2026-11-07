@@ -19,7 +19,8 @@ The v3 rules, unchanged since `rules-frozen-v3`, were run statically on GitHub d
 (protocol: [`bench/realworld/search-prereg.yaml`](../bench/realworld/search-prereg.yaml); results:
 [`results/realworld/`](../results/realworld/)). Precision on the new projects is 13 of 14
 findings; on the clean control it is 0 of 14. The findings were judged by two Claude reviewers
-working blind to each other, not by people. What qualifies these numbers:
+working blind to each other, not by people. [Round 2](#real-world-dbt-projects-round-2), on 12 more
+projects, found a much lower precision and must be read with it. What qualifies the round 1 numbers:
 
 - **Judgement calls in selection.** Three search hits were copies of one quickstart; screening
   counted them once (recorded in `screening.csv` before the checker ran), which admitted
@@ -46,6 +47,103 @@ working blind to each other, not by people. What qualifies these numbers:
   the control's own findings or recall by construction.
 - **Licenses.** The new projects have no license, so only counts and the reviewers' notes are
   committed, never their SQL.
+
+## Real-world dbt projects, round 2
+
+The same v3 rules were run statically on 12 more GitHub dbt projects (protocol:
+[`bench/realworld/round2/search-prereg.yaml`](../bench/realworld/round2/search-prereg.yaml);
+results: [`results/realworld/round2/`](../results/realworld/round2/); numbers in
+[results.md](results.md#real-world-dbt-projects-round-2)). Of 33 findings, 5 are real leaks, 24
+are false positives and 4 are unsure. Read round 1's 13 of 14 only together with this. What
+qualifies the round 2 numbers:
+
+- **Who judged.** Two Claude models judged each finding blind to each other: the session that ran
+  the check and a separate review agent. No person did. They agreed on 29 of 33; the other 4 are
+  kept as `unsure`. Two models from one family can share a blind spot, so "false positive" here
+  means "both reviewers read the project's code and docs and found no leak", not ground truth.
+- **The rules cannot be told which column is the label.** The spec names the label table, not the
+  label column, and has no way to say that a column is a label, a feature or run metadata. So
+  12 of the 24 false positives are a rule firing on the label column itself or on the `LEAD`/`CASE`
+  that builds it (L6, and L1 on a `LEAD`); 6 are L7 on a run-timestamp column (`dbt_updated_at`,
+  `model_built_at`) that no model reads as a feature. A project that computes its label and its
+  features in one model is flagged for the label.
+- **Past values and dedupes are flagged.** A `LAG` of past labels (3) and a dedupe `ROW_NUMBER` over
+  ingestion time (2) are read as look-ahead. A monthly group-by that is bounded at the cutoff is
+  flagged as an unbounded aggregate (1).
+- **The label table and the history are one table.** In 8 of the 12 checked projects the table that
+  holds the label also holds its history, which the checker does not allow (see the Kaggle section
+  below); those specs declare a placeholder table, as in round 1, so the checker does not know the
+  history is there.
+- **A crash on dbt-duckdb `external_location` sources.** For crypto-macd-screener the checker
+  raised an `IndexError` in `src/sqlguard/dbt/spec.py` (`physical_table`): the manifest's
+  relation name is a call such as `read_parquet('data/silver/candles_macd.parquet')`, and the
+  name parser finds no table. The run is recorded as an error, not a verdict. Not fixed: the rules
+  were frozen.
+- **Many projects get no verdict.** 5 of the 12 checked projects are `unverifiable` and 1 is an
+  error. Unverifiable parts come from the spec naming a column the schema lacks (a label computed
+  in the model, a deliberately absent prediction time) and from time columns the project does not
+  type (left `UNKNOWN`, as in round 1, and the checker wants a type). Typed specs were not run,
+  because specs could not change after the run.
+- **Possibly missed leak.** In theo-lyd/predictive-ltv-survival-pipeline, `customer_tenure_months`
+  is built from `churn_ts` for churned customers, which would carry time-to-churn into a feature.
+  No finding names it. The reviewers disagree on whether the L2 finding on the customer spine
+  covers it: reviewer A calls that finding a leak through this column, reviewer B says the self-join
+  brings in nothing later, and A's note on another finding says tenure uses the fixed observation
+  date. Unresolved; it is the one potential miss found by reading, and misses were not measured.
+- **Selection.** The screening stop rule was amended once, before the checker ran, because 4 of the
+  first 12 qualifiers could not be run; 6 of 18 were never run. One checked project is a course lab
+  (AI-thuc-chien) and one pinned project a toy example (dbt-features, not run); the screening file
+  says so. 6 of the 18 pinned projects have no documented cutoff.
+- **Licenses.** 10 of the 12 checked projects have no license, so only counts and the reviewers'
+  notes are committed for them; SQL excerpts are published for the 2 licensed ones.
+- **Replay** was not run (no project has snapshot history), and L3 and L5 recall were not measured.
+
+## Documented Kaggle leaks
+
+Fourteen cases (80 queries, 40 leaky and 40 clean) rebuilt from documented competition leaks were
+run against the v3 rules (cases: [`bench/kaggle/`](../bench/kaggle/); results:
+[`results/kaggle/`](../results/kaggle/); numbers in [results.md](results.md#documented-kaggle-leaks)).
+The first result is that the checker rejected every spec, so nothing was measured. Why, and what
+else limits this evidence:
+
+- **Who wrote the cases.** An AI author wrote the queries, specs and synthetic data from
+  human-written sources (competition threads, data pages, two papers, three blogs); the sources
+  were read, not the competition data. Where a leak has no point-in-time version for the same row,
+  the clean twin is the source's own fix or an equivalent earlier field, so some twins are an
+  interpretation. Three cases (TalkingData, Favorita, IEEE-CIS) are leaks only if the model is
+  meant to be deployed, which the participants dispute, and one (Red Hat) depends on an assumed
+  30-day outcome window; results are reported with and without the disputed three. There is no
+  L2, L4 or L7 case, and the L5 cases were all rejected, so those types are untested here.
+- **The label table cannot also be the history.** The checker requires a temporal table separate
+  from the label table; ten cases keep both in one table, which is how most competition data is
+  laid out. This is also the reason three dbt projects needed a placeholder in round 1. With the
+  placeholder the checker no longer knows the label table holds history, so a same-table window
+  can be invisible to it.
+- **Empty entity keys are rejected.** A single-series case (one market, one player) cannot be
+  written: `entity_keys` must name at least one column.
+- **Zero `label_known_after` is rejected.** Durations must be positive, so a label that is known
+  immediately (a shot, an answer) cannot be declared; `0 seconds` fails.
+- **Column roles are not expressible.** `outcome_columns` declared inside the label table make the
+  checker treat every column read from that table as post-outcome, so clean twins are flagged next
+  to the leaky query. This is the cause of most of the 19 false alarms among the 28 clean twins
+  that load (false-positive rate 0.68 on those, against a 5% target) and is the same gap as the
+  label/feature/metadata one in dbt round 2.
+- **Integer time columns are not measured.** The spec has no field for a unit (seconds or
+  milliseconds), and static analysis treats a bare number as seconds only after an explicit epoch
+  conversion. A clean G-Research twin was flagged, consistent with this. Replay keeps only `datetime`
+  prediction times, so it is `unverifiable` on integer and `DATE` prediction columns (28 of 44
+  verdicts in the variant).
+- **Replay crashes on mixed-case columns.** `KeyError` at `replay.py:257` when the prediction
+  column is `visitStartTime` or `TransactionDT` (kl04, kl14): the spec lowercases names, the
+  warehouse keeps the real case. Static analysis handles the same names. These runs are errors
+  in the numbers. Real Iceberg tables often have such names.
+- **The variant is not a result about the rules.** It rewrote the spec after the primary run
+  (registered first), kept 4 cases rejected, and its high recall (28 of 40) comes with a false
+  positive rate (19 of 40) that is far above target; the workaround and the rules cannot be
+  separated. Replay detected 4 of 40.
+- **Weak sources.** One case rests on a forum reply that asks a question and a bug report; one is
+  second-hand from a survey paper. Only some spec values (durations, boundaries) come from a
+  source; the rest are assumptions commented in each spec.
 
 ## Held-out v3 (frozen rules and policy)
 

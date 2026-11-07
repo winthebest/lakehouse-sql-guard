@@ -77,10 +77,13 @@ was run once. Numbers from the current release (rules and policy v3):
 | Leakage recall | 146 held-out SQL templates, 76 leaky | 1.00 |
 | Leakage false-positive rate | the 70 clean templates | **0.15 [0.07, 0.25]**: misses the pre-registered target of 0.05 |
 | Precision on real dbt projects | 3 GitHub projects found after the freeze | 13 of 14 findings; 0 of 14 on a clean control |
+| Precision on real dbt projects, [round 2](docs/results.md#real-world-dbt-projects-round-2) | 12 more GitHub projects, 33 findings, judged by two Claude reviewers | **5 real, 24 false, 4 unsure**; 6 of 12 projects got no verdict |
+| [Documented Kaggle leaks](docs/results.md#documented-kaggle-leaks) | 14 cases (80 queries) rebuilt by an AI author from human-written sources | spec rejected for **14 of 14**, nothing measured; with a workaround, recall 28/40 and FPR 19/40 (target 0.05) |
 
 The guard's safety partly rests on the reviewer: one who approves everything would have let 23%
-(Haiku) and 26% (Opus) of the risky runs through. The false positives, the failed control and every
-earlier rule set are analysed in [docs/results.md](docs/results.md) and
+(Haiku) and 26% (Opus) of the risky runs through. The real-world rows are not held-out tests, and
+the first dbt row should not be quoted without round 2. The false positives, the failed control and
+every earlier rule set are analysed in [docs/results.md](docs/results.md) and
 [docs/limitations.md](docs/limitations.md).
 
 ## Quickstart
@@ -208,7 +211,7 @@ flowchart LR
 | [Time spec](docs/spec.md) | every spec field, and the optional ones that settle judgment calls |
 | [dbt](docs/dbt.md) | checking a dbt project, time in model `meta`, replay on a lakehouse |
 | [MCP](docs/mcp.md) | the agent tools, client setup, the end-to-end demo |
-| [Results](docs/results.md) | every held-out run, v1 to v3, and the real-world dbt projects |
+| [Results](docs/results.md) | every held-out run, v1 to v3, the real-world dbt projects and the Kaggle leaks |
 | [Limitations](docs/limitations.md) | what the guard gets wrong or cannot see, and why |
 
 ## Related work
@@ -230,6 +233,13 @@ flowchart LR
   zone shifts; time columns behind a cast (`cast(event_time as long)`); an absolute tolerance near
   zero in replay's float comparison; specs whose label table is also the history; findings that
   name the feature column.
+- v0.3, from the real-world dbt round 2 and the Kaggle cases: say which columns are the label, the
+  features and run metadata, so a rule stops firing on the label and its `LEAD`, on `LAG` of past
+  labels, and on `current_timestamp` metadata; spec support for a single series (no entity key),
+  a label known at once (zero duration) and integer time columns with a unit; a table-level
+  outcome rule that no longer marks every column of the label table; replay on mixed-case
+  columns; dbt-duckdb `external_location` sources; a check on `customer_tenure_months`-style
+  features built from the outcome time; then freeze again and test on new data.
 - Learn availability delays from snapshot history instead of declaring them.
 - Row-level impact for tables without a unique key, so rollbacks can be guarded.
 - More engines for the executor (Trino, Snowflake Iceberg tables).

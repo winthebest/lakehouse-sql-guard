@@ -76,6 +76,144 @@ the mutated model for 1 of 15. Even the 3 are recall by construction, since the 
 written to match the rules. Details:
 [results/realworld](../results/realworld/), [docs/limitations.md](limitations.md#real-world-dbt-projects).
 
+## Real-world dbt projects, round 2
+
+Read this next to round 1 above: its 13 of 14 came from three projects, and this round is the
+check on whether that carries over. It did not. The same frozen v3 rules, run statically on 12
+more projects, found 33 things, of which 5 held up. The rounds differ in more than the projects
+(a different search, different specs, 6 of 12 projects with no verdict), so the two precisions are
+not a like-for-like comparison, but neither round should be quoted without the other.
+
+The search was [registered](../bench/realworld/round2/search-prereg.yaml) before any query ran;
+the raw hits are in [search-results.json](../bench/realworld/round2/search-results.json). Of 220
+candidates, 131 were [screened](../bench/realworld/round2/screening.csv) with the round 1 criteria:
+113 rejected, 18 qualified. Screening was registered to stop once 12 projects qualified; 4 of
+those 12 had no label or no time column, so an amendment, decided and recorded before the checker
+ran on any round 2 project, kept it going until 12 projects had a spec the checker could run. The 18 are pinned to commits in [projects.yaml](../bench/realworld/round2/projects.yaml); 6 of
+them turned out not to apply (no documented label, or no time column) and were not run. Specs were
+written from each project's own docs and committed before the run, and none was changed after.
+
+| | count |
+|---|---|
+| candidates screened / qualified | 131 / 18 |
+| projects checked / not applicable | 12 / 6 |
+| models in the checked projects | 183 |
+| projects with findings (checker verdict `leaky`) | 6 |
+| projects the checker could not fully read (`unverifiable`) | 5 |
+| projects where the checker crashed | 1 |
+| findings | 33 |
+
+Every finding was judged by two reviewers working blind to each other: the session that ran the
+check and a separate review agent. Both are Claude models, not people. They agreed on 29 of the 33;
+the 4 where they did not stay `unsure` and are not counted for or against the checker.
+
+| adjudication (33 findings) | count |
+|---|---|
+| real leak | 5 |
+| false positive | 24 |
+| unsure (reviewers disagree) | 4 |
+
+Strict precision is 5 of 33 (0.15); if every unsure finding were real it would be 9 of 33 (0.27).
+All 5 real leaks are in one project (LNshuti/soma): moving averages and a standard deviation whose
+window ends at `CURRENT ROW` and so include the same-day quantity being predicted, and growth rates
+computed from that same-day target. The 4 unsure are all in theo-lyd/predictive-ltv-survival-pipeline
+(an unbounded promotions join and an unbounded billing aggregate; the reviewers differ on whether
+the project's own data checks make them harmless). The false positives have a few causes:
+
+| cause of the 24 false positives | findings |
+|---|---|
+| a rule fires on the label column itself, or on the expression that builds the label (a `LEAD`, a `CASE` on the outcome) | 12 |
+| L7 on a run-timestamp metadata column (`dbt_updated_at`, `model_built_at`) that is not a feature | 6 |
+| a `LAG` of past labels, which is past data, flagged | 3 |
+| a dedupe `ROW_NUMBER` over ingestion time | 2 |
+| a monthly group-by that is bounded at the cutoff | 1 |
+
+The first row is the main one: the rules have no way to be told which column is the label and which
+are features, so anything built from the label is read as a feature built from the future (see
+[limitations](limitations.md#real-world-dbt-projects-round-2)).
+
+Of the 12 checked projects, 6 had findings (33), 5 ended `unverifiable` with no findings
+(the checker could not read part of the query, usually because the spec names a derived label that
+is not in the schema, or a time column has no type), and 1 crashed. So in this round the checker
+produced real findings on 1 of 12 projects and could not give a verdict on 6. Precision still says
+nothing about missed leaks, which were not measured; one possible miss is noted in the limitations.
+Replay was not run (no project has snapshot history).
+
+Files: [findings with both reviewers' verdicts and the final call](../results/realworld/round2/findings.csv),
+[the reviewers' notes](../results/realworld/round2/reviewer-verdicts.csv),
+[per-model rows](../results/realworld/round2/models.csv),
+[unverifiable parts](../results/realworld/round2/unverifiable.csv),
+[run record](../results/realworld/round2/20261107-2a9934b.json). Only 2 of the 12 checked
+projects have a license that allows it, so SQL excerpts are published for those two
+([licenses](../results/realworld/round2/third-party-licenses/NOTICE.txt)) and withheld for the rest.
+
+## Documented Kaggle leaks
+
+Fourteen labelled test cases were rebuilt from leaks that people documented in Kaggle competitions
+and a few papers and blogs (Riiid, G-Research Crypto, Favorita, IEEE-CIS Fraud, Airbnb New User
+Bookings, LendingClub, Red Hat Business Value and others; the
+[catalog](../bench/kaggle/leak-catalog.csv) lists each source). The cases are not human-written
+end to end: an AI author read the human sources and wrote the SQL, the specs and generators for
+synthetic data of the same shape, one leaky query and one clean twin per leak, 80 queries in all
+(40 leaky, 40 clean; [cases](../bench/kaggle/cases/)). No real competition data is used. The cases
+cover L1, L3, L5 and L6 only: there is no L2, L4 or L7 case, since none of the sources fit them.
+A self-check ([`check_cases.py`](../bench/kaggle/check_cases.py)) confirms that every clean twin
+returns the same features on a point-in-time replay and every leaky one does not. Three cases
+(TalkingData, Favorita, IEEE-CIS) rest on a reading of "leak" that participants dispute.
+
+The evaluation was [pre-registered](../bench/kaggle/eval-prereg.yaml) before any case was run, with
+the frozen v3 rules and the thresholds fixed earlier, and run once.
+
+### Primary result: the checker rejected every spec
+
+| | result |
+|---|---|
+| cases whose spec loaded | 0 of 14 |
+| queries analysed | 0 of 80 (all 160 static and replay runs are errors) |
+| recall, false-positive rate | 0 of 40 flagged, 0 of 40 false alarms: measured nothing |
+
+This says nothing about the leak rules. The spec format could not express the cases as written:
+
+| cases | queries | message |
+|---|---|---|
+| 10 (kl04, kl05, kl08, kl09, kl10, kl11, kl12, kl14, kl15, kl17) | 56 | `label_table must not also be declared temporal or static` |
+| 2 (kl03, kl16) | 12 | `LeakageSpec is missing required fields: entity_keys` |
+| 2 (kl06, kl07) | 12 | `label_known_after must be a positive duration ... got '0 seconds'` |
+
+Ten cases keep the label and the history in one table (as most competition data does), two have a
+single series and so no entity key, and two have labels known immediately, which cannot be written
+as a zero duration. The prediction was written down in the registration before the run, and matched
+case for case. Files: [report](../results/kaggle/20261107-6bc64b8.md),
+[json](../results/kaggle/20261107-6bc64b8.json), [csv](../results/kaggle/20261107-6bc64b8.csv).
+
+### Variant: a placeholder temporal table (not the cases as authored)
+
+To see anything, a second run was registered ([`eval-prereg.yaml`](../bench/kaggle/eval-prereg.yaml),
+`variant_spec_workaround`, committed before its code) with one change to the spec: remove the label
+table from `time_columns` and declare a placeholder temporal table, as the round 1 dbt specs do.
+Ten cases then load (56 queries); the four with empty entity keys or a zero duration are still
+rejected, and their 24 queries count as misses. Over all 14 cases (95% cluster bootstrap by case):
+
+| rule | recall [95% CI] | false-positive rate [95% CI] |
+|---|---|---|
+| verdict, static | 28 / 40 = 0.70 [0.43, 0.93] | 19 / 40 = 0.47 [0.24, 0.73] |
+| verdict, with replay | 22 / 40 = 0.55 [0.29, 0.84] | 18 / 40 = 0.45 [0.21, 0.71] |
+| replay score at its frozen threshold | 4 / 40 = 0.10 [0.00, 0.28] | 0 / 40 |
+
+On only the ten cases that load, static recall is 28 of 28 and the false-positive rate 19 of 28
+(0.68). That is not a good result: the checker flags nearly everything it can read, including 19
+of the 28 clean twins, against a 5% target. Of the 28 pairs that load, it separates the leaky query
+from its clean twin in 9 (4 with replay), and each of those sits in a disputed case or one with a
+`DATE` or integer time column. Nothing can be said about L5 (all its cases were rejected).
+
+The false alarms have a checked cause: when a table holds a declared outcome column, every column
+read from that table is treated as post-outcome data, so a clean feature such as the gap between
+signup and first activity is flagged next to the leaky one. Replay added little: 28 of its 44
+verdicts were `unverifiable` (integer or `DATE` prediction times are not replayed), and it crashed
+with a `KeyError` on two cases whose prediction column has mixed-case letters. The workaround and
+the rules cannot be separated in these numbers. Files: [report](../results/kaggle/20261107-2c5b6f4-variant.md),
+[json](../results/kaggle/20261107-2c5b6f4-variant.json), [csv](../results/kaggle/20261107-2c5b6f4-variant.csv).
+
 ## Second rule set (v2)
 
 Rules, policy and threshold were frozen at tags `rules-frozen-v2` / `policy-frozen-v2`
