@@ -114,3 +114,25 @@ per_project:
   - all specs are committed together, before the detector is run on any round 2 project
   - this stage stops there; the leakage checker is not run on round 2 projects. How they are run
     (and adjudicated) is a later decision
+
+# Amendments are appended here and committed on their own, each before the work it changes.
+amendments:
+  - date: "2026-11-07"
+    decided: >-
+      by the user, after the first 12 qualifiers had been screened, pinned and given specs, and before
+      the checker was run on any round 2 project
+    reason: >-
+      4 of the 12 qualifiers have a spec marked `applicable: false` (no label table in the project, or
+      no time column in any documented source), so the checker cannot run on them
+    change: >-
+      screening continues from candidate #52 in the registered order, with the same criteria and the
+      same duplicate rule, appending to screening.csv. Each new qualifier is pinned, compiled and
+      given a spec from the project's own documents. It stops when 12 projects have a spec that the
+      checker can run (`applicable` is not false), or after 150 candidates in total have been
+      screened (the 50 already screened count), whichever comes first. Whether a qualifier has a
+      label table is judged when its spec is written; all new specs are committed before the checker
+      runs.
+    unchanged: >-
+      the 4 projects with `applicable: false` (dbt-features, Gamebot, Stage, NexusFlow) stay in
+      screening.csv, projects.yaml and specs/, with their reasons, and are reported as not applicable;
+      none is deleted. Nothing already screened is re-judged
