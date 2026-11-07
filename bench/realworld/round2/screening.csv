@@ -49,173 +49,173 @@ order,first_found_by,repo,default_branch,pinned_sha,license,stars,verdict,failed
 48,code: ml_features ref,renekomtsindi237/Stage,main,7579979727c13d1de7615cbc0f5549aa6ce01274,none,0,qualified,,"model header: ml_features_client is the daily client feature store used by the ML scoring DAG (date_feature, 90-day horizon, walk-forward validation documented); the repository has two dbt projects, pipeline/dbt holds the feature store; compiles (12 models)"
 49,code: ml_features ref,alwyndsouza/asx_stock_analysis_using_ml,main,43dcd16986979b3010c510aa9c0cbc78a3bdb260,none,0,qualified,,"README/yml: mart_ml_training_dataset is the final ML table with target next_day_return, next_week_return and next_month_return and train/validation/test splits; compiles after dbt deps (4 models)"
 50,code: ml_features ref,smshde/NexusFlow-DataOps-Pipeline,main,5823029a7c8c4296466107943bb572208d66ab9c,mit,0,qualified,,"model header and README: customer_ml_features is a daily customer feature snapshot (snapshot_date) for churn-risk/RFM scoring, served by an API; MIT; compiles after dbt deps (10 models)"
-51,code: ml_features ref,KZDNguyenThanh/africa-energy-lakehouse,main,2f685d456524cb05eb07ca13c3f3e0959b40283c,none,0,qualified,,"model header and yml: gold_ml_features is the wide feature table for ML regression with target monthly_electricity_kwh; compiles (7 models). no_documented_cutoff. Twelfth qualifier, so the search stops here"
-52,code: ml_features ref,moPPingg/realtime-fnb-data-platform,master,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-53,code: ml_features ref,gusdiaso/lh_nautical_athena,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-54,code: ml_features ref,lbrunorialmawave/baudo-spoon,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-55,code: ml_features ref,sadelcarpio/steam_games_recommender,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-56,code: ml_features ref,Manutd1234/AlphaEngine,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-57,code: ml_features ref,tungtranle/Beer-HL,master,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-58,code: ml_features ref,oleksandrmelnychenko/concord-bi-server,master,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-59,code: ml_features ref,brandononchain/kalshibot,main,,none,33,not_screened,,stopping rule reached: 12 projects qualified at #51
-60,code: ml_features ref,Jayz-yuors/Environmental-Forensics-GEE-1-,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-61,code: ml_features ref,Omartinezpaz/ozmar-sport,develop,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-62,code: ml_features ref,DiogoRibeiro7/mysql-business-to-schema,develop,,noassertion,0,not_screened,,stopping rule reached: 12 projects qualified at #51
+51,code: ml_features ref,KZDNguyenThanh/africa-energy-lakehouse,main,2f685d456524cb05eb07ca13c3f3e0959b40283c,none,0,qualified,,model header and yml: gold_ml_features is the wide feature table for ML regression with target monthly_electricity_kwh; compiles (7 models). no_documented_cutoff. Twelfth qualifier: the search stopped here until the amendment of the pre-registration continued it
+52,code: ml_features ref,moPPingg/realtime-fnb-data-platform,master,c53f26994e9b1200bef67d7ea39b4a2202a93402,none,0,rejected,1,no dbt_project.yml
+53,code: ml_features ref,gusdiaso/lh_nautical_athena,main,a411a72e7b1b6bc8b722cb66164ac03d2728ab4b,none,0,qualified,,"docs and yml: ml_features_produto_loja_mes is the product x store x month feature table for demand forecasting, with an explicit cutoff column (only information up to the cutoff) and the label target_3m (feature dictionary in docs/); compiles after dbt deps (72 models)"
+54,code: ml_features ref,lbrunorialmawave/baudo-spoon,main,25954f91ec1deb9e55bc380731f27e74702bf4c7,none,0,rejected,1,no dbt_project.yml
+55,code: ml_features ref,sadelcarpio/steam_games_recommender,main,5767ec60247501f25de5f317382f8ac55400f41a,none,1,qualified,,"yml: monthly_game_metrics 'Cutoff day for score computation'; training_features and user_features (tag training) build the recommender training set; compiles (17 models). The yml documents no label, which is decided when the spec is written"
+56,code: ml_features ref,Manutd1234/AlphaEngine,main,c94f3ed9309e2fecc4a92d9e427c2136d46fb5f3,none,0,rejected,1,no dbt_project.yml
+57,code: ml_features ref,tungtranle/Beer-HL,master,ed74cec7c8cdf9e35b5a26d3eebbe2c450d7308b,none,0,rejected,1,no dbt_project.yml
+58,code: ml_features ref,oleksandrmelnychenko/concord-bi-server,master,c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef,none,0,rejected,3,dbt compile writes no manifest: ml_features/product_graph_features depends on a source (delta_lake.dbo_ProductSpecification) that the project does not declare. Criterion 2 plausibly met (ml_features marts); no manifest shipped
+59,code: ml_features ref,brandononchain/kalshibot,main,a01af900f96a6038db081de18ebbb1e98cb3cbb2,none,33,rejected,1,no dbt_project.yml
+60,code: ml_features ref,Jayz-yuors/Environmental-Forensics-GEE-1-,main,0fc05a9ee91a2169d328501c7413cc7b1c719245,none,0,rejected,1,no dbt_project.yml
+61,code: ml_features ref,Omartinezpaz/ozmar-sport,develop,c5c2810bdb9ce3c6ba9b1a547a9dd96a570cd728,none,0,rejected,1,no dbt_project.yml
+62,code: ml_features ref,DiogoRibeiro7/mysql-business-to-schema,develop,883c24cf114e003e025e93c7559f2a45e814d63a,noassertion,0,rejected,1,no dbt_project.yml
 63,dbt feature engineering,SarrangTech/fraud-detection-feature-store,main,,mit,1,excluded,,pre-registered exclusion (seen during development or in round 1 screening.csv)
 64,dbt feature engineering,mponsclo/music-streaming-churn-prediction,main,,mit,0,excluded,,pre-registered exclusion (seen during development or in round 1 screening.csv)
 65,dbt feature engineering,heikalazzouna-svg/credit-risk-mlops,main,,none,0,excluded,,pre-registered exclusion (seen during development or in round 1 screening.csv)
-66,code: training_set ref,Autinerary/Goal-Planning-System,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-67,code: training_set ref,vaibhav0708/predictor,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-68,code: training_set ref,HenryMorganDibie/feature-store-design,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-69,code: training_set ref,KenImade/fpl-data-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-70,code: training_set ref,Helooeverybody/AI-thuc-chien,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-71,code: training_set ref,dududev-async/Pdumbbell,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-72,code: training_set ref,robertgorsuch/jrs-deploy,main,,apache-2.0,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-73,code: training_set ref,elementary-data/dbt-data-reliability,master,,apache-2.0,531,not_screened,,stopping rule reached: 12 projects qualified at #51
-74,code: training_set ref,PathologyDataScience/HistomicsML2,master,,none,26,not_screened,,stopping rule reached: 12 projects qualified at #51
-75,code: training_set ref,PathologyDataScience/HistomicsML,master,,none,21,not_screened,,stopping rule reached: 12 projects qualified at #51
-76,code: training_set ref,shamwari-ai/shamwari,main,,apache-2.0,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-77,code: training_set ref,Biadone/ps,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-78,code: training_set ref,nirholas/three.ws,main,,apache-2.0,269,not_screened,,stopping rule reached: 12 projects qualified at #51
-79,code: training_set ref,kaori-seasons/algorithm-trains-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-80,code: training_set ref,paesanilab/MB-Fit,master,,noassertion,19,not_screened,,stopping rule reached: 12 projects qualified at #51
-81,code: training_set ref,dikym/terka,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-82,code: training_set ref,m310-git/training-assistant,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-83,code: training_set ref,pmnafshari/project_monitoring,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-84,dbt training,mebaysan/DBT-Training,main,,none,4,not_screened,,stopping rule reached: 12 projects qualified at #51
-85,dbt training,databricks-solutions/databricks-dbt-training-labs,main,,noassertion,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-86,dbt training,bridgeteon/africa,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-87,dbt training,zachfreitas/dbt-fundamentals,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-88,dbt training,jerlyrosa/dbt-training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-89,dbt training,shipragupta11/DBT-training,main,,gpl-3.0,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-90,dbt training,jmour04/dbt_training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-91,dbt training,CARMICHAELSORIA2023/dbt-training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-92,dbt training,DheerajDahiya/dbt-training-,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-93,dbt training,jmd361-harshv/dbt-training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-94,dbt training,thethien8a/Dbt-Training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-95,dbt training,fmmmendes/dbt_training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-96,dbt training,wrt2sanjoydbt/dbt_training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-97,dbt training,Mestevam1976/dbt-training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-98,dbt training,thmshmm/dbt-training,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-99,dbt training,jmour04/dbt_training_old,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-100,dbt training,greenwichg/snowflake_dbt_training,claude/requirement-implementation-myi9k6,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-101,dbt training,Vinayakvhegde/dbt-training-2025,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-102,dbt training,bytecodeio/dbt-training-bytecode,master,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-103,dbt training,zachfreitas/dbt-bqtest,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-104,code: training_data ref,Sanschinu95/nutrisnap,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-105,code: training_data ref,bug-ops/zeph,main,,mit,66,not_screened,,stopping rule reached: 12 projects qualified at #51
-106,code: training_data ref,anmarabb/floranow-dbt,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-107,code: training_data ref,nealiyer88/nexus-finance,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-108,code: training_data ref,nowaytouse/modern-format-boost,nightly,,mit,6,not_screened,,stopping rule reached: 12 projects qualified at #51
-109,code: training_data ref,avvy-lavoienne/sellica-golang,dev,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-110,code: training_data ref,Performile1/HitlAI,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-111,code: training_data ref,postmos-labs/pos-system,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-112,code: training_data ref,justinlawee/instacart-reorder-prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-113,code: training_data ref,sujisudharsanan/bisman-ERP-Building,deployment,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-114,code: training_data ref,ttuckerm/trendzo-working-5-7-25,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-115,code: training_data ref,dgithinjibit/Syncsenta,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-116,code: training_data ref,hanggu-api/projeto-central-,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-117,code: training_data ref,diogoseca/bjjgraph,main,,noassertion,36,not_screened,,stopping rule reached: 12 projects qualified at #51
-118,code: training_data ref,Alikhan207/InfraBharat,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-119,code: training_data ref,tincandream/heavyhaul-dms,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-120,code: training_data ref,kevanaenterprises-bot/LoadTracker-Pro-2026,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-121,code: training_data ref,Asmit-ctrl/Ascendra,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-122,code: training_data ref,Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-123,code: training_data ref,HumanAiDev/be_humanai_fastapi,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-124,code: training_data ref,Arafulla-ai/medai-clinical-suite,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-125,code: training_data ref,guaardvark/guaardvark,main,,mit,300,not_screened,,stopping rule reached: 12 projects qualified at #51
-126,code: training_data ref,almona02/almona-portfolio-forge,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-127,code: training_data ref,Akin-ctrl/Data_Engineering_For_AI,master,,noassertion,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-128,code: training_data ref,Stevemeg/SentinelAI,master,,noassertion,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-129,code: training_data ref,vincentmcleese/automate-ai,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-130,code: training_data ref,jpurrutia/snowflake-customer360-application-demo,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-131,code: training_data ref,RcrdBrt/FitoTrack-logger,master,,gpl-3.0,4,not_screened,,stopping rule reached: 12 projects qualified at #51
-132,code: training_data ref,ziyingtey/QMS,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-133,dbt credit risk,OmerTDK/dbt-credit-risk,main,,noassertion,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-134,dbt credit risk,szpeeKi/dbt-credit-risk-radar,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-135,dbt credit risk,nathandxn/dbt_credit_risk_model,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-136,code: churn_features ref,caiocvelasco/project02-docker-dbt-migration-medallion-kimball-postgres,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-137,code: churn_features ref,caiocvelasco/project03-docker-dbt-from-s3-parquet-to-Snowflake-external-tables,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-138,code: churn_features ref,AlaDdin0709/Telecom-Churn-GCP,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-139,code: churn_features ref,jmyers911mm/ns11mm-data-platform,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-140,code: churn_features ref,amlanacharya/portfolio,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-141,code: churn_features ref,rishav-sah/telco-churn-data-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-142,code: churn_features ref,spacey-cadet/ad-fraud,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-143,code: churn_features ref,FasterFlash/streamflow-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-144,code: churn_features ref,Arths17/CampusFuel,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-145,code: churn_features ref,Javiersdr/EcoChurnPipeline,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-146,code: churn_features ref,joewynn/SaaSGuard,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-147,code: churn_features ref,nedala/data-ml-ai-whirr-datacat,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-148,code: churn_features ref,databricks-demos/dbdemos-notebooks,main,,noassertion,77,not_screened,,stopping rule reached: 12 projects qualified at #51
-149,code: churn_features ref,kanta13jp1/my_web_app,main,,mit,3,not_screened,,stopping rule reached: 12 projects qualified at #51
-150,code: churn_features ref,aryan105825/contextguard,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-151,code: churn_features ref,abhayadav708/Telco-Churn-Prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-152,code: churn_features ref,TCoote/churn_predictive_repo,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-153,code: churn_features ref,leepmh674735-netizen/Spring31,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-154,code: churn_features ref,ereezyy/AgentSystem,master,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-155,code: churn_features ref,Mohitjoshi08/olist-customer-lifecycle-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-156,code: churn_features ref,visva-murali/retention-engine,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-157,code: churn_features ref,BriceZemba/fuse-datahub,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-158,code: churn_features ref,anderskd12/Subscription-Analytics---Snowflake-and-DBT,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-159,code: churn_features ref,Assare20/npontu-analytics-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-160,code: churn_features ref,AbePabbathi/lakehouse-tacklebox,main,,mit,45,not_screened,,stopping rule reached: 12 projects qualified at #51
-161,code: churn_features ref,matroidbe/pg_extensions-releases,main,,noassertion,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-162,code: churn_features ref,sammi2213/Telecom-churn-prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-163,code: churn_features ref,KhalidAbdelaty/customer-churn-prediction,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-164,dbt machine learning,chrisdamba/adaptive-ads,main,,gpl-3.0,3,not_screened,,stopping rule reached: 12 projects qualified at #51
-165,dbt machine learning,bibhraj-saha/UK-Housing-Intelligence-Platform,main,,mit,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-166,dbt machine learning,saithanuj2/enterprise-financial-fraud-detection-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-167,dbt machine learning,Varshapandey-8757/retail-demand-forecasting,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-168,dbt machine learning,bharath9500704322/amazon-music-ai-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-169,dbt machine learning,nithyaa-d/customer-360-revenue-intelligence,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-170,dbt machine learning,gayatrisurya97/fintech-fraud-detection-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-171,dbt machine learning,isaiasjusto/finpulse-ai,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-172,dbt machine learning,babyprasanna1606-spec/Project-3-Retail-Demand-Forecasting-Inventory-Optimization,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-173,dbt machine learning,FerNegreiro/DataEngine,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-174,dbt machine learning,Achayo-Emmanuel/Strategic-Revenue-Intelligence-Platform-SaaS,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-175,dbt machine learning,Madhumitha-Chinta/RetailIQ-AI,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-176,dbt machine learning,FatimaZahraBoukab/oddnet-network-intelligence,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-177,dbt machine learning,mansigupta101/finn-marketplace-analytics,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-178,code: fraud_features ref,vilim-cro/Financial-Transactions-Analytics-Platform,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-179,code: fraud_features ref,Kshitijbhatt1998/fintech-fraud-pipeline,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-180,code: fraud_features ref,exasol-labs/industry-solutions,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-181,code: fraud_features ref,Lifewitdata/account-takeover-fraud-detection,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-182,code: fraud_features ref,jaime-sql/factored-hackathon-2026-databank_sv,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-183,code: fraud_features ref,sameramri-alt/Financial-Fraud-Analytics-Real-Time-ML,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-184,code: fraud_features ref,NADEEMTHEBA8/realtime-fraud-feature-store,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-185,code: fraud_features ref,dorukalkan/nova-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-186,code: fraud_features ref,vifestudio/payflow-data-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-187,code: fraud_features ref,joviale08/SG_ML,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-188,code: fraud_features ref,VIVEKj24/nexus-pay,master,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-189,code: fraud_features ref,munisp/paygate,main,,none,2,not_screened,,stopping rule reached: 12 projects qualified at #51
-190,code: fraud_features ref,danteliew6/amarbank-databricks-solution,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-191,code: fraud_features ref,burna5566/TonatonPay,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-192,code: fraud_features ref,haseebkn/aegisagent,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-193,code: fraud_features ref,tusharpanthri/transaction-lens,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-194,code: prediction_date ref,clinicalml/large-scale-temporal-shift-study,main,,none,5,not_screened,,stopping rule reached: 12 projects qualified at #51
-195,code: prediction_date ref,hachej/multi-engine-data-stack,main,,none,22,not_screened,,stopping rule reached: 12 projects qualified at #51
-196,code: prediction_date ref,sandersdHES/ADF_DataCycleProject,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-197,code: prediction_date ref,mandeep6207/Autonomous-Pothole-Detection-And-National-Road-Intelligence-Platform,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-198,code: prediction_date ref,minhajMahmud/Hishab_AI,master,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-199,code: prediction_date ref,waynemkearns/smart-ordering-system,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-200,code: prediction_date ref,incheckk/base-bangkago,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-201,code: prediction_date ref,simonibsen/gefion,main,,noassertion,2,not_screened,,stopping rule reached: 12 projects qualified at #51
-202,code: prediction_date ref,NickScherbakov/NickScherbakov,main,,none,9,not_screened,,stopping rule reached: 12 projects qualified at #51
-203,code: prediction_date ref,mercydeez/lulu-sales-intelligence-dashboard,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-204,code: prediction_date ref,krish2105/lulu-intelligence-dashboard,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-205,code: prediction_date ref,Kuldeep2822k/aqua-ai,main,,mit,4,not_screened,,stopping rule reached: 12 projects qualified at #51
-206,code: prediction_date ref,linuxarena/clinical_trial,main,,mit,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-207,code: prediction_date ref,hindrobah85-cyber/ERP-gajahnusa,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-208,code: prediction_date ref,mohaaHeiba/EGX360-Graduation-Project,main,,mit,11,not_screened,,stopping rule reached: 12 projects qualified at #51
-209,code: prediction_date ref,2026Graduation-Work/take_a_look,main,,mit,2,not_screened,,stopping rule reached: 12 projects qualified at #51
-210,code: prediction_date ref,SiemonCha/stock-ai,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-211,code: prediction_date ref,Deepakkaruppasamy/Shashti-Karz,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-212,code: prediction_date ref,csxark/Wealth-Vault,main,,none,11,not_screened,,stopping rule reached: 12 projects qualified at #51
-213,code: prediction_date ref,Naveen200524/sanjeevini-cdss,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-214,code: prediction_date ref,lakshanashreee/public-health-surveillance,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
-215,code: prediction_date ref,shah-data-scientist/Scoring_Model_Enhanced,master,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-216,code: prediction_date ref,mateusdfaria/portif-lio,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-217,code: prediction_date ref,davuterl/music-platform-infiwo-v1,main,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-218,code: prediction_date ref,pcwto2025/subway-wear-prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-219,code: prediction_date ref,Shriram-Iyer/stock-market-project,Develop,,mit,0,not_screened,,stopping rule reached: 12 projects qualified at #51
-220,code: prediction_date ref,anujky576/SmartDrain,main,,none,1,not_screened,,stopping rule reached: 12 projects qualified at #51
+66,code: training_set ref,Autinerary/Goal-Planning-System,main,9b134b2eb6200d421025bd83d8bce72cbc2eba67,mit,0,rejected,1,no dbt_project.yml
+67,code: training_set ref,vaibhav0708/predictor,main,7554263bedd43fda611974bfa1df5335388027c4,none,0,rejected,1,no dbt_project.yml
+68,code: training_set ref,HenryMorganDibie/feature-store-design,main,989638cc3fb30f18ba526bafb5e2abee2ecfe78b,none,0,rejected,1,no dbt_project.yml
+69,code: training_set ref,KenImade/fpl-data-platform,main,21916d10313bb5a001ca8400cf3decf289d2dc3f,none,0,qualified,,"yml: feat_training_set is the assembled player x fixture matrix, 'features are left of the deadline, labels right of it' (deadline_utc), with a test asserting no post-deadline leakage; compiles after dbt deps (27 models)"
+70,code: training_set ref,Helooeverybody/AI-thuc-chien,main,578938ba3b910a3363f822096f3cd91340cefe3e,none,0,qualified,,"course lab repository (data pipeline engineering day): gold_training_set is the training set of a ticket classifier (yml 'Tap huan luyen cho mo hinh phan loai ticket', label_resolved); compiles (7 models). Not a dbt tutorial copy. no_documented_cutoff"
+71,code: training_set ref,dududev-async/Pdumbbell,main,2c8e78caba55031b865259bbbbeb9dab13bada8e,none,0,rejected,1,no dbt_project.yml
+72,code: training_set ref,robertgorsuch/jrs-deploy,main,79405f94dc7a4b96b5b214fa85a6bda5c0514283,apache-2.0,1,rejected,1,no dbt_project.yml
+73,code: training_set ref,elementary-data/dbt-data-reliability,master,e3ab23d8c2e3bd7ad455de8bb1d23bf7ee84e675,apache-2.0,531,rejected,2,"dbt package for data observability (elementary): anomaly scores of tests, no table for a model"
+74,code: training_set ref,PathologyDataScience/HistomicsML2,master,30162820a527d669bf818d2aa949c6ee985e412a,none,26,rejected,1,no dbt_project.yml
+75,code: training_set ref,PathologyDataScience/HistomicsML,master,d6fba83842b35dec6346b509c3a3c83740b0620a,none,21,rejected,1,no dbt_project.yml
+76,code: training_set ref,shamwari-ai/shamwari,main,695b2ec5c9939ad3a0ed2bb1fe6644021c62b6a0,apache-2.0,1,rejected,1,no dbt_project.yml
+77,code: training_set ref,Biadone/ps,main,e411d06cc0373263fd2db950d1578b5494e12b4b,none,0,rejected,1,no dbt_project.yml
+78,code: training_set ref,nirholas/three.ws,main,8b19b56818f42ec3f3c5b30f161f9863801259c9,apache-2.0,269,rejected,1,no dbt_project.yml
+79,code: training_set ref,kaori-seasons/algorithm-trains-platform,main,058fd4ae52503e2bc06267c6fa53a9b4344c2615,none,0,rejected,1,no dbt_project.yml
+80,code: training_set ref,paesanilab/MB-Fit,master,20bf66e60a5ad547a7797adfc5961ad5ae569006,noassertion,19,rejected,1,no dbt_project.yml
+81,code: training_set ref,dikym/terka,main,d2feb62b499d2638dc412587606359f2c95b53f5,none,0,rejected,1,no dbt_project.yml
+82,code: training_set ref,m310-git/training-assistant,main,04b514113d512143b5b5421a316a45a3e9874e68,none,1,rejected,2,"fct_training_set is a log of workout sets (strength training), not data for a model; no label or cutoff"
+83,code: training_set ref,pmnafshari/project_monitoring,main,0f2444517d77916761e8eab8bebb100114aa0d68,none,0,rejected,2,"model-evaluation warehouse: stores predictions, labels and run registries for monitoring (fct_prediction); not an input table for a model"
+84,dbt training,mebaysan/DBT-Training,main,49e984d8a32f79adbf8930696f286fdd634fd849,none,4,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+85,dbt training,databricks-solutions/databricks-dbt-training-labs,main,6f3853be1891fa7acd4002e779364681c5328150,noassertion,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+86,dbt training,bridgeteon/africa,main,2c0044c908bbec0aa21422558e5d0d73655f0aa3,none,1,rejected,2,"Data Vault course project (hubs, links, satellites, point-in-time tables); no table for a model"
+87,dbt training,zachfreitas/dbt-fundamentals,main,bf6581cac42d697b43ea4fbb583fd94bf28aa532,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+88,dbt training,jerlyrosa/dbt-training,main,fc5999158508c7ae262ea302329cd2e87c686500,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+89,dbt training,shipragupta11/DBT-training,main,0792fdeb9606612f0b30fc3732b852122c41af50,gpl-3.0,1,rejected,1,no dbt_project.yml
+90,dbt training,jmour04/dbt_training,main,31ae695f53c1b5b31cd50d700916d3eb672ce69e,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+91,dbt training,CARMICHAELSORIA2023/dbt-training,main,58fbcfb37859baedf5125d252ae8953c2314c217,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+92,dbt training,DheerajDahiya/dbt-training-,main,,none,1,rejected,1,no dbt_project.yml
+93,dbt training,jmd361-harshv/dbt-training,main,e0bc69f2c352c90a2c8aa5758c0d3337a1b2b9a1,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+94,dbt training,thethien8a/Dbt-Training,main,761d5289141fa9d9f28cbeb5461601ce00a51c5b,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+95,dbt training,fmmmendes/dbt_training,main,ad31780c70b649130f4a89412442e30d332d2b56,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+96,dbt training,wrt2sanjoydbt/dbt_training,main,bd56c431312bcc6f0ec27c442ee506c77ea88663,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+97,dbt training,Mestevam1976/dbt-training,main,52c6ca374a33d30d512cb45e5c78b10dbe1a476d,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+98,dbt training,thmshmm/dbt-training,main,2a39739f30b34edcd2333f13b34c6641330b5ef5,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+99,dbt training,jmour04/dbt_training_old,main,7f90969fedcde9e7963642f8489dcb6c2ecfa84c,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+100,dbt training,greenwichg/snowflake_dbt_training,claude/requirement-implementation-myi9k6,deadb9ad59792881a63f5f3961cbb4b0c494249f,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+101,dbt training,Vinayakvhegde/dbt-training-2025,main,9eaea9e4f9c4309086b2ab576b09f2eb7adb9c37,none,1,rejected,1,no dbt_project.yml
+102,dbt training,bytecodeio/dbt-training-bytecode,master,adf09fab1b4d79a40cf1097122075a52e36f9895,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+103,dbt training,zachfreitas/dbt-bqtest,main,f04316ec1bdf0f05fa67401075fd497da4fa1d98,none,1,rejected,2,"dbt course or tutorial material (starter, jaffle_shop or northwind models); no table for a model"
+104,code: training_data ref,Sanschinu95/nutrisnap,main,9139074f88a5ddabbb42ed00cf9885fed6e31304,none,0,rejected,1,no dbt_project.yml
+105,code: training_data ref,bug-ops/zeph,main,a0439888f0b84c4ed40b7cd9c2a0cca01c28fe05,mit,66,rejected,1,no dbt_project.yml
+106,code: training_data ref,anmarabb/floranow-dbt,main,ed7a9ca3b8cf7077e782d305682b4c51b17e811d,none,0,rejected,3,"dbt compile exits 0 but the project's default selector (selectors.yml) skips views, so stg_training_data and its ancestors have no compiled SQL (131 of 201 models); no manifest shipped with compiled code. Criterion 2 plausibly met (stg_training_data in a forecast folder)"
+107,code: training_data ref,nealiyer88/nexus-finance,main,c27de7bfe61a9625d9d65a9b1505b27e81cfac0c,none,1,rejected,1,no dbt_project.yml
+108,code: training_data ref,nowaytouse/modern-format-boost,nightly,5a8525b03a4c467eba67aedb3c0327fbe7064124,mit,6,rejected,1,no dbt_project.yml
+109,code: training_data ref,avvy-lavoienne/sellica-golang,dev,249e00cbe37dccd2ae0d923433675d070cff6c94,none,0,rejected,1,no dbt_project.yml
+110,code: training_data ref,Performile1/HitlAI,main,007b1c941b98c62e3a4ceed04ed5fe9ee63f2a4e,none,0,rejected,1,no dbt_project.yml
+111,code: training_data ref,postmos-labs/pos-system,main,2e0010d822478c7f2934103edbb8d46337e243c0,none,0,rejected,1,no dbt_project.yml
+112,code: training_data ref,justinlawee/instacart-reorder-prediction,main,2817efb6be725470147ea3e8b63077623075e8ad,none,0,qualified,,README/model header: fct_reorder_training_data is the ML training dataset (reordered_label = product reordered in the user's train order; prior orders are the history); compiles (8 models). Documented label timing: the train order is the user's most recent order
+113,code: training_data ref,sujisudharsanan/bisman-ERP-Building,deployment,f239b6fefd3cc97a58d06ce293fb64e5d8823481,none,0,rejected,1,no dbt_project.yml
+114,code: training_data ref,ttuckerm/trendzo-working-5-7-25,main,c1426cb3dacd19efcfd3c5ac77340739ed9fa602,none,0,rejected,1,no dbt_project.yml
+115,code: training_data ref,dgithinjibit/Syncsenta,main,d745d91dbe899344c050c5afaec48098297c8e29,mit,0,rejected,1,no dbt_project.yml
+116,code: training_data ref,hanggu-api/projeto-central-,main,9065606cc54085a08f6344667d1cd17a3fcf9e06,none,0,rejected,1,no dbt_project.yml
+117,code: training_data ref,diogoseca/bjjgraph,main,e86dbe26c97e09d0b0f88e2f896b07de13dc1d6d,noassertion,36,rejected,1,no dbt_project.yml
+118,code: training_data ref,Alikhan207/InfraBharat,main,fc597577496f34fbc1222627a484dd18433f8f5d,none,0,rejected,1,no dbt_project.yml
+119,code: training_data ref,tincandream/heavyhaul-dms,main,efad992bfba43d29cfa9c3050cb2472fd5b6b678,none,0,rejected,1,no dbt_project.yml
+120,code: training_data ref,kevanaenterprises-bot/LoadTracker-Pro-2026,main,4dc9fddc7c783bc94a91b3b70344846b4eb84698,none,0,rejected,1,no dbt_project.yml
+121,code: training_data ref,Asmit-ctrl/Ascendra,main,6eea9a7b2d5d48358b06c4acd5d8f81aefd9577b,none,0,rejected,1,no dbt_project.yml
+122,code: training_data ref,Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST,main,e46471a5948217b0098c1a678bc86f7fa922724d,none,0,rejected,1,no dbt_project.yml
+123,code: training_data ref,HumanAiDev/be_humanai_fastapi,main,f03db3b05642593b662cdf445690da7b5f463154,none,1,rejected,1,no dbt_project.yml
+124,code: training_data ref,Arafulla-ai/medai-clinical-suite,main,fb4063a71fe614416593d0ce4bc47830b04681a7,mit,0,rejected,1,no dbt_project.yml
+125,code: training_data ref,guaardvark/guaardvark,main,f6eb02e4529a65e8a31849802eb85f30722aaf09,mit,300,rejected,1,no dbt_project.yml
+126,code: training_data ref,almona02/almona-portfolio-forge,main,f7234780a935d50edc3177391738df36ab199517,none,0,rejected,1,no dbt_project.yml
+127,code: training_data ref,Akin-ctrl/Data_Engineering_For_AI,master,ae506096704aec083a737f6dea2cfb2e0fc36de4,noassertion,0,rejected,1,no dbt_project.yml
+128,code: training_data ref,Stevemeg/SentinelAI,master,101db9851931192920d854a174d30cc8f65ff0cd,noassertion,0,rejected,1,no dbt_project.yml
+129,code: training_data ref,vincentmcleese/automate-ai,main,6d04f509a64cc786e31d4c1f31d0cc068c777122,none,0,rejected,1,no dbt_project.yml
+130,code: training_data ref,jpurrutia/snowflake-customer360-application-demo,main,35914745e4344183e9b2b2bd136b6ea841586aed,none,0,rejected,2,"Snowflake customer 360 demo: the ML scripts are plain SQL outside dbt; the dbt models are customer metrics (metric_customer_ltv), not a training table"
+131,code: training_data ref,RcrdBrt/FitoTrack-logger,master,344455e4098c125d404e5b68282478d6a23624b2,gpl-3.0,4,rejected,1,no dbt_project.yml
+132,code: training_data ref,ziyingtey/QMS,main,67c60634e023822000bc778b00e177e72b2be34c,none,0,rejected,1,no dbt_project.yml
+133,dbt credit risk,OmerTDK/dbt-credit-risk,main,6438c95efc4809c37df303c06b9ce4739939c137,noassertion,0,rejected,2,"dbt package of credit-risk macros (roll rates, vintage curves); no table for a model"
+134,dbt credit risk,szpeeKi/dbt-credit-risk-radar,main,51134dc9572ba9fe2473916ab54f2aebde103a64,none,0,rejected,2,single reporting model (fato_risco_credito) for a credit-default dashboard; no table for a model
+135,dbt credit risk,nathandxn/dbt_credit_risk_model,main,bbc8b9a8f4eaa6f6a9df3039b55bff70b5c7971b,none,0,qualified,,"model name and yml: modeling_case_default_prediction is the credit default prediction table (is_default, decision_date, train/test model_group, static features); compiles after dbt deps (9 models). no_documented_cutoff: README is empty"
+136,code: churn_features ref,caiocvelasco/project02-docker-dbt-migration-medallion-kimball-postgres,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+137,code: churn_features ref,caiocvelasco/project03-docker-dbt-from-s3-parquet-to-Snowflake-external-tables,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+138,code: churn_features ref,AlaDdin0709/Telecom-Churn-GCP,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+139,code: churn_features ref,jmyers911mm/ns11mm-data-platform,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+140,code: churn_features ref,amlanacharya/portfolio,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+141,code: churn_features ref,rishav-sah/telco-churn-data-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+142,code: churn_features ref,spacey-cadet/ad-fraud,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+143,code: churn_features ref,FasterFlash/streamflow-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+144,code: churn_features ref,Arths17/CampusFuel,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+145,code: churn_features ref,Javiersdr/EcoChurnPipeline,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+146,code: churn_features ref,joewynn/SaaSGuard,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+147,code: churn_features ref,nedala/data-ml-ai-whirr-datacat,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+148,code: churn_features ref,databricks-demos/dbdemos-notebooks,main,,noassertion,77,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+149,code: churn_features ref,kanta13jp1/my_web_app,main,,mit,3,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+150,code: churn_features ref,aryan105825/contextguard,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+151,code: churn_features ref,abhayadav708/Telco-Churn-Prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+152,code: churn_features ref,TCoote/churn_predictive_repo,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+153,code: churn_features ref,leepmh674735-netizen/Spring31,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+154,code: churn_features ref,ereezyy/AgentSystem,master,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+155,code: churn_features ref,Mohitjoshi08/olist-customer-lifecycle-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+156,code: churn_features ref,visva-murali/retention-engine,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+157,code: churn_features ref,BriceZemba/fuse-datahub,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+158,code: churn_features ref,anderskd12/Subscription-Analytics---Snowflake-and-DBT,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+159,code: churn_features ref,Assare20/npontu-analytics-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+160,code: churn_features ref,AbePabbathi/lakehouse-tacklebox,main,,mit,45,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+161,code: churn_features ref,matroidbe/pg_extensions-releases,main,,noassertion,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+162,code: churn_features ref,sammi2213/Telecom-churn-prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+163,code: churn_features ref,KhalidAbdelaty/customer-churn-prediction,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+164,dbt machine learning,chrisdamba/adaptive-ads,main,,gpl-3.0,3,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+165,dbt machine learning,bibhraj-saha/UK-Housing-Intelligence-Platform,main,,mit,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+166,dbt machine learning,saithanuj2/enterprise-financial-fraud-detection-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+167,dbt machine learning,Varshapandey-8757/retail-demand-forecasting,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+168,dbt machine learning,bharath9500704322/amazon-music-ai-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+169,dbt machine learning,nithyaa-d/customer-360-revenue-intelligence,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+170,dbt machine learning,gayatrisurya97/fintech-fraud-detection-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+171,dbt machine learning,isaiasjusto/finpulse-ai,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+172,dbt machine learning,babyprasanna1606-spec/Project-3-Retail-Demand-Forecasting-Inventory-Optimization,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+173,dbt machine learning,FerNegreiro/DataEngine,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+174,dbt machine learning,Achayo-Emmanuel/Strategic-Revenue-Intelligence-Platform-SaaS,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+175,dbt machine learning,Madhumitha-Chinta/RetailIQ-AI,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+176,dbt machine learning,FatimaZahraBoukab/oddnet-network-intelligence,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+177,dbt machine learning,mansigupta101/finn-marketplace-analytics,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+178,code: fraud_features ref,vilim-cro/Financial-Transactions-Analytics-Platform,main,,apache-2.0,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+179,code: fraud_features ref,Kshitijbhatt1998/fintech-fraud-pipeline,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+180,code: fraud_features ref,exasol-labs/industry-solutions,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+181,code: fraud_features ref,Lifewitdata/account-takeover-fraud-detection,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+182,code: fraud_features ref,jaime-sql/factored-hackathon-2026-databank_sv,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+183,code: fraud_features ref,sameramri-alt/Financial-Fraud-Analytics-Real-Time-ML,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+184,code: fraud_features ref,NADEEMTHEBA8/realtime-fraud-feature-store,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+185,code: fraud_features ref,dorukalkan/nova-analytics,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+186,code: fraud_features ref,vifestudio/payflow-data-platform,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+187,code: fraud_features ref,joviale08/SG_ML,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+188,code: fraud_features ref,VIVEKj24/nexus-pay,master,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+189,code: fraud_features ref,munisp/paygate,main,,none,2,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+190,code: fraud_features ref,danteliew6/amarbank-databricks-solution,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+191,code: fraud_features ref,burna5566/TonatonPay,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+192,code: fraud_features ref,haseebkn/aegisagent,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+193,code: fraud_features ref,tusharpanthri/transaction-lens,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+194,code: prediction_date ref,clinicalml/large-scale-temporal-shift-study,main,,none,5,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+195,code: prediction_date ref,hachej/multi-engine-data-stack,main,,none,22,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+196,code: prediction_date ref,sandersdHES/ADF_DataCycleProject,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+197,code: prediction_date ref,mandeep6207/Autonomous-Pothole-Detection-And-National-Road-Intelligence-Platform,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+198,code: prediction_date ref,minhajMahmud/Hishab_AI,master,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+199,code: prediction_date ref,waynemkearns/smart-ordering-system,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+200,code: prediction_date ref,incheckk/base-bangkago,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+201,code: prediction_date ref,simonibsen/gefion,main,,noassertion,2,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+202,code: prediction_date ref,NickScherbakov/NickScherbakov,main,,none,9,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+203,code: prediction_date ref,mercydeez/lulu-sales-intelligence-dashboard,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+204,code: prediction_date ref,krish2105/lulu-intelligence-dashboard,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+205,code: prediction_date ref,Kuldeep2822k/aqua-ai,main,,mit,4,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+206,code: prediction_date ref,linuxarena/clinical_trial,main,,mit,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+207,code: prediction_date ref,hindrobah85-cyber/ERP-gajahnusa,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+208,code: prediction_date ref,mohaaHeiba/EGX360-Graduation-Project,main,,mit,11,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+209,code: prediction_date ref,2026Graduation-Work/take_a_look,main,,mit,2,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+210,code: prediction_date ref,SiemonCha/stock-ai,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+211,code: prediction_date ref,Deepakkaruppasamy/Shashti-Karz,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+212,code: prediction_date ref,csxark/Wealth-Vault,main,,none,11,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+213,code: prediction_date ref,Naveen200524/sanjeevini-cdss,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+214,code: prediction_date ref,lakshanashreee/public-health-surveillance,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+215,code: prediction_date ref,shah-data-scientist/Scoring_Model_Enhanced,master,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+216,code: prediction_date ref,mateusdfaria/portif-lio,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+217,code: prediction_date ref,davuterl/music-platform-infiwo-v1,main,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+218,code: prediction_date ref,pcwto2025/subway-wear-prediction,main,,none,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+219,code: prediction_date ref,Shriram-Iyer/stock-market-project,Develop,,mit,0,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
+220,code: prediction_date ref,anujky576/SmartDrain,main,,none,1,not_screened,,stopping rule reached: 12 projects with a runnable spec at #135 (amended rule)
