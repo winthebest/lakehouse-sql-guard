@@ -1903,33 +1903,52 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
 
     The equality keeps only the row holding the subquery's maximum (or minimum), which is at or
     below every upper bound the subquery applies to its own rows. `col IN (SELECT MAX(col) ...
-    GROUP BY entity)` keeps rows holding one of those per-group maxima: the same.
+    GROUP BY entity)` and `col = ANY (SELECT col ...)` keep rows holding one of those values, and
+    `col <= (SELECT MAX(col) ...)` (or `<`, or the same turned around) keeps rows that are not
+    later than it: all capped by the subquery's own bound. `>=`, `ALL` (true for an empty set) and
+    `NOT IN` do not cap the row and bound nothing.
     """
     spec = analysis.spec
-    for node in analysis.qualified.find_all(exp.EQ, exp.In):
+    for node in analysis.qualified.find_all(exp.EQ, exp.In, exp.LT, exp.LTE, exp.GT, exp.GTE):
         context = _row_filter(node)
         if context is None:
             continue
         scope = resolver.scope_of(node)
+        strict = False  # a comparison that excludes the newest bounded row itself
         if isinstance(node, exp.EQ):
             sides, grouped = [(node.left, node.right), (node.right, node.left)], False
-        else:
+        elif isinstance(node, exp.In):
             sides, grouped = [(node.this, node.args.get("query"))], True
+        elif isinstance(node, exp.LT | exp.LTE):
+            sides, grouped, strict = [(node.left, node.right)], False, isinstance(node, exp.LT)
+        else:
+            sides, grouped = [(node.right, node.left)], False
+            strict = isinstance(node, exp.GT)
         for feature_node, other in sides:
+            many = grouped or isinstance(other, exp.Any)  # the subquery may give several rows
+            if isinstance(other, exp.Any):
+                other = other.this
             if not isinstance(other, exp.Subquery) or not isinstance(other.this, exp.Select):
                 continue
             inner = other.this
             inner_scope = resolver.by_expression.get(id(inner))
             if len(inner.selects) != 1 or inner_scope is None or id(inner_scope) in resolver.dead:
                 continue
-            if inner.args.get("group") and not grouped:
+            if inner.args.get("group") and not many:
                 continue
             peak = inner.selects[0].unalias()
-            if not isinstance(peak, exp.Max | exp.Min):
+            if isinstance(peak, exp.Max | exp.Min):
+                value = peak.this
+            elif isinstance(peak, exp.Column) and many:
+                value = peak  # the set of bounded values itself
+            else:
                 continue
-            sub = resolver.resolve_time(peak.this, inner_scope, local=True)
+            sub = resolver.resolve_time(value, inner_scope, local=True)
             feature = resolver.resolve_time(feature_node, scope, local=True)
-            if not sub or not feature or not feature.exact or feature.ref.time_column is None:
+            # the cap is the value itself: `MAX(col + INTERVAL 1 DAY)` caps the row a day later
+            if not sub or not sub.exact or not feature or not feature.exact:
+                continue
+            if feature.ref.time_column is None:
                 continue
             ref = feature.ref
             if ref.table != sub.ref.table or feature.column != sub.column:
@@ -1940,6 +1959,8 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
             for bound in sub.ref.bounds:
                 if not (bound.is_upper and bound.column == sub.column) or bound.post_window:
                     continue
+                if not math.isfinite(bound.slack_up):
+                    continue  # its size is unknown (a unitless interval)
                 # written in the subquery itself (the table may be reached through a CTE)
                 if not (bound.direct or resolver.scope_of(bound.node) is inner_scope):
                     continue
@@ -1954,7 +1975,7 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                         TimeBound(
                             feature.column,
                             role,
-                            bound.op,
+                            "<" if strict else bound.op,
                             bound.offset_seconds,
                             node.sql(spec.dialect),
                             raw=False,

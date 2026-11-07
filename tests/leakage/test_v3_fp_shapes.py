@@ -750,3 +750,57 @@ SELECT {KEYS}, cutoff.c AS again FROM labels l CROSS JOIN cutoff WHERE l.label_t
 )
 def test_a_cutoff_used_any_other_way_is_still_flagged(query):
     assert rules(query), query
+
+
+# --- keeping rows that are not later than the latest bounded row ----------------------------------
+
+
+def latest(condition: str) -> str:
+    return f"""SELECT {KEYS}, s.total_spend
+FROM labels l JOIN user_stats s ON s.user_id = l.user_id
+WHERE {condition}"""
+
+
+def newest_before(
+    bound: str = "x.updated_at < l.label_ts", value: str = "MAX(x.updated_at)"
+) -> str:
+    return f"(SELECT {value} FROM user_stats x WHERE x.user_id = l.user_id AND {bound})"
+
+
+@pytest.mark.parametrize("op", ["=", "<=", "<"])
+def test_a_row_not_later_than_the_newest_bounded_row_is_bounded(op):
+    assert_pair(
+        latest(f"s.updated_at {op} {newest_before()}"),
+        latest(f"s.updated_at {op} {newest_before('x.updated_at < l.label_ts + INTERVAL 1 DAY')}"),
+    )
+
+
+def test_equal_to_any_of_the_bounded_rows_is_bounded():
+    assert_pair(
+        latest(f"s.updated_at = ANY {newest_before()}"),
+        latest(f"s.updated_at = ANY {newest_before('x.updated_at >= l.label_ts')}"),
+    )
+    assert rules(latest(f"s.updated_at = ANY {newest_before(value='x.updated_at')}")) == set()
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        # a row at least as late as the newest bounded one may be a future row
+        f"s.updated_at >= {newest_before()}",
+        f"s.updated_at > {newest_before()}",
+        f"{newest_before()} <= s.updated_at",
+        # ALL is true for an empty set, and for any row later than the set
+        f"s.updated_at >= ALL {newest_before(value='x.updated_at')}",
+        f"s.updated_at <= ALL {newest_before(value='x.updated_at')}",
+        # NOT IN keeps everything that is not in the set
+        f"s.updated_at NOT IN {newest_before(value='x.updated_at')}",
+    ],
+)
+def test_the_forms_that_do_not_cap_the_row_are_still_flagged(condition):
+    assert rules(latest(condition)), condition
+
+
+def test_the_mirrored_comparison_is_the_same_bound():
+    assert rules(latest(f"{newest_before()} >= s.updated_at")) == set()
+    assert rules(latest(f"{newest_before()} > s.updated_at")) == set()
