@@ -67,7 +67,7 @@ Lakekeeper and Polaris, and with Spark and Trino.
 
 ## Results at a glance
 
-Rules and policy were frozen at a git tag before new authors wrote each held-out set, and each set
+Rules and policy were frozen at a git tag before fresh AI agents (not people) wrote each held-out set, and each set
 was run once. Numbers from the current release (rules and policy v3):
 
 | | measured on | result |

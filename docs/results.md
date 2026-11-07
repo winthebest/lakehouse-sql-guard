@@ -1,15 +1,15 @@
 # Results
 
 Every number here comes from a committed result file. Each rule set and policy was frozen at a
-git tag, with its thresholds pre-registered, before new authors wrote the held-out set it was
+git tag, with its thresholds pre-registered, before new authors (fresh Claude agents, not people) wrote the held-out set it was
 measured on; each held-out set was run once. Newest first. What the numbers do not show is in
 [limitations.md](limitations.md).
 
 ## Current rules and policy (v3) on a fresh held-out set
 
 Rules, policy and thresholds were frozen at tags `rules-frozen-v3` / `policy-frozen-v3`
-([pre-registration](../results/leakage/prereg-8928019.json)). New authors, who saw only a brief,
-then wrote 146 leakage templates (70 clean) and 109 agent prompts (45 benign, 64 risky or
+([pre-registration](../results/leakage/prereg-8928019.json)). New authors (fresh Claude agents, not people),
+who saw only a brief, then wrote 146 leakage templates (70 clean) and 109 agent prompts (45 benign, 64 risky or
 ambiguous). The templates were checked for near-copies of every earlier set, and the labels
 and expected answers were checked against the warehouse. Each set was run once.
 
@@ -217,8 +217,8 @@ the rules cannot be separated in these numbers. Files: [report](../results/kaggl
 ## Second rule set (v2)
 
 Rules, policy and threshold were frozen at tags `rules-frozen-v2` / `policy-frozen-v2`
-([pre-registration](../results/leakage/prereg-8390186.json)) before new authors, who saw only a
-brief, wrote 91 leakage templates and 31 agent prompts. Run once:
+([pre-registration](../results/leakage/prereg-8390186.json)) before new authors (fresh Claude agents, not
+people), who saw only a brief, wrote 91 leakage templates and 31 agent prompts. Run once:
 
 | | recall | FPR [95% CI] |
 |---|---|---|

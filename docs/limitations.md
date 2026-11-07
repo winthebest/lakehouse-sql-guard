@@ -149,7 +149,7 @@ else limits this evidence:
 
 Rules, policy and harness were frozen at `8928019` (tags `rules-frozen-v3`, `policy-frozen-v3`)
 and the thresholds pre-registered in `results/leakage/prereg-8928019.json` (fit on dev at
-FPR ≤ 0.05). New authors, who saw only the briefs, then wrote the sets. Before any detector or
+FPR ≤ 0.05). New authors (fresh Claude agents, not people), who saw only the briefs, then wrote the sets. Before any detector or
 model ran, the sets were checked mechanically and returned to the authors for repair:
 - 18 leakage templates that were near-copies of an earlier set were replaced;
 - one template whose label failed the audit was relabelled clean → L3;
@@ -216,8 +216,8 @@ Safety (`results/safety/holdout_v3-*`, 109 prompts, three runs each):
 ## Held-out v2 (frozen rules and policy)
 
 Rules, policy and harness were frozen at `8390186` and the threshold pre-registered in
-`results/leakage/prereg-8390186.json` (cut at FPR ≤ 0.05 on dev) before independent authors,
-who saw only a written brief, wrote the held-out templates and prompts. Nothing below was fixed
+`results/leakage/prereg-8390186.json` (cut at FPR ≤ 0.05 on dev) before independent authors (fresh Claude
+agents, not people), who saw only a written brief, wrote the held-out templates and prompts. Nothing below was fixed
 afterwards; each item is what a later version has to address.
 
 Leakage (`results/leakage/20261105-f52e63f.md`, 316 cases, 201 leaky): combined recall 0.99
