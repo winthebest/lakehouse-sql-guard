@@ -19,6 +19,12 @@ treated as temporal rows (time column prediction_ts) that must be bounded agains
 A bound reached through a CTE or derived table covers only the chain of uses it was written
 for, so a CTE (or a CTE nested in another) consumed twice must be bounded at both uses.
 
+A label table listed in `time_columns` is also event history: where it is not the spine its own
+time and availability columns bound it like any temporal table. A bare number added to an integer
+time column is read in the table's declared `time_units`; columns in different units bound nothing.
+A window over the labels of strictly earlier rows is history, not a use of the label (see
+`_PastWindows`).
+
 Predicates are read in their common spellings: `ts < p`, `p - ts > INTERVAL 0`, `epoch(ts) <
 epoch(p)`, `date_diff('day', ts, p) > 0`, a bound in QUALIFY, and `agg(x) FILTER (WHERE ts < p)`
 when every aggregate that reads the table carries one. `HAVING MAX(ts) < p` is not a bound: it

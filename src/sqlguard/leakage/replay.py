@@ -26,6 +26,13 @@ to catalog tables (the spec's `relations`, or the catalog name and namespace) an
 query under the names it uses. An uncorrelated `(SELECT MAX(label_ts) FROM labels)` cutoff reads the
 whole label table in both runs, since a time split is chosen before any prediction time exists.
 
+A prediction time may be a timestamp, a DATE (midnight UTC of that day) or an integer with a
+declared unit in the spec's `time_units` (Unix epoch plus the value in that unit); `to_instant`
+puts all of them on one clock, which picks the snapshot and the label-delay cutoff, while output
+rows keep their own key. An integer with no declared unit is UNVERIFIABLE, never guessed. A label
+table listed in `time_columns` is also event history: its earlier rows come from the snapshot
+visible before the prediction time when it has one, otherwise from the rows stamped before it.
+
 User SQL runs in a sandboxed in-memory DuckDB (no file or network access), and only SELECT
 queries are replayed.
 """
