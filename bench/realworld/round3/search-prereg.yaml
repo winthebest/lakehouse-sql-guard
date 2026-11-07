@@ -1,0 +1,230 @@
+# Pre-registration of the third search for real-world dbt projects that build ML training or
+# feature tables. Same frame as ../round2/search-prereg.yaml, with three additions made before any
+# search is run: a blind reader, three adjudication labels, and spec roles that must cite a document.
+# Committed before any search below is run. Nothing here changes after the first result is seen; a
+# project that fails a criterion is listed with the reason, never re-admitted by a looser rule.
+#
+# Nothing in this file has been run. No search was made to write it, and the leakage checker has not
+# been run on any project of this round.
+#
+# Every author, reader and reviewer of this round is a Claude model; no person judges a finding and no
+# model of another family does. Every result of the round is reported as "judged by Claude models,
+# not people".
+
+registered_at: "2026-11-07"
+group: round3                  # reported separately from rounds 1 and 2
+rules: rules-frozen-v4         # the leakage rules every project is checked with (not run in this stage)
+
+# Run in this order, results kept in round3/search-results.json exactly as GitHub returns them.
+# Repository searches rank by stars. Code searches have no sort option (GitHub's "best match"); each
+# hit is a file, and the candidate is the repository that holds it. Code searches are interleaved
+# with the repository searches so that the screening limit below cannot leave them unread. None of
+# these commands appears in the earlier registrations (checked by a test).
+searches:
+  - {id: R1,  kind: repos, command: 'gh search repos "dbt point in time" --sort stars --limit 20'}
+  - {id: R2,  kind: repos, command: 'gh search repos "dbt next day prediction" --sort stars --limit 20'}
+  - {id: C1,  kind: code,  command: 'gh search code "target_" "ref(" --extension sql --limit 30'}
+  - {id: R3,  kind: repos, command: 'gh search repos "dbt ltv model" --sort stars --limit 20'}
+  - {id: R4,  kind: repos, command: 'gh search repos "dbt forecasting features" --sort stars --limit 20'}
+  - {id: C2,  kind: code,  command: 'gh search code "as_of_date" "ref(" --extension sql --limit 30'}
+  - {id: R5,  kind: repos, command: 'gh search repos "dbt label feature_store" --sort stars --limit 20'}
+  - {id: R6,  kind: repos, command: 'gh search repos "dbt customer scoring" --sort stars --limit 20'}
+  - {id: C3,  kind: code,  command: 'gh search code "label_date" "ref(" --extension sql --limit 30'}
+  - {id: R7,  kind: repos, command: 'gh search repos "dbt snapshot features ml" --sort stars --limit 20'}
+  - {id: R8,  kind: repos, command: 'gh search repos "dbt retention model" --sort stars --limit 20'}
+  - {id: C4,  kind: code,  command: 'gh search code "observation_date" "ref(" --extension sql --limit 30'}
+  - {id: R9,  kind: repos, command: 'gh search repos "dbt time series features" --sort stars --limit 20'}
+  - {id: R10, kind: repos, command: 'gh search repos "dbt predictive model" --sort stars --limit 20'}
+  - {id: C5,  kind: code,  command: 'gh search code "training_label" "ref(" --extension sql --limit 30'}
+  - {id: R11, kind: repos, command: 'gh search repos "dbt lead scoring" --sort stars --limit 20'}
+  - {id: R12, kind: repos, command: 'gh search repos "dbt anomaly detection features" --sort stars --limit 20'}
+  - {id: C6,  kind: code,  command: 'gh search code "feature_date" "ref(" --extension sql --limit 30'}
+# Repository searches are saved with --json fullName,description,license,pushedAt,isFork,
+# stargazersCount,defaultBranch,url,createdAt; code searches with --json repository,path,url.
+# A code search that fails (rate limit, error) is retried after a pause with the same command; a
+# search that still fails is recorded as failed and not replaced.
+
+# Never part of the new group. Names are compared exactly, without regard to case; the list is
+# computed from the files below by bench/realworld/round3/exclusions.py, and the digests pin the
+# files as they were when this was registered. A candidate is checked with
+# `python -m bench.realworld.round3.exclusions OWNER/REPO ...` before it is screened.
+exclusion:
+  rule: >-
+    a repository is excluded if it appears in ANY of these sources: it was screened in round 1 or
+    round 2 whatever its verdict; it appeared in the results of any search of round 1 or round 2,
+    screened or not (its name and description were shown then); or either earlier pre-registration
+    lists it as excluded (the projects read during development). A fork of an excluded project, or
+    a copy of one, is judged at screening and gets the verdict `excluded`.
+  sources:
+    - {path: bench/realworld/screening.csv, why: round1 screening, sha256: 9bc6af2cbce65f141ec9cecf87e65ade787c6591e52e1ad7d002da0d1bc9ecec}
+    - {path: bench/realworld/round2/screening.csv, why: round2 screening, sha256: e729c0339234ef87cf2b85183e3e07b3c242db92fee48e0a31649eed02394bfd}
+    - {path: bench/realworld/search-results.json, why: round1 search hit, sha256: 78a6e471f7b1be116e09d6e4b8b9215d8a9fa40175e678659be7fb27778f94c0}
+    - {path: bench/realworld/round2/search-results.json, why: round2 search hit, sha256: 484e329e34ba8329dc68b81eaa0114875bf0ce20fe3f21ec1d4a78d76e454454}
+    - {path: bench/realworld/search-prereg.yaml, why: round1 preregistration, sha256: ec2e0eb593c50fed7843f7f2d7cfc4d9d667831488b40f7512c37f59f7ac1b89}
+    - {path: bench/realworld/round2/search-prereg.yaml, why: round2 preregistration, sha256: f62e18ef7f1b8dbdc259371d6c58c88d0aa6abd30996ef7b6eb612672796d271}
+  count: 251                   # distinct repositories excluded by the sources above
+
+criteria:                      # all must hold; checked on the default branch at the pinned commit
+  - has a dbt_project.yml
+  - at least one model builds a table meant for training or scoring a model (features keyed by an
+    entity, with a label, a prediction or cutoff time, or a snapshot date), stated in its name, docs
+    or README. A rule-based score that the project says is not ML, and a current-state table with no
+    label, prediction or cutoff time or snapshot date, do not count
+  - compiles with dbt-duckdb without credentials, or ships a manifest.json; seeds or sample data may
+    be absent (only compiled SQL is checked). "Compiles" means dbt writes a manifest in which the
+    candidate training model and every model it reads have compiled SQL; a project where they do not
+    is rejected here, with the reason
+  - not a fork of an excluded project, not a template generated from one, not a tutorial copy of
+    jaffle_shop
+  - any license; a project without a license is checked locally and only aggregate results and our
+    own adjudication notes are published, never its code
+  # Flag only, not a criterion for admission (as in round 2):
+  - >-
+    cutoff documentation (flag only): the project has its own documented prediction or cutoff time (a
+    variable, a column, or a sentence in its README, docs, yml descriptions or seed descriptions), OR a
+    label whose timing is documented. Judged from those documents and not from the model SQL. If
+    neither holds, the project is still admitted and flagged `no_documented_cutoff`.
+
+selection:
+  order: >-
+    deduplicated union of the searches, in the order above; within a code search, the order in which
+    GitHub returns the files, a repository counted at its first hit
+  stop: >-
+    after 12 projects have a spec the checker can run (`applicable` is not false in the spec, decided
+    when the spec is written), or after 200 candidates have been screened, whichever comes first. If
+    fewer than 12 are reached, the round reports the number it got and says so; nothing is invented
+  screened: >-
+    a candidate that is not excluded and got a verdict (qualified, rejected, duplicate). Excluded
+    candidates, and candidates not reached because the search stopped, are not counted
+  duplicates: >-
+    copies of the same template or tutorial are counted once, decided at screening. The first one
+    found qualifies (if it does); later copies get the verdict `duplicate` and count as screened but
+    not as qualified. A fork of a qualified project is a copy. Which of two copies is "the same" is
+    judged from identical model files or identical macros, not from the name
+  replacement: >-
+    a project that fails to compile when pinned is recorded with the reason, and the next qualifying
+    candidate in order takes its place
+  record: >-
+    every candidate screened, with the criterion it failed, in round3/screening.csv (same columns as
+    ../screening.csv). Committed before any qualifying project's model SQL is read beyond what
+    screening needs (file names, README, yml, the SQL head needed to see what a model builds)
+
+per_project:
+  - pin the commit SHA at screening, before reading any model SQL beyond what screening needs
+  - >-
+    write the spec from the project's README, docs, sources and seeds only; a choice the project does
+    not document is written as an assumption in a comment in the spec; the project's SQL is never
+    edited. The spec declares time as in docs/spec.md, including `time_units` for integer time
+    columns and `output_roles` for the label, metadata and (when the project lists them) feature
+    columns of the training model
+  - >-
+    every column in `output_roles` carries a citation `path:line` of the project's own document that
+    says what the column is (a comment on the column's line or on the lines right above it), one
+    column per line. `python -m bench.realworld.round3.spec_gate specs/*.yaml` must print nothing
+    before the checker is run
+  - >-
+    each project gets TWO specs, both reported: `specs/<owner>__<repo>.yaml` (all fields) and
+    `specs-noroles/<owner>__<repo>.yaml` (the same text with the `output_roles` block removed,
+    generated by `bench.realworld.round3.spec_gate.strip_output_roles`, never edited by hand). The
+    difference between the two shows how much the roles contribute
+  - all specs of both kinds, and the blind reader's file, are committed together, before the checker
+    is run on any round 3 project
+
+specs:
+  # Short form of per_project, so a test can read it.
+  per_project_files: ["specs/<owner>__<repo>.yaml", "specs-noroles/<owner>__<repo>.yaml"]
+
+blind_read:
+  what: >-
+    a separate agent (C) reads the training model(s) and the documents of each qualified project and
+    writes the leaks it suspects, before any checker output exists. C sees the project's clone only:
+    not the specs, not the checker, not `src/`, not an earlier round's findings
+  file: round3/blind-read.csv
+  committed_before: the checker is run on any round 3 project
+  columns: [id, project, model, feature, source, leak_type, evidence, note]
+  column_meaning:
+    id: br-NN, unique
+    project: owner/repo
+    model: the training model (dbt model name) the line is about
+    feature: the output column of that model, or empty when the leak is in a table rather than a column
+    source: the upstream table or model the leaked information comes from, or empty
+    leak_type: >-
+      one of L1..L7 (reads the future; latest row without a bound; aggregate without an upper bound;
+      late-arriving data; boundary error; use of the label or an outcome; the wall clock)
+    evidence: path:line in the project that shows it
+    note: free text
+  groups:                      # leak types that are one mistake read differently (same group = may match)
+    bound: [L1, L2, L3, L5]
+    clock: [L7]
+    label: [L6]
+    late: [L4]
+  matching_rule: >-
+    a reader line matches a finding when ALL hold: (1) same project and same training model; (2) the
+    leak types are in the same group; (3) the finding's location is the line's `source` (last part of
+    the name, compared without regard to case) OR the line's `feature` appears in the finding's
+    message or evidence as a whole word. Implemented in bench/realworld/round3/blind_read.py
+  adjudication: >-
+    every reader line is labelled by the two blind reviewers exactly as a finding is (below), before
+    they see whether it matched
+  miss: a reader line whose final label is `true` and which matches no finding
+  recall_by_reader: >-
+    matched `true` lines / `true` lines, with the one-sided 95% Clopper-Pearson lower bound. Reported
+    only, with no goal. The reader can miss leaks too: this is recall of the leaks C saw, not of all
+    leaks. `true_not_actionable` lines are counted apart
+
+adjudication:
+  reviewers: >-
+    the controller and one separate agent, each labelling every finding without seeing the other's
+    label (as in round 2). Both are Claude models. The final label is the label both gave, or
+    `unsure` when they differ
+  labels:
+    "true":
+      definition: >-
+        a real leak that reaches the model: the flagged column or table feeds a feature the project's
+        training code uses, and it uses information that was not known at the prediction time
+      example: >-
+        a training script lists `avg_discount` as a feature, and the model computing it aggregates
+        every promotion with no bound at the cutoff
+    true_not_actionable:
+      definition: >-
+        a real leak in the SQL that does not reach the model, or that nobody would change: the column
+        is not in the feature list of the training script, the table is not read for training, or the
+        project's own text says it is a known approximation
+      example: >-
+        the model carries `days_to_churn` computed from future rows, but the training script selects
+        only the columns named in its FEATURES list, which does not include it
+    "false":
+      definition: >-
+        no leak: the information was known at the prediction time (a bound exists in a form the
+        reviewer verified, or the project enforces it elsewhere and the file:line is cited), or the
+        flagged column is the label or run metadata and is not a feature
+      example: >-
+        a promotions table joined without a bound, but a test in the project fails the build when a
+        promotion starts after the churn timestamp, so no later promotion reaches a row
+    unsure:
+      definition: >-
+        the two reviewers gave different labels, or the documents do not settle it for one of them
+      example: a bound that depends on a variable whose value the project does not document
+
+metrics:
+  # Registered for H2 before any result.
+  goal:
+    - >-
+      strict precision = `true` findings / findings: the one-sided 95% Clopper-Pearson lower bound
+      is at least 0.30 (`unsure` counts against). At 30 findings that means at least 14 `true`. The
+      number of findings is not known in advance: the goal is judged with the real n
+    - >-
+      verdict coverage: at least 9 of the 12 projects get a verdict (not `unverifiable` for lack of
+      a spec or compile), and no project crashes the checker
+  reported_only:
+    - effective false positive rate = (`false` + `true_not_actionable` + `unsure`) / findings
+    - loose precision = (`true` + `true_not_actionable`) / findings
+    - verdict coverage by model, not only by project
+    - findings per model, and the INFO findings (`non_feature_only`) counted apart, never as findings
+    - kappa and Gwet's AC1 between the two reviewers (bench/realworld/agreement.py)
+    - the same figures for `specs-noroles/`
+    - leaks the blind reader found that the checker missed, and recall by the reader (above)
+  unit: finding; clustered by project (a cluster bootstrap with seed 42 is reported beside the exact bound)
+
+# Amendments are appended here and committed on their own, each before the work it changes.
+amendments: []

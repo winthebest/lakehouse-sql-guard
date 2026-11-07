@@ -41,7 +41,12 @@ label is final only when `label_ts + horizon < t` (strictly).
 
 Policy: a disagreement goes back to the author. Labels are never changed here.
 
+The event-log world (W2) is audited the same way (`--world w2`), with times in epoch milliseconds:
+see `EventLogAuditWorld` for what is knowable at `t`. Its default is every prediction time, which is
+slow on the full world; `--points N` samples N of them.
+
 Usage: python -m bench.leakage.audit --candidate holdout_v3 | --candidate-dir DIR [--points N]
+       python -m bench.leakage.audit --world w2 --candidate-dir DIR [--points N]
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ import json
 import math
 import random
 import re
+from bisect import bisect_left
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -91,6 +97,25 @@ _CLOCK = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class AuditProfile:
+    """The names a world uses for the pieces the audit compares: the entity key and the
+    prediction time that identify a row, the columns copied through unchanged (the key, the time
+    and the label), and the spine table a time-split cutoff is read from."""
+
+    key: str
+    time: str
+    passthrough: tuple[str, ...]
+    spine_table: str
+    spine_time: str
+
+
+W1_PROFILE = AuditProfile("user_id", "label_ts", PASSTHROUGH, "labels", "label_ts")
+EVENT_LOG_PROFILE = AuditProfile(
+    "user_id", "ts_ms", ("user_id", "ts_ms", "correct"), "interactions", "ts_ms"
+)
+
+
 @dataclass
 class CaseResult:
     """What the audit found for one rendering. `verdict` is leaky, clean or unauditable."""
@@ -119,6 +144,8 @@ class TemplateResult:
 
 class AuditWorld:
     """The final tables plus the generator's load times, and the tables as of any time `t`."""
+
+    profile = W1_PROFILE
 
     def __init__(self, tables: dict[str, pa.Table], versions: list[gen.PlanVersion]) -> None:
         self.final = tables
@@ -198,6 +225,79 @@ class AuditWorld:
         return sorted(chosen)
 
 
+class EventLogAuditWorld:
+    """The event-log world (W2) and the tables as they were knowable at a prediction time `t`, an
+    integer in epoch milliseconds.
+
+    One table, `interactions`, is the spine and the history, so the world as of `t` holds in it
+    the rows stamped before `t` that were also loaded before `t` (their label is final the moment
+    they are stamped, their `answer_shown_at` only once it has passed), plus the spine rows
+    stamped exactly at `t` with the label, the outcome and the load time hidden. `item_stats`
+    rows are the ones loaded before `t`; `market_prices` rows are the ones whose day was loaded
+    before `t`; `items` is static. Nothing is read from an Iceberg snapshot.
+    """
+
+    profile = EVENT_LOG_PROFILE
+    INTERACTION_COLUMNS = tuple(gen.EVENT_LOG_SCHEMAS["interactions"].names)
+
+    def __init__(self, tables: dict[str, pa.Table]) -> None:
+        self.final = tables
+        self._rows = sorted(tables["interactions"].to_pylist(), key=lambda r: r["ts_ms"])
+
+    @classmethod
+    def from_catalog(cls, catalog) -> EventLogAuditWorld:
+        return cls({name: catalog.read(name) for name in gen.EVENT_LOG_SCHEMAS})
+
+    def prediction_times(self) -> list[int]:
+        return sorted({r["ts_ms"] for r in self._rows})
+
+    @staticmethod
+    def _price_loaded_ms(ts_s: int) -> int:
+        day = ts_s // 86_400
+        return (day + 1) * 86_400_000
+
+    def known_at(self, t: int) -> dict[str, pa.Table]:
+        """Every table as the model could have read it at prediction time `t` (strict)."""
+        history, now = [], []
+        for row in self._rows:
+            if row["ts_ms"] > t:
+                break
+            if row["ts_ms"] == t:
+                now.append({**row, "correct": None, "answer_shown_at": None, "loaded_ms": None})
+            elif row["loaded_ms"] < t:
+                shown = row["answer_shown_at"]
+                history.append({**row, "answer_shown_at": shown if shown < t else None})
+        stats = self.final["item_stats"]
+        prices = self.final["market_prices"]
+        known_prices = pa.Table.from_pylist(
+            [r for r in prices.to_pylist() if self._price_loaded_ms(r["ts_s"]) < t],
+            schema=gen.EVENT_LOG_SCHEMAS["market_prices"],
+        )
+        return {
+            "items": self.final["items"],
+            "interactions": pa.Table.from_pylist(
+                [*history, *now], schema=gen.EVENT_LOG_SCHEMAS["interactions"]
+            ),
+            "item_stats": stats.filter(
+                pc.less(stats.column("loaded_ms"), pa.scalar(t, pa.int64()))
+            ),
+            "market_prices": known_prices,
+        }
+
+    def sample_points(self, k: int, seed: int) -> list[int]:
+        """Prediction times to audit: where most is in flight, then random. `k <= 0` is all."""
+        times = self.prediction_times()
+        if k <= 0 or k >= len(times):
+            return times
+        stamped = [r["ts_ms"] for r in self._rows]
+        loaded = sorted(r["loaded_ms"] for r in self._rows)
+        in_flight = {t: bisect_left(stamped, t) - bisect_left(loaded, t) for t in times}
+        chosen = sorted(times, key=lambda t: (-in_flight[t], t))[: max(1, k // 2)]
+        rest = [t for t in times if t not in chosen]
+        random.Random(seed).shuffle(rest)
+        return sorted([*chosen, *rest[: k - len(chosen)]])
+
+
 # --- running a rendering on a world -------------------------------------------------------------
 
 
@@ -227,13 +327,16 @@ def same_rows(want: list[tuple], got: list[tuple]) -> bool:
     )
 
 
-def _features(columns: list[str], rows: list[tuple], t: datetime) -> list[tuple] | None:
+def _features(
+    columns: list[str], rows: list[tuple], t: object, profile: AuditProfile = W1_PROFILE
+) -> list[tuple] | None:
     """Feature values of the rows at prediction time `t`, order-free; None without the columns."""
-    if "user_id" not in columns or "label_ts" not in columns:
+    if profile.key not in columns or profile.time not in columns:
         return None
-    ts, keep = columns.index("label_ts"), [i for i, c in enumerate(columns) if c not in PASSTHROUGH]
+    ts = columns.index(profile.time)
+    keep = [i for i, c in enumerate(columns) if c not in profile.passthrough]
     picked = [
-        (row[columns.index("user_id")], *(_norm(row[i]) for i in keep))
+        (row[columns.index(profile.key)], *(_norm(row[i]) for i in keep))
         for row in rows
         if row[ts] == t
     ]
@@ -269,7 +372,9 @@ def _cte_names(tree: exp.Expression) -> set[str]:
     return {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
 
 
-def _reads_spine(table: exp.Table, relations: Mapping[str, str], ctes: set[str]) -> bool:
+def _reads_spine(
+    table: exp.Table, relations: Mapping[str, str], ctes: set[str], spine_table: str = SPINE_TABLE
+) -> bool:
     """Whether a table reference is the spine itself.
 
     A bare name that a CTE of the query defines is that CTE, whatever it is called and whatever
@@ -280,10 +385,15 @@ def _reads_spine(table: exp.Table, relations: Mapping[str, str], ctes: set[str])
     if not table.db and not table.catalog and table.name.lower() in ctes:
         return False
     qualified = ".".join(p.lower() for p in (table.catalog, table.db, table.name) if p)
-    return (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() == SPINE_TABLE
+    return (relations.get(qualified) or table.name).rsplit(".", 1)[-1].lower() == spine_table
 
 
-def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str], ctes: set[str]) -> bool:
+def _is_spine_cutoff(
+    subquery: exp.Subquery,
+    relations: Mapping[str, str],
+    ctes: set[str],
+    spine: tuple[str, str] = (SPINE_TABLE, SPINE_TIME),
+) -> bool:
     """`(SELECT MAX|MIN|quantile|median(label_ts) FROM <the spine>)` and nothing else in it."""
     select = subquery.this
     if not isinstance(select, exp.Select) or len(select.expressions) != 1:
@@ -292,7 +402,7 @@ def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str], ctes:
     source = select.args.get("from_")
     if extras or source is None or not isinstance(source.this, exp.Table):
         return False
-    if not _reads_spine(source.this, relations, ctes):
+    if not _reads_spine(source.this, relations, ctes, spine[0]):
         return False
     aggregate = select.expressions[0]
     if isinstance(aggregate, exp.Alias):
@@ -301,24 +411,29 @@ def _is_spine_cutoff(subquery: exp.Subquery, relations: Mapping[str, str], ctes:
     return (
         isinstance(aggregate, _CUTOFF_AGGREGATES)
         and column is not None
-        and column.name.lower() == SPINE_TIME
+        and column.name.lower() == spine[1]
     )
 
 
-def _spine_names(tree: exp.Expression, relations: Mapping[str, str], ctes: set[str]) -> set[str]:
+def _spine_names(
+    tree: exp.Expression,
+    relations: Mapping[str, str],
+    ctes: set[str],
+    spine_table: str = SPINE_TABLE,
+) -> set[str]:
     """Aliases and names under which the query reads the spine table."""
     return {
         table.alias_or_name.lower()
         for table in tree.find_all(exp.Table)
-        if _reads_spine(table, relations, ctes)
+        if _reads_spine(table, relations, ctes, spine_table)
     }
 
 
-def _is_spine_time(node: exp.Expression, spine: set[str]) -> bool:
-    """The spine's own `label_ts` column (a bare `label_ts` counts when the spine is read)."""
+def _is_spine_time(node: exp.Expression, spine: set[str], time_column: str = SPINE_TIME) -> bool:
+    """The spine's own time column (a bare one counts when the spine is read)."""
     if isinstance(node, exp.Paren):
         node = node.this
-    if not isinstance(node, exp.Column) or node.name.lower() != SPINE_TIME:
+    if not isinstance(node, exp.Column) or node.name.lower() != time_column:
         return False
     return node.table.lower() in spine if node.table else bool(spine)
 
@@ -351,24 +466,29 @@ def _in_own_row_filter(node: exp.Expression) -> bool:
     return child.arg_key in ("where", "having", "qualify", "joins")
 
 
-def _compared_with_spine_time(node: exp.Subquery, spine: set[str]) -> bool:
+def _compared_with_spine_time(
+    node: exp.Subquery, spine: set[str], time_column: str = SPINE_TIME
+) -> bool:
     """Whether the subquery is a bound on the spine's own `label_ts` in a row filter."""
     comparison = node.find_ancestor(*_CUTOFF_COMPARISONS)
     if comparison is None or not _in_own_row_filter(comparison):
         return False
     if isinstance(comparison, exp.Between):
         bounds = (comparison.args.get("low"), comparison.args.get("high"))
-        return _is_spine_time(comparison.this, spine) and any(
+        return _is_spine_time(comparison.this, spine, time_column) and any(
             b is not None and _holds(b, node) for b in bounds
         )
     left, right = comparison.this, comparison.expression
     if _holds(left, node):
-        return _is_spine_time(right, spine)
-    return _holds(right, node) and _is_spine_time(left, spine)
+        return _is_spine_time(right, spine, time_column)
+    return _holds(right, node) and _is_spine_time(left, spine, time_column)
 
 
 def fix_spine_cutoffs(
-    sql: str, conn, relations: Mapping[str, str] | None = None
+    sql: str,
+    conn,
+    relations: Mapping[str, str] | None = None,
+    profile: AuditProfile = W1_PROFILE,
 ) -> tuple[str, list[str]]:
     """`sql` with each time-split cutoff replaced by the value it has on the final spine.
 
@@ -384,20 +504,24 @@ def fix_spine_cutoffs(
     tree = parse_one(sql, read="duckdb")
     relations = relations or {}
     ctes = _cte_names(tree)
-    spine = _spine_names(tree, relations, ctes)
+    spine = _spine_names(tree, relations, ctes, profile.spine_table)
     fixed: list[str] = []
     for node in list(tree.find_all(exp.Subquery)):
-        if not _is_spine_cutoff(node, relations, ctes):
+        if not _is_spine_cutoff(node, relations, ctes, (profile.spine_table, profile.spine_time)):
             continue
-        if not _compared_with_spine_time(node, spine):
+        if not _compared_with_spine_time(node, spine, profile.spine_time):
             continue
         rows = conn.sql(node.this.sql(dialect="duckdb")).fetchall()
         value = rows[0][0] if rows else None
-        if not isinstance(value, datetime):
+        if isinstance(value, datetime):
+            text = value.isoformat(sep=" ")
+            literal = f"TIMESTAMP '{text}'"
+        elif isinstance(value, int) and not isinstance(value, bool):
+            text = literal = str(value)  # an integer prediction time (epoch milliseconds)
+        else:
             continue
-        literal = f"TIMESTAMP '{value.isoformat(sep=' ')}'"
         node.replace(parse_one(literal, read="duckdb"))
-        fixed.append(value.isoformat(sep=" "))
+        fixed.append(text)
     return (tree.sql(dialect="duckdb") if fixed else sql), fixed
 
 
@@ -417,6 +541,7 @@ def audit_cases(
 ) -> dict[str, CaseResult]:
     """Leaky, clean or unauditable for every rendering."""
     results: dict[str, CaseResult] = {}
+    profile = audit_world.profile
     final_conn = _connection(audit_world.final, relations)
     final: dict[str, tuple[list[str], list[tuple]]] = {}
     sqls: dict[str, str] = {}  # what is run: the rendering with its split cutoffs fixed
@@ -428,7 +553,7 @@ def audit_cases(
                     case.case_id, "unauditable", "reads the wall clock (the audit cannot see L7)"
                 )
                 continue
-            sql, cutoffs = fix_spine_cutoffs(case.sql, final_conn, relations)
+            sql, cutoffs = fix_spine_cutoffs(case.sql, final_conn, relations, profile)
             sqls[case.case_id] = sql
             if cutoffs:
                 fixed_cutoffs[case.case_id] = cutoffs
@@ -445,15 +570,17 @@ def audit_cases(
         conn = _connection(audit_world.known_at(t), relations)
         for case in live:
             columns, rows = final[case.case_id]
-            if not [c for c in columns if c not in PASSTHROUGH]:
+            if not [c for c in columns if c not in profile.passthrough]:
                 results[case.case_id] = CaseResult(
                     case.case_id, "unauditable", "the output has no feature column"
                 )
                 continue
-            want = _features(columns, rows, t)
+            want = _features(columns, rows, t, profile)
             if want is None:
                 results[case.case_id] = CaseResult(
-                    case.case_id, "unauditable", "the output lacks user_id or label_ts"
+                    case.case_id,
+                    "unauditable",
+                    f"the output lacks {profile.key} or {profile.time}",
                 )
                 continue
             try:
@@ -463,7 +590,7 @@ def audit_cases(
                     case.case_id, "unauditable", f"does not run as of {t}: {str(err)[:160]}"
                 )
                 continue
-            got = _features(got_columns, got_rows, t) or []
+            got = _features(got_columns, got_rows, t, profile) or []
             if not want and not got:
                 continue
             counted[case.case_id] += 1
@@ -497,7 +624,7 @@ def _difference(t: datetime, want: list[tuple], got: list[tuple]) -> dict:
     only_final = [row for row in want if not any(same_rows([row], [g]) for g in got)]
     only_known = [row for row in got if not any(same_rows([row], [w]) for w in want)]
     return {
-        "time": t.isoformat(),
+        "time": t.isoformat() if isinstance(t, datetime) else t,
         "rows_final": len(want),
         "rows_known_at_t": len(got),
         "example_final": list(only_final[0]) if only_final else None,
@@ -593,8 +720,11 @@ def summary(results: list[TemplateResult]) -> dict:
 # --- command line -------------------------------------------------------------------------------
 
 
-def _relations_of(split: str) -> dict[str, str]:
-    spec = yaml.safe_load(load_splits()[split].spec.read_text(encoding="utf-8"))
+def _relations_of(split_or_spec: str) -> dict[str, str]:
+    """The `relations` of a split's spec, or of a spec file given by its path."""
+    path = Path(split_or_spec)
+    spec_path = path if path.is_file() else load_splits()[split_or_spec].spec
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     return {str(k): str(v) for k, v in (spec.get("relations") or {}).items()}
 
 
@@ -612,9 +742,15 @@ def main(argv: list[str] | None = None) -> int:
         help="prediction times to audit (default 0 = every one; a number samples that many)",
     )
     parser.add_argument(
+        "--world",
+        choices=("w1", "w2"),
+        default="w1",
+        help="w1: the churn world; w2: the event-log world (integer millisecond times)",
+    )
+    parser.add_argument(
         "--relations-of",
-        default="holdout_v3",
-        help="the split whose spec's `relations` name the qualified tables (default: holdout_v3)",
+        help="a split, or a spec file, whose `relations` name the qualified tables "
+        "(default: holdout_v3 for w1, bench/leakage/spec_holdout_v4_w2.yaml for w2)",
     )
     parser.add_argument("--out", type=Path, help="write the full result as JSON")
     args = parser.parse_args(argv)
@@ -629,9 +765,16 @@ def main(argv: list[str] | None = None) -> int:
         print("no candidate templates found")
         return 2
 
-    audit_world = AuditWorld.from_catalog(gen.synthetic_world(args.warehouse, args.seed))
+    if args.world == "w2":
+        relations_of = args.relations_of or str(Path(__file__).parent / "spec_holdout_v4_w2.yaml")
+        audit_world = EventLogAuditWorld.from_catalog(
+            gen.event_log_world(args.warehouse, args.seed)
+        )
+    else:
+        relations_of = args.relations_of or "holdout_v3"
+        audit_world = AuditWorld.from_catalog(gen.synthetic_world(args.warehouse, args.seed))
     points = audit_world.sample_points(args.points, args.seed)
-    results = audit_templates(templates, audit_world, _relations_of(args.relations_of), points)
+    results = audit_templates(templates, audit_world, _relations_of(relations_of), points)
 
     totals = summary(results)
     print(
@@ -656,7 +799,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  warning {r.template_id}: {warning}")
     if args.out:
         payload = {
-            "points": [t.isoformat() for t in points],
+            "points": [t.isoformat() if isinstance(t, datetime) else t for t in points],
             "summary": totals,
             "templates": [vars(r) for r in results],
         }

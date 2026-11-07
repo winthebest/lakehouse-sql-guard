@@ -42,6 +42,7 @@ Usage: python -m bench.leakage.duplicates --candidate-dir DIR [--against dev dev
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import re
 from collections import Counter
@@ -59,6 +60,22 @@ from bench.leakage.splits import load_splits, seen_splits
 MIN_CLEAN = 60  # with fewer, zero false positives would not bound the rate below 0.05
 MIN_LEAKY_PER_TYPE = 8
 MIN_DBT_SHARE = 0.30
+
+
+@dataclass(frozen=True)
+class Quotas:
+    """What a candidate set must hold, counting distinct templates."""
+
+    clean: int
+    leaky_per_type: int  # for each of L1 to L7
+    dbt_share: float
+
+
+V3_QUOTAS = Quotas(MIN_CLEAN, MIN_LEAKY_PER_TYPE, MIN_DBT_SHARE)
+# 124 clean templates: with at most 2 flagged, the one-sided 95% bound of the false positive
+# rate stays at 0.05. 70 leaky templates (10 per type): at most 2 missed keeps the lower bound
+# of recall at 0.90.
+V4_QUOTAS = Quotas(124, 10, 0.30)
 DBT_CTE_DEPTH = 3  # a query with at least this many CTEs is dbt-style
 SIMILAR_AT = 0.7  # Jaccard similarity of canonical parts from which two queries are reported
 _TIME_FUNCTIONS = {
@@ -721,6 +738,52 @@ def one_per_template(duplicates: Iterable[Duplicate]) -> dict[str, list[Duplicat
     return grouped
 
 
+# --- developer fixtures as a reference ------------------------------------------------------------
+
+_PLACEHOLDER = re.compile(r"\{\w*\}")
+_FIXTURE_SPLIT = "fixtures"
+
+
+def fixture_templates(paths: Iterable[Path], dialect: str = "duckdb") -> list[Template]:
+    """The queries of developer fixtures, as reference templates.
+
+    A held-out author must not rewrite what the rules were tested on. Two kinds of file count: a
+    Python test file, whose string literals that parse as a SELECT or WITH query are queries, and
+    a `.sql` file (a case of another set, a template pair), which is one query. A `{name}`
+    placeholder is filled with `1` first, so a query that is formatted before it runs still
+    counts. Identical queries are listed once. A directory is searched recursively.
+    """
+    files: list[Path] = []
+    for path in paths:
+        files += sorted([*path.rglob("*.py"), *path.rglob("*.sql")]) if path.is_dir() else [path]
+    found: dict[str, Template] = {}
+
+    def add(file: Path, line: int, raw: str) -> None:
+        text = _PLACEHOLDER.sub("1", raw).strip()
+        if len(text) < 20 or not re.match(r"(?is)^\s*(--[^\n]*\n\s*)*(select|with)\b", text):
+            return
+        try:
+            tree = _parse(text, dialect)
+        except ValueError:
+            return
+        if not isinstance(tree, exp.Select | exp.Union | exp.Subquery):
+            return
+        key = normalized_sql(text, dialect)
+        if key not in found:
+            body = text.replace("{", "{{").replace("}", "}}")
+            found[key] = Template(f"{file.name}:{line}", _FIXTURE_SPLIT, "clean", {}, body)
+
+    for file in files:
+        source = file.read_text(encoding="utf-8")
+        if file.suffix == ".sql":
+            add(file, 1, source)
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                add(file, node.lineno, node.value)
+    return list(found.values())
+
+
 # --- shape quotas ---------------------------------------------------------------------------
 
 
@@ -736,21 +799,21 @@ def is_dbt_style(template: Template) -> bool:
     return False
 
 
-def shape_counts(templates: list[Template]) -> dict[str, object]:
+def shape_counts(templates: list[Template], quotas: Quotas = V3_QUOTAS) -> dict[str, object]:
     """Templates per type, the dbt-style share, and what is short of the brief's quotas.
 
     Pass the distinct templates (`distinct_templates`) so near-copies are counted once."""
     per_type = Counter(t.leak_type for t in templates)
     dbt = sum(is_dbt_style(t) for t in templates)
     short = []
-    if per_type["clean"] < MIN_CLEAN:
-        short.append(f"clean templates: {per_type['clean']} < {MIN_CLEAN}")
+    if per_type["clean"] < quotas.clean:
+        short.append(f"clean templates: {per_type['clean']} < {quotas.clean}")
     for leak in LEAK_TYPES[1:]:
-        if per_type[leak] < MIN_LEAKY_PER_TYPE:
-            short.append(f"{leak} templates: {per_type[leak]} < {MIN_LEAKY_PER_TYPE}")
+        if per_type[leak] < quotas.leaky_per_type:
+            short.append(f"{leak} templates: {per_type[leak]} < {quotas.leaky_per_type}")
     share = dbt / len(templates) if templates else 0.0
-    if share < MIN_DBT_SHARE:
-        short.append(f"dbt-style share: {share:.2f} < {MIN_DBT_SHARE:.2f}")
+    if share < quotas.dbt_share:
+        short.append(f"dbt-style share: {share:.2f} < {quotas.dbt_share:.2f}")
     return {
         "templates": len(templates),
         "per_type": {t: per_type[t] for t in LEAK_TYPES},
@@ -763,8 +826,11 @@ def shape_counts(templates: list[Template]) -> dict[str, object]:
 # --- command line ---------------------------------------------------------------------------
 
 
-def _relations_of(split: str) -> dict[str, str]:
-    spec = yaml.safe_load(load_splits()[split].spec.read_text(encoding="utf-8"))
+def _relations_of(split_or_spec: str) -> dict[str, str]:
+    """The `relations` of a split's spec, or of a spec file given by its path."""
+    path = Path(split_or_spec)
+    spec_path = path if path.is_file() else load_splits()[split_or_spec].spec
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     return {str(k): str(v) for k, v in (spec.get("relations") or {}).items()}
 
 
@@ -779,11 +845,26 @@ def main(argv: list[str] | None = None) -> int:
         help="reference splits (default: every split that splits.yaml marks seen)",
     )
     parser.add_argument(
+        "--against-tests",
+        nargs="+",
+        type=Path,
+        default=[],
+        help="Python test files, .sql files or directories (searched recursively) whose queries "
+        "are also reference queries",
+    )
+    parser.add_argument(
         "--relations-of",
         default="holdout_v3",
-        help="the split whose spec's `relations` resolve qualified names (default: holdout_v3)",
+        help="a split, or a spec file, whose `relations` resolve qualified names "
+        "(default: holdout_v3)",
     )
     parser.add_argument("--counts", action="store_true", help="also check the brief's quotas")
+    parser.add_argument(
+        "--quotas",
+        choices=("v3", "v4"),
+        default="v3",
+        help="the quotas --counts holds the set to (v4: 124 clean, 10 per leaky type)",
+    )
     args = parser.parse_args(argv)
 
     manifest = load_splits()
@@ -802,6 +883,9 @@ def main(argv: list[str] | None = None) -> int:
         print("no candidate templates found", flush=True)
         return 2
     reference = {n: load_directory(TEMPLATES_DIR / n, n) for n in reference_names}
+    if args.against_tests:
+        reference[_FIXTURE_SPLIT] = fixture_templates(args.against_tests)
+        reference_names = [*reference_names, f"{_FIXTURE_SPLIT} ({len(reference[_FIXTURE_SPLIT])})"]
     relations = _relations_of(args.relations_of)
 
     found = find_duplicates(candidate, reference, relations=relations)
@@ -826,7 +910,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(distinct) != len(candidate):
         print(f"{len(candidate) - len(distinct)} template(s) collapsed into near-copies of another")
     if args.counts:
-        counts = shape_counts(distinct)
+        counts = shape_counts(distinct, V4_QUOTAS if args.quotas == "v4" else V3_QUOTAS)
         print(
             f"distinct templates: {counts['per_type']}; "
             f"dbt-style {counts['dbt_style']} ({counts['dbt_share']})"

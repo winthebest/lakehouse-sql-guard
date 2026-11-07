@@ -53,6 +53,7 @@ from bench.leakage.cases import (
     generate_cases,
     load_templates,
     render,
+    spec_for_case,
 )
 from bench.leakage.freeze import (
     ROOT,
@@ -64,12 +65,19 @@ from bench.leakage.freeze import (
     template_changes,
 )
 from bench.leakage.metrics import (
+    DEPLOYMENT_PREVALENCES,
     auc,
+    auprc,
     bootstrap_ci,
+    clopper_pearson_one_sided,
     confusion,
+    mcc,
+    precision_at_prevalence,
     roc_curve,
+    template_confusion,
     template_rates,
     threshold_at_fpr,
+    youden_j,
 )
 from bench.leakage.splits import load_splits, seen_splits
 from bench.leakage.v1_runner import (
@@ -82,7 +90,7 @@ from bench.leakage.v1_runner import (
     tag_commit,
     v1_spec_data,
 )
-from bench.leakage.world import synthetic_world, world_dir
+from bench.leakage.world import event_log_world, synthetic_world, world_dir
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.replay import Replayer, ReplayStatus
 from sqlguard.leakage.spec import LeakageSpec
@@ -168,12 +176,13 @@ def score_cases(
         base = baseline_score(current, case.sql, spec)
         seconds["baseline"] = time.perf_counter() - t
         t = time.perf_counter()
-        static = validate(case.sql, spec, schema=schema, weights=weights)
+        case_spec = spec_for_case(spec, case)  # the roles its template declared, if any
+        static = validate(case.sql, case_spec, schema=schema, weights=weights)
         seconds["static"] = time.perf_counter() - t
         t = time.perf_counter()
         replay = replayer.run(case.sql)
         seconds["replay"] = time.perf_counter() - t
-        combined = validate(case.sql, spec, schema=schema, replay=replayer, weights=weights)
+        combined = validate(case.sql, case_spec, schema=schema, replay=replayer, weights=weights)
         replay_score = replay.mismatch_rate if replay.status is ReplayStatus.MISMATCH else 0.0
         scores = {
             "baseline": base,
@@ -216,6 +225,39 @@ def score_cases(
     return scored
 
 
+def _prevalence_precision(recall: float, fpr: float) -> dict[str, float]:
+    """Precision at each deployment prevalence, keyed by the prevalence as a fraction."""
+    return {
+        str(pi): round(precision_at_prevalence(recall, fpr, pi), 4) for pi in DEPLOYMENT_PREVALENCES
+    }
+
+
+def _bound(k: int, n: int, side: str) -> float | None:
+    """One-sided 95% exact bound, or None when there is nothing to bound (JSON has no nan)."""
+    return round(clopper_pearson_one_sided(k, n, side=side), 4) if n else None  # type: ignore[arg-type]
+
+
+def template_summary(
+    labels: list[bool], scores: list[float], threshold: float, groups: list[str]
+) -> dict:
+    """The table by template with the one-sided bounds the held-out targets are set on.
+
+    `fpr_upper95` is the bound a false positive rate target is judged on (it must be at most
+    the target), `recall_lower95` and `precision_lower95` the bounds for recall and precision
+    targets (at least the target). Precision is at the prevalence of the split.
+    """
+    c = template_confusion(labels, scores, threshold, groups)
+    return {
+        **c.as_dict(),
+        "mcc": round(mcc(c), 4),
+        "youden_j": round(youden_j(c), 4),
+        "fpr_upper95": _bound(c.fp, c.fp + c.tn, "upper"),
+        "recall_lower95": _bound(c.tp, c.tp + c.fn, "lower"),
+        "precision_lower95": _bound(c.tp, c.tp + c.fp, "lower"),
+        "precision_at_prevalence": _prevalence_precision(c.recall, c.fpr),
+    }
+
+
 def rows_of(scored: list[Scored], only: dict | None = None) -> list[str]:
     """Rows scored for every case (and, with `only`, that have a threshold in it)."""
     return [
@@ -246,6 +288,11 @@ def evaluate(scored: list[Scored], cut: dict[str, float]) -> dict:
         groups = [s.case.template_id for s in scored]
         report["detectors"][d] = {
             **c.as_dict(),
+            "mcc": round(mcc(c), 4),
+            "youden_j": round(youden_j(c), 4),
+            "auprc": None if not any(labels) else round(auprc(labels, scores), 4),
+            "precision_at_prevalence": _prevalence_precision(c.recall, c.fpr),
+            "templates": template_summary(labels, scores, cut[d], groups),
             "ci95": bootstrap_ci(labels, scores, cut[d], groups),
             **template_rates(labels, scores, cut[d], groups, [d in s.verdicts for s in scored]),
             "threshold": None if cut[d] == float("inf") else cut[d],
@@ -353,19 +400,32 @@ def score_v1(cases: list[LeakCase], spec_path: Path, warehouse: Path, seed: int)
         )
 
 
+def catalog_for(
+    split: str, seed: int, warehouse: Path, churn: LakehouseCatalog
+) -> LakehouseCatalog:
+    """The world a split runs on: `churn` for the churn world, the event-log world otherwise."""
+    return event_log_world(warehouse, seed) if load_splits()[split].world == "w2" else churn
+
+
 def score_split(
     split: str, seed: int, warehouse: Path, catalog: LakehouseCatalog, with_v1: bool
 ) -> list[Scored]:
-    """Every row for one split, with the spec `splits.yaml` gives it."""
+    """Every row for one split, with the spec `splits.yaml` gives it.
+
+    `catalog` is the churn world; a split on the event-log world gets that world instead. Rows (a)
+    and (b) are about the fields v1 knew, which the event-log world cannot be written in, so they
+    are left out there.
+    """
     spec_path = load_splits()[split].spec
     cases = generate_cases(seed, (split,))
-    v1 = score_v1(cases, spec_path, warehouse, seed) if with_v1 else None
+    churn_world = load_splits()[split].world == "w1"
+    v1 = score_v1(cases, spec_path, warehouse, seed) if with_v1 and churn_world else None
     return score_cases(
         cases,
-        catalog,
+        catalog_for(split, seed, warehouse, catalog),
         LeakageSpec.from_yaml(spec_path),
         seed,
-        v1_spec=v1_spec_for(spec_path),
+        v1_spec=v1_spec_for(spec_path) if churn_world else None,
         v1_scores=v1,
     )
 
@@ -549,7 +609,7 @@ def run(
         labels = [s.case.is_leaky for s in scored]
         curves[split] = {d: roc_curve(labels, [s.scores[d] for s in scored]) for d in DETECTORS}
         if with_fixes:
-            fixes[split] = _fix_rates(split, seed, catalog)
+            fixes[split] = _fix_rates(split, seed, catalog_for(split, seed, warehouse, catalog))
     sha, dirty = git_sha()
     result = {
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -639,6 +699,7 @@ def markdown(result: dict) -> str:
                 f"{m['precision']:.2f} | {m['f1']:.2f} | {m['auc']:.2f} | {ms} |"
             )
         lines += ["", *_template_rate_lines(split)]
+        lines += _prevalence_lines(split)
         reading = split.get("v1_reading")
         if reading:
             lines += ["", _v1_reading_lines(reading)]
@@ -738,6 +799,56 @@ def _template_rate_lines(split: dict) -> list[str]:
             f"{m['clean_cases_flagged']} / {m['clean_cases_blocked']} of {m['clean_cases']} |"
         )
     return lines
+
+
+def _prevalence_lines(split: dict) -> list[str]:
+    """MCC, Youden J, AUPRC and precision at deployment prevalence, then the template-level table
+    with one-sided bounds. Empty for a result written before these columns existed."""
+    rows = [(d, m) for d, m in split["detectors"].items() if "mcc" in m]
+    if not rows:
+        return []
+    pis = [str(p) for p in DEPLOYMENT_PREVALENCES]
+    head = " | ".join(f"{float(p):.0%}" for p in pis)
+    lines = [
+        "",
+        "Scores that do not depend on how many leaky queries the set holds, by case, and the "
+        "precision the same detector would have if only that share of queries were leaky "
+        "(a held-out set is close to half leaky; a deployment is not).",
+        "",
+        f"| detector | MCC | Youden J | AUPRC | precision at prevalence {head} |",
+        "|---|---|---|---|" + "---|" * len(pis),
+    ]
+    for d, m in rows:
+        ap = "n/a" if m.get("auprc") is None else f"{m['auprc']:.2f}"
+        at = " | ".join(f"{m['precision_at_prevalence'][p]:.2f}" for p in pis)
+        lines.append(
+            f"| {ROW_NAMES.get(d, d)} | {m['mcc']:.2f} | {m['youden_j']:.2f} | {ap} | {at} |"
+        )
+    templated = [(d, m["templates"]) for d, m in rows if "templates" in m]
+    if templated:
+        lines += [
+            "",
+            "By template (a clean template is flagged if any rendering is, a leaky one is caught "
+            "only if every rendering is), with one-sided 95% Clopper-Pearson bounds: a target "
+            "for the false positive rate is met when its upper bound is at most the target, a "
+            "target for recall or precision when its lower bound is at least the target.",
+            "",
+            "| detector | clean flagged | upper bound of the false positive rate | leaky caught "
+            "| lower bound of recall | MCC | Youden J |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for d, t in templated:
+            clean, leaky = t["fp"] + t["tn"], t["tp"] + t["fn"]
+            lines.append(
+                f"| {ROW_NAMES.get(d, d)} | {t['fp']}/{clean} | {_bound_text(t['fpr_upper95'])} | "
+                f"{t['tp']}/{leaky} | {_bound_text(t['recall_lower95'])} | "
+                f"{t['mcc']:.2f} | {t['youden_j']:.2f} |"
+            )
+    return lines
+
+
+def _bound_text(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.3f}"
 
 
 def _ci(metrics: dict, key: str) -> str:

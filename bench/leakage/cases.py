@@ -3,8 +3,14 @@
 Template format (`templates/<split>/<template_id>.sql`):
 
     -- leak: clean | L1 | ... | L7
+    -- output_roles: label=<cols>; metadata=<cols>; features=<cols>   (optional, at most once)
     -- param <name>: value | value | ...      (zero or more lines)
     <SQL with {name} placeholders>
+
+The optional `output_roles` header says which output columns of the query are the label, run
+metadata or the only features, as a user would declare them in a dbt `schema.yml`. It is merged
+into the split's spec for that template (a role named in the header replaces the spec's list for
+that role; the others are kept). A template without the header is checked with its spec as is.
 
 Every combination of parameter values becomes one case. Splits are by template:
 
@@ -30,16 +36,24 @@ import itertools
 import json
 import random
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from bench.leakage.splits import load_splits
+
+if TYPE_CHECKING:  # the label audit imports this module and must load no detector code
+    from sqlguard.leakage.spec import LeakageSpec
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SPLITS = tuple(load_splits())
 DEFAULT_SPLITS = tuple(name for name, split in load_splits().items() if split.seen)
 LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6", "L7")
-_HEADER = re.compile(r"^--\s*(leak|param\s+(\w+))\s*:\s*(.*)$")
+_HEADER = re.compile(r"^--\s*(leak|output_roles|param\s+(\w+))\s*:\s*(.*)$")
+# The roles of an output column (the same names as `sqlguard.leakage.spec.OUTPUT_ROLES`, which a
+# test compares: importing that module here would load detector code into the label audit).
+OUTPUT_ROLES = ("label", "metadata", "features")
+_COLUMN = re.compile(r"^[A-Za-z_]\w*$")
 
 
 @dataclass(frozen=True)
@@ -52,6 +66,8 @@ class Template:
     # SHA-256 of the file's bytes as they were read to parse it, so what a result reports about a
     # template is what was scored, not what the file holds when the run ends
     sha256: str = field(default="", compare=False)
+    # role -> output columns declared in the `-- output_roles:` header (empty without one)
+    output_roles: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -64,20 +80,70 @@ class LeakCase:
     params: dict[str, str]
     sql: str
     template_sha256: str = field(default="", compare=False)  # of the template file it came from
+    output_roles: dict[str, list[str]] = field(default_factory=dict)  # see Template
 
     @property
     def is_leaky(self) -> bool:
         return self.label == "leaky"
 
 
+def parse_output_roles(value: str, where: str) -> dict[str, list[str]]:
+    """`label=a; metadata=b, c` as `{"label": ["a"], "metadata": ["b", "c"]}`.
+
+    Columns are lowercased (the spec compares names case-insensitively). Every role needs at
+    least one column, a role is named once, and a column has one role.
+    """
+    roles: dict[str, list[str]] = {}
+    for part in value.split(";"):
+        role, sep, columns = part.partition("=")
+        role = role.strip().lower()
+        names = [c.strip().lower() for c in columns.split(",")]
+        if not sep or role not in OUTPUT_ROLES:
+            raise ValueError(f"{where}: bad output_roles entry {part.strip()!r}: use <role>=<cols>")
+        if role in roles:
+            raise ValueError(f"{where}: output_roles names {role!r} twice")
+        if not all(_COLUMN.match(n) for n in names):
+            raise ValueError(f"{where}: output_roles {role!r} needs comma-separated column names")
+        roles[role] = names
+    columns_seen = [c for names in roles.values() for c in names]
+    if len(columns_seen) != len(set(columns_seen)):
+        raise ValueError(f"{where}: output_roles lists a column under two roles")
+    return roles
+
+
+def spec_for_case(spec: LeakageSpec, case: LeakCase) -> LeakageSpec:
+    """The spec a case is checked with: the split's spec, with the roles its template declared."""
+    if not case.output_roles:
+        return spec
+    from sqlguard.leakage.spec import OutputRoles, SpecError
+
+    declared = {
+        "label": spec.output_roles.label,
+        "metadata": spec.output_roles.metadata,
+        **({"features": spec.output_roles.features} if spec.output_roles.features else {}),
+        **case.output_roles,
+    }
+    try:
+        return replace(
+            spec, output_roles=OutputRoles.from_value({k: list(v) for k, v in declared.items()})
+        )
+    except SpecError as err:
+        raise ValueError(f"{case.case_id}: output_roles header: {err}") from err
+
+
 def load_template(path: Path, split: str) -> Template:
     leak_type, params, body = None, {}, []
+    roles: dict[str, list[str]] | None = None
     raw = path.read_bytes()
     for line in raw.decode("utf-8").splitlines():
         match = _HEADER.match(line.strip())
         if match and not body:
             if match.group(1) == "leak":
                 leak_type = match.group(3).strip()
+            elif match.group(1) == "output_roles":
+                if roles is not None:
+                    raise ValueError(f"{path}: '-- output_roles:' may appear only once")
+                roles = parse_output_roles(match.group(3), str(path))
             else:
                 params[match.group(2)] = [v.strip() for v in match.group(3).split("|")]
         else:
@@ -91,6 +157,7 @@ def load_template(path: Path, split: str) -> Template:
         params,
         "\n".join(body).strip(),
         hashlib.sha256(raw).hexdigest(),
+        roles or {},
     )
 
 
@@ -114,6 +181,7 @@ def render(template: Template) -> list[LeakCase]:
                 params=binding,
                 sql=template.body.format(**binding),
                 template_sha256=template.sha256,
+                output_roles=template.output_roles,
             )
         )
     return cases

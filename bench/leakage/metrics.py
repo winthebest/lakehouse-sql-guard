@@ -279,6 +279,32 @@ def clopper_pearson_one_sided(
     return (low + high) / 2
 
 
+def template_confusion(
+    labels: list[bool], scores: list[float], threshold: float, groups: list[str]
+) -> Confusion:
+    """The confusion table with a template as the unit (its cases are renderings of one query).
+
+    The more cautious reading is taken in both directions: a clean template counts as flagged
+    when any rendering scores at or above the threshold, and a leaky template counts as caught
+    only when every rendering does.
+    """
+    if not len(labels) == len(scores) == len(groups):
+        raise ValueError(f"{len(labels)} labels, {len(scores)} scores, {len(groups)} groups")
+    leaky: dict[str, bool] = {}
+    flagged: dict[str, bool] = {}
+    for is_leaky, score, group in zip(labels, scores, groups, strict=True):
+        hit = score >= threshold
+        leaky[group] = is_leaky
+        flagged[group] = (
+            (flagged.get(group, True) and hit) if is_leaky else (flagged.get(group, False) or hit)
+        )
+    tp = sum(1 for g, y in leaky.items() if y and flagged[g])
+    fn = sum(1 for g, y in leaky.items() if y and not flagged[g])
+    fp = sum(1 for g, y in leaky.items() if not y and flagged[g])
+    tn = sum(1 for g, y in leaky.items() if not y and not flagged[g])
+    return Confusion(tp, fp, tn, fn)
+
+
 def template_rates(
     labels: list[bool],
     scores: list[float],

@@ -1,0 +1,144 @@
+# Pre-registration of the held-out evaluation of the v4 leakage rules: three sets nobody has seen.
+#
+# Written and committed before the rules are frozen and before any held-out data exists. The freeze
+# fills the fields marked `null` (the commit, the tag, the thresholds, the digests) and nothing else
+# changes after that. A goal is judged on the one-sided 95% exact (Clopper-Pearson) bound, never on the
+# point estimate: a false positive rate goal is met when the UPPER bound is at most the goal, a recall
+# or precision goal when the LOWER bound is at least the goal
+# (bench.leakage.freeze.target_met). Reports say whether each goal was met and, separately, what was
+# measured.
+#
+# Everyone who wrote, read or judged anything in this evaluation is a Claude model: the template
+# authors (4), the blind reader, the two blind reviewers and the case builders. No person judged a
+# label or a finding, and no model of another family was used (the user declined both on 2026-11-07).
+# Models of one family can share blind spots, so every result below can be inflated by that; the limit
+# is stated at the top of every results section.
+
+version: 1
+registered_at: "2026-11-07"
+
+freeze:               # filled when the rules are frozen; null until then
+  tag: null           # rules-frozen-v4
+  commit: null
+  checker_src_tree: null
+  thresholds_fit_on: dev              # the same procedure as before: `sqlguard-bench leakage prereg --seed 42`
+  thresholds: null                    # per detector, fit on dev at a false positive rate of at most 0.05
+  seed: 42
+  files_sha256: null                  # bench.leakage.freeze.frozen_hashes at the freeze
+
+reporting_labels:
+  dev: tuned on; the rules were changed while looking at it; says nothing about unseen data
+  seen: read while the rules were developed (earlier held-out sets, rounds 1 and 2, the Kaggle cases); reported, never a goal
+  held_out: written or found after the freeze and run once; the only numbers a goal is judged on
+  provenance:
+    H1: AI-written
+    H2: judged by Claude models, not people
+    H3: AI rebuilt from human-written sources
+
+sets:
+  H1a:
+    what: SQL templates written by AI authors for the churn world (W1)
+    world: W1
+    split: holdout_v4_w1      # to be added to splits.yaml with seen false when the authors are done
+    spec: bench/leakage/spec_holdout_v4_w1.yaml      # a byte copy of the spec of the previous held-out set
+    authors: 2                # independent agents, each with the brief only, in an isolated directory
+    brief: bench/briefs/leakage-v4.md
+    quota: {clean: 124, leaky_per_type: 10, leaky_total: 70, dbt_style_share: 0.30}
+    unit: template        # a clean template is flagged if any rendering is; a leaky one is caught only if every rendering is
+    goals:
+      - {metric: fpr, detector: combined, bound: upper, at_most: 0.05}
+      - {metric: fpr, detector: static, bound: upper, at_most: 0.05}
+      - {metric: recall, detector: combined, bound: lower, at_least: 0.90}
+  H1b:
+    what: SQL templates written by AI authors for the event-log world (W2)
+    world: W2
+    split: holdout_v4_w2
+    spec: bench/leakage/spec_holdout_v4_w2.yaml
+    authors: 2
+    brief: bench/briefs/leakage-v4.md
+    quota: {clean: 124, leaky_per_type: 10, leaky_total: 70, dbt_style_share: 0.30}
+    unit: template
+    goals:
+      - {metric: fpr, detector: combined, bound: upper, at_most: 0.10}
+      - {metric: fpr, detector: static, bound: upper, at_most: 0.10}
+      - {metric: recall, detector: combined, bound: lower, at_least: 0.85}
+    note: >-
+      a new world that uses the version 4 spec fields for the first time on data nobody had seen; the
+      false positive goal is looser than H1a on purpose
+  H2:
+    what: dbt projects found by the third registered search, with specs written from their documents
+    protocol: bench/realworld/round3/search-prereg.yaml
+    unit: finding
+    target_projects: 12
+    stop: 12 projects with a runnable spec, or 200 candidates screened
+    goals:
+      - {metric: precision, bound: lower, at_least: 0.30, definition: strict (`true` findings / findings; `unsure` counts against), n: the real number of findings}
+      - {metric: verdict_coverage, at_least_projects: 9, of: 12, crashes: 0}
+    reported_only:
+      - effective false positive rate
+      - loose precision
+      - kappa and Gwet AC1 between the two reviewers
+      - findings per model
+      - INFO findings counted apart
+      - the same figures with and without output roles (specs and specs-noroles)
+      - leaks the blind reader found that the checker missed, and recall by the reader
+  H3:
+    what: cases rebuilt as SQL from leaks that people documented (post-mortems, feature-store documentation, warehouse blogs, leakage articles)
+    protocol: bench/docleaks/search-prereg.yaml
+    brief: bench/briefs/docleaks-cases.md
+    excluded: the whole Kaggle leak catalog and kaggle.com
+    unit: query
+    planned: {cases: 10, leaky_queries: 30, clean_queries: 30}
+    goals:
+      - {metric: recall, detector: static, bound: lower, at_least: 0.75}
+      - {metric: fpr, detector: static, bound: upper, at_most: 0.20}
+    short_size_rule: a goal whose class has fewer queries than the planned size is reported as "not enough to judge" with the numbers, never as met or missed
+
+# What each size can prove (computed by bench.leakage.freeze.describe_target, checked by a test).
+sample_sizes:
+  fpr_at_most_0_05: {kind: fpr, threshold: 0.05, min_n_by_errors: {"0": 59, "1": 93, "2": 124, "3": 153}}
+  H1a_fpr:      {kind: fpr,    n: 124, threshold: 0.05, max_errors: 2}
+  H1a_recall:   {kind: recall, n: 70,  threshold: 0.90, max_errors: 2}
+  H1b_fpr:      {kind: fpr,    n: 124, threshold: 0.10, max_errors: 6}
+  H1b_recall:   {kind: recall, n: 70,  threshold: 0.85, max_errors: 5}
+  H3_recall:    {kind: recall, n: 30,  threshold: 0.75, max_errors: 3}
+  H3_fpr:       {kind: fpr,    n: 30,  threshold: 0.20, max_errors: 2}
+  H2_precision: {kind: precision, n: 30, threshold: 0.30, note: "14 of 30 findings true is the smallest count that meets it"}
+
+# Measured and reported for every set beside the goals (never goals).
+reported_with_every_set:
+  - recall and false positive rate by case and by template, with the exact two-sided interval
+  - MCC, Youden J, AUPRC of the replay score
+  - precision at a deployment prevalence of 1, 5, 10 and 20 percent
+  - cluster bootstrap interval (by template, case or project; seed 42; 2000 resamples)
+  - unverifiable cases counted and listed
+  - how many templates, cases or findings each set has, and how many were dropped and why
+
+ci_method:
+  judged_on: one-sided 95% Clopper-Pearson bound, unrounded
+  reported: two-sided 95% Clopper-Pearson interval; cluster bootstrap percentile interval
+  clusters: {H1a: template, H1b: template, H2: project, H3: case}
+  note: templates of one author are not independent; the bootstrap is reported beside the exact bound
+
+dev_and_seen_checks:
+  # Reported with the label dev or seen; not goals of the held-out evaluation.
+  D10: {set: Kaggle replay, what: unverifiable verdicts caused by the kind of the time column (DATE or integer), goal: 0, total_unverifiable_at_most: 4, errors: 0}
+  D11: {set: holdout_v3 (seen, dev for the shape fixes), what: clean templates flagged, combined/static/replay, goal: "<= 2/70, <= 2/70, 0/70; false positive rate by case <= 0.05"}
+  D12: {set: holdout_v3, what: leaky templates missed (combined) and recall by case (static), goal: "0, >= 0.95"}
+  D13: {set: dbt round 1 (seen), what: real leaks found and false positives on the controls with the old spec, goal: "13, <= 1"}
+  R1: {sets: [dev, dev_v1b, holdout_v2, real], what: verdict of every case against the snapshot of the previous release, goal: 0 changes; a changed rule id is listed with the reason}
+
+rerun_policy: >-
+  A held-out set is run once. It is run again only if the harness crashed before it wrote a result, with
+  nothing changed. If a harness defect is found before the run, it is fixed and the rules are frozen
+  again as `rules-frozen-v4.1` with the reason, before the run. After a result has been read, nothing
+  in the rules, the harness, the specs or the labels changes for these sets.
+
+spend: >-
+  Authors, readers and reviewers run as agent sessions; no step of this evaluation is billed API
+  usage. A step that would be billed is estimated first, with a cap of 40 dollars per round, and the
+  user is asked before going over it.
+
+release: >-
+  The version 0.3.0 is released only after the user has read these results and agreed. A goal that is
+  missed is reported as missed, with the interval.
