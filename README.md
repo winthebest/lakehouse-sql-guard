@@ -90,7 +90,8 @@ Requires [uv](https://docs.astral.sh/uv/); Python 3.12 is fetched automatically.
 ```bash
 git clone https://github.com/winthebest/lakehouse-sql-guard && cd lakehouse-sql-guard
 uv sync
-uv run sqlguard leakage check examples/leakage/sql --spec examples/leakage/spec.yaml --schema examples/leakage/schema.yaml
+uv run sqlguard leakage check examples/leakage/sql \
+  --spec examples/leakage/spec.yaml --schema examples/leakage/schema.yaml
 uv run sqlguard safety check "DELETE FROM db.orders" --scope db.orders
 ```
 
