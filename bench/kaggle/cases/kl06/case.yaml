@@ -1,0 +1,30 @@
+catalog_id: kl06
+competition: Riiid Answer Correctness Prediction (2020)
+source_urls:
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/discussion/189437
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/discussion/189669
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/data
+source_kind: [discussion, discussion, host]
+leak_type: L6
+description: >
+  A participant warned early in the competition that many people were target-encoding
+  users by averaging answered_correctly over all of a user's rows. Each row's average then
+  contains that user's later answers and the row's own answer. The fix he gives is a running
+  average over the user's earlier interactions only. A follow-up thread repeats the warning
+  and links back to it.
+fidelity:
+  level: direct
+  note: >
+    Same table and column names as train.csv; the prior_question_* columns and the
+    questions/lectures files are left out because the feature does not use them.
+    Timestamps stay integer milliseconds since the user's first event, as in the real data.
+check:
+  spine_key: [row_id]
+  spine_filter: content_type_id = 0
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, also_matches: [L3], pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, also_matches: [L3], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L6, also_matches: [L3], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

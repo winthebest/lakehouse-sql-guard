@@ -1,0 +1,30 @@
+catalog_id: kl12
+competition: US BTS airline on-time performance (2026 flight-delay paper; not a competition)
+source_urls:
+  - https://arxiv.org/pdf/2605.07364
+source_kind: [paper]
+leak_type: L6
+description: >
+  A 2026 paper predicting whether a flight arrives 15+ minutes late (ArrDel15) excludes
+  departure delay, arrival delay and the delay-cause minute columns from its features. It
+  says each is recorded only after the flight has operated, is not available when predicting
+  before departure, and would be severe target leakage because these fields are direct
+  causal descendants of the target. It also drops actual departure time and the other
+  operational columns it used only to build rotation features.
+fidelity:
+  level: adapted
+  note: >
+    BTS column names; FlightDate and CRSDepTime are combined into one crs_dep_ts column so
+    the prediction time is a single column. A post-departure column has no point-in-time
+    version for the same flight, so the clean twins use the schedule: turnaround from the
+    previous leg's scheduled arrival (the paper's turnaround feature), scheduled instead of
+    actual departure minute, and the number of the aircraft's earlier legs that day.
+check:
+  spine_key: [Tail_Number, crs_dep_ts]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L6, pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

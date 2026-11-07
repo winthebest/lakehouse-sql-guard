@@ -1,0 +1,30 @@
+# accepted_2007_to_2018Q4.csv (the Kaggle copy blog 1 reads), cut from 151 to 18 columns.
+# Real month fields are strings like "Dec-2015"; here they are the first day of that month.
+tables:
+  accepted_2007_to_2018q4:
+    columns:
+      id: BIGINT
+      loan_amnt: DOUBLE
+      term: VARCHAR                 # " 36 months" / " 60 months"
+      int_rate: DOUBLE
+      installment: DOUBLE
+      grade: VARCHAR
+      annual_inc: DOUBLE
+      dti: DOUBLE
+      issue_d: DATE                 # month the loan was funded
+      earliest_cr_line: DATE
+      loan_status: VARCHAR          # Fully Paid / Charged Off
+      total_pymnt: DOUBLE
+      total_rec_prncp: DOUBLE
+      recoveries: DOUBLE
+      last_pymnt_d: DATE
+      last_pymnt_amnt: DOUBLE
+      last_credit_pull_d: DATE
+      debt_settlement_flag: VARCHAR
+    event_time: issue_d
+    availability_time: null
+spine:
+  table: accepted_2007_to_2018q4
+  entity_keys: [id]
+  prediction_time: issue_d
+  label_columns: [loan_status]

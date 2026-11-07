@@ -1,0 +1,31 @@
+catalog_id: kl03
+competition: INFORMS Data Mining Contest 2010 (short-term stock movement)
+source_urls:
+  - https://www.kaggle.com/competitions/informs2010/discussion/33
+  - https://www.kaggle.com/competitions/informs2010/data
+source_kind: [host, host]
+leak_type: L1
+description: >
+  Participants received all rows of the explanatory series, including the bars after each
+  prediction time. A participant pointed out that models could therefore use future values.
+  The contest chair agreed that some entries scored very high by using data from t+5 minutes
+  to predict the 60-minute movement at t. Kaggle's founder said there was no way to stop it,
+  and the hosts announced a separate ranking for entries that used no future information.
+  The chair defined the legitimate inputs as the variables at t and their earlier values.
+fidelity:
+  level: adapted
+  note: >
+    Table layout (timestamp first, TargetVariable, Variable... columns, 5-minute bars) follows
+    the data page and the chair's posts. Two synthetic price series with OPEN/HIGH/LOW/
+    LAST_PRICE stand in for the 609 variables; the variable numbers and suffixes are
+    illustrative, not checked against the real file. The synthetic target is built from the
+    first series' price 60 minutes ahead.
+check:
+  spine_key: [Timestamp]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L1, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L1, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L1, pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

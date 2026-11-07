@@ -1,0 +1,11 @@
+# IEEE-CIS: each transaction is a prediction row and history for the same card's later ones.
+label_table: train_transaction
+entity_keys: [card1]              # the features refine card1 into a rebuilt card/user id
+prediction_ts: TransactionDT      # BIGINT, seconds from an undisclosed reference
+label_columns: [isFraud]
+time_columns: {train_transaction: TransactionDT}
+static_tables: []
+outcome_columns: []
+# Host labelling rule (quoted in thread 111157): a transaction is labelled legit only once no
+# chargeback has been reported for 120 days, so a label is final 120 days after the transaction.
+label_known_after: 120 days

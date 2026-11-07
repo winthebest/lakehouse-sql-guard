@@ -1,0 +1,20 @@
+# Shape of train.csv from the competition data page (prior_question_* columns left out).
+tables:
+  train:
+    columns:
+      row_id: BIGINT
+      timestamp: BIGINT              # ms since the user's first event completion
+      user_id: INTEGER
+      content_id: SMALLINT
+      content_type_id: TINYINT       # 0 question, 1 lecture
+      task_container_id: SMALLINT    # questions served together share it
+      user_answer: TINYINT           # -1 for lectures
+      answered_correctly: TINYINT    # -1 for lectures
+    event_time: timestamp
+    time_unit: ms
+    availability_time: null
+spine:
+  table: train
+  entity_keys: [user_id]
+  prediction_time: timestamp
+  label_columns: [answered_correctly]

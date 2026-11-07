@@ -1,0 +1,38 @@
+# BTS Reporting Carrier On-Time Performance, cut to the paper's 17 retained columns plus
+# FlightDate, Flight_Number_Reporting_Airline and the delay-cause columns the paper excludes.
+# crs_dep_ts is added: FlightDate + CRSDepTime as one timestamp (BTS stores them apart).
+tables:
+  flights:
+    columns:
+      Year: SMALLINT
+      Month: TINYINT
+      DayofMonth: TINYINT
+      DayOfWeek: TINYINT
+      FlightDate: DATE
+      Reporting_Airline: VARCHAR
+      Tail_Number: VARCHAR
+      Flight_Number_Reporting_Airline: INTEGER
+      Origin: VARCHAR
+      Dest: VARCHAR
+      CRSDepTime: SMALLINT       # scheduled departure, local HHMM
+      DepTime: SMALLINT          # actual departure, local HHMM
+      DepDelay: DOUBLE
+      CRSArrTime: SMALLINT
+      ArrTime: SMALLINT
+      ArrDelay: DOUBLE
+      ArrDel15: DOUBLE           # the target
+      AirTime: DOUBLE
+      Distance: DOUBLE
+      CarrierDelay: DOUBLE       # cause minutes, filled only for delayed arrivals
+      WeatherDelay: DOUBLE
+      NASDelay: DOUBLE
+      SecurityDelay: DOUBLE
+      LateAircraftDelay: DOUBLE
+      crs_dep_ts: TIMESTAMP
+    event_time: crs_dep_ts
+    availability_time: null
+spine:
+  table: flights
+  entity_keys: [Tail_Number]
+  prediction_time: crs_dep_ts
+  label_columns: [ArrDel15]

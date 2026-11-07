@@ -1,0 +1,30 @@
+catalog_id: kl08
+competition: G-Research Crypto Forecasting (2021)
+source_urls:
+  - https://www.kaggle.com/competitions/g-research-crypto-forecasting/discussion/302530
+  - https://www.kaggle.com/competitions/g-research-crypto-forecasting/discussion/285505
+  - https://www.kaggle.com/competitions/g-research-crypto-forecasting/data
+source_kind: [discussion, discussion, host]
+leak_type: L6
+description: >
+  A participant asked how to use the previous minute's target as a feature. He then worked
+  out that the target of minute t-1 is a return that needs the close about 15 minutes later,
+  so at time t it is not known yet and only the target from roughly 16 minutes back can be
+  used; another participant agreed. The data page defines the target as a 15-minute return.
+  A separate thread, confirmed by Kaggle staff, shows the public test period was the tail of
+  train.csv, so rows whose labels were not final leaked into training.
+fidelity:
+  level: direct
+  note: >
+    train.csv columns and types as on the data page. The synthetic target is the plain log
+    return between the closes 1 and 16 minutes ahead; the host's residualisation against the
+    market is left out. Three assets, 600 minutes, about 2% missing minutes.
+check:
+  spine_key: [Asset_ID, timestamp]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L6, pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

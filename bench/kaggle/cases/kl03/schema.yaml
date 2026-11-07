@@ -1,0 +1,22 @@
+# Training file as described on the data page and by the contest chair: timestamp first,
+# TargetVariable, then explanatory variables named Variable...; two of 609 series kept.
+tables:
+  training:
+    columns:
+      Timestamp: TIMESTAMP     # 5-minute bars; the real file's timestamp encoding was not checked
+      TargetVariable: TINYINT  # 1 if the stock moves up over the next 60 minutes
+      Variable74OPEN: DOUBLE
+      Variable74HIGH: DOUBLE
+      Variable74LOW: DOUBLE
+      Variable74LAST_PRICE: DOUBLE
+      Variable142OPEN: DOUBLE
+      Variable142HIGH: DOUBLE
+      Variable142LOW: DOUBLE
+      Variable142LAST_PRICE: DOUBLE
+    event_time: Timestamp
+    availability_time: null
+spine:
+  table: training
+  entity_keys: []              # one market-wide series, no entity
+  prediction_time: Timestamp
+  label_columns: [TargetVariable]

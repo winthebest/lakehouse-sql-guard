@@ -1,0 +1,33 @@
+catalog_id: kl05
+competition: TalkingData AdTracking Fraud Detection Challenge (2018)
+source_urls:
+  - https://www.kaggle.com/competitions/talkingdata-adtracking-fraud-detection/discussion/52036
+  - https://www.kaggle.com/competitions/talkingdata-adtracking-fraud-detection/discussion/53595
+  - https://www.kaggle.com/competitions/talkingdata-adtracking-fraud-detection/data
+source_kind: [discussion, discussion, host]
+leak_type: L1
+description: >
+  A participant asked whether "future features" were allowed, noting that most public kernels
+  used them; his example kernel computes click-frequency counts over the whole data set.
+  A reply defends such features with an example: a fraudulent IP might click once and then
+  10,000 more times within the next hour, and that later activity helps predict whether the
+  first click leads to a download. Another reply calls the features useless from a business
+  point of view because they use future information. A second thread argues the same and gets
+  the counter-argument that detection one day later may be acceptable in this setting. The
+  label here follows the real-time reading: at click time, later clicks are not known.
+fidelity:
+  level: adapted
+  note: >
+    Columns as on the data page, plus a click_id key in train (the real train file has none).
+    Look-ahead gap and count features (next click, clicks in the next hour) and an all-data
+    count by ip and app follow the posts; the exact kernels were not opened. Whether this is
+    a leak depends on the deployment framing, which the threads dispute.
+check:
+  spine_key: [click_id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L1, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L1, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L3, also_matches: [L1], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

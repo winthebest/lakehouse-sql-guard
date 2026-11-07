@@ -1,0 +1,20 @@
+# train.csv as on the data page, plus click_id (only test.csv has it in the real data).
+tables:
+  train:
+    columns:
+      click_id: BIGINT
+      ip: INTEGER
+      app: SMALLINT
+      device: SMALLINT
+      os: SMALLINT
+      channel: SMALLINT
+      click_time: TIMESTAMP        # UTC, second precision
+      attributed_time: TIMESTAMP   # download time; empty if no download
+      is_attributed: TINYINT
+    event_time: click_time
+    availability_time: null
+spine:
+  table: train
+  entity_keys: [ip]
+  prediction_time: click_time
+  label_columns: [is_attributed]

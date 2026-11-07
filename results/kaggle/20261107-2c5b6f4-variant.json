@@ -1,0 +1,6459 @@
+{
+  "meta": {
+    "stem": "20261107-2c5b6f4-variant",
+    "git_sha": "2c5b6f4",
+    "git_dirty": false,
+    "prereg_commit": "93f0876",
+    "created_at": "2026-11-07T03:32:22+00:00",
+    "checker": {
+      "release_tag": "v0.2.0",
+      "src_tree": "5e260ebc75d0a885697a1e46d9d81bd8d1efdebd",
+      "frozen_check": "git diff --quiet rules-frozen-v3 HEAD -- src/sqlguard/leakage src/sqlguard/core src/sqlguard/dbt",
+      "interface": "sqlguard leakage check FILE --spec SPEC --schema SCHEMA [--replay --warehouse DIR] --json",
+      "verdict_threshold": 0.5
+    },
+    "cases_digest": "447490465518759c383f870e887a6f998de882b2a0d787f425cf25e16db30ef0",
+    "thresholds": {
+      "static": 0.425,
+      "replay": 0.003968253968253968,
+      "combined": 0.475
+    },
+    "verdict_threshold": 0.5,
+    "seed": 42,
+    "resamples": 2000,
+    "level": 0.95,
+    "disputed": [
+      "kl05",
+      "kl09",
+      "kl14"
+    ],
+    "environment": {
+      "python": "3.12.13",
+      "sqlglot": "30.29.0",
+      "duckdb": "2.0.0",
+      "pyiceberg": "0.12.0",
+      "uv_lock_sha256": "855a0df3e9761aece2223885ce609ee4c345b157c5f73a1e9d9351b7e267381a"
+    },
+    "variant_prereg_commit": "8ccd88f"
+  },
+  "build": {
+    "kl03": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "training": 1560
+      },
+      "commits": {
+        "training": 1
+      }
+    },
+    "kl04": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1193
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl05": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1737
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl06": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2364
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl07": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2762
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl08": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1770
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl09": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 4736
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl10": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_users": 900
+      },
+      "commits": {
+        "train_users": 1
+      }
+    },
+    "kl11": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "accepted_2007_to_2018q4": 1000
+      },
+      "commits": {
+        "accepted_2007_to_2018q4": 1
+      }
+    },
+    "kl12": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "flights": 4470
+      },
+      "commits": {
+        "flights": 1
+      }
+    },
+    "kl14": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_transaction": 1492
+      },
+      "commits": {
+        "train_transaction": 1
+      }
+    },
+    "kl15": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "people": 259,
+        "act_train": 1673
+      },
+      "commits": {
+        "people": 1,
+        "act_train": 1
+      }
+    },
+    "kl16": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "data": 1660
+      },
+      "commits": {
+        "data": 1
+      }
+    },
+    "kl17": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "page_views": 2297
+      },
+      "commits": {
+        "page_views": 1
+      }
+    }
+  },
+  "all": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl05",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl09",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl14",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 80,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 28,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 12,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 19,
+          "clean": 9,
+          "unverifiable": 0,
+          "error": 12,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 22,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 18,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 18,
+          "clean": 4,
+          "unverifiable": 0,
+          "error": 18,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 28,
+          "n": 40,
+          "rate": 0.7
+        },
+        "fpr": {
+          "k": 19,
+          "n": 40,
+          "rate": 0.475
+        },
+        "recall_ci95": [
+          0.4286,
+          0.925
+        ],
+        "fpr_ci95": [
+          0.2432,
+          0.7317
+        ],
+        "recall_strict": {
+          "k": 28,
+          "n": 40,
+          "rate": 0.7
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 40,
+          "rate": 0.775
+        },
+        "recall_strict_ci95": [
+          0.4286,
+          0.925
+        ],
+        "block_rate_clean_ci95": [
+          0.55,
+          0.95
+        ],
+        "recall_decided": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 7,
+              "n": 10,
+              "rate": 0.7
+            },
+            "strict": {
+              "k": 7,
+              "n": 10,
+              "rate": 0.7
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 16,
+              "n": 20,
+              "rate": 0.8
+            },
+            "strict": {
+              "k": 16,
+              "n": 20,
+              "rate": 0.8
+            }
+          }
+        },
+        "attribution": {
+          "detected": 28,
+          "primary_type": 25,
+          "primary_or_also_matches": 26
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 22,
+          "n": 40,
+          "rate": 0.55
+        },
+        "fpr": {
+          "k": 18,
+          "n": 40,
+          "rate": 0.45
+        },
+        "recall_ci95": [
+          0.2857,
+          0.8421
+        ],
+        "fpr_ci95": [
+          0.2105,
+          0.7143
+        ],
+        "recall_strict": {
+          "k": 22,
+          "n": 40,
+          "rate": 0.55
+        },
+        "block_rate_clean": {
+          "k": 36,
+          "n": 40,
+          "rate": 0.9
+        },
+        "recall_strict_ci95": [
+          0.2857,
+          0.8421
+        ],
+        "block_rate_clean_ci95": [
+          0.7436,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 22,
+          "n": 22,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 18,
+          "n": 22,
+          "rate": 0.8182
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 5,
+              "n": 10,
+              "rate": 0.5
+            },
+            "strict": {
+              "k": 5,
+              "n": 10,
+              "rate": 0.5
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            },
+            "strict": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 20,
+              "rate": 0.75
+            },
+            "strict": {
+              "k": 15,
+              "n": 20,
+              "rate": 0.75
+            }
+          }
+        },
+        "attribution": {
+          "detected": 22,
+          "primary_type": 20,
+          "primary_or_also_matches": 21
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 28,
+          "n": 40,
+          "rate": 0.7
+        },
+        "fpr": {
+          "k": 19,
+          "n": 40,
+          "rate": 0.475
+        },
+        "recall_ci95": [
+          0.4286,
+          0.925
+        ],
+        "fpr_ci95": [
+          0.2432,
+          0.7317
+        ],
+        "recall_strict": {
+          "k": 28,
+          "n": 40,
+          "rate": 0.7
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 40,
+          "rate": 0.775
+        },
+        "recall_strict_ci95": [
+          0.4286,
+          0.925
+        ],
+        "block_rate_clean_ci95": [
+          0.55,
+          0.95
+        ],
+        "recall_decided": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 7,
+              "n": 10,
+              "rate": 0.7
+            },
+            "strict": {
+              "k": 7,
+              "n": 10,
+              "rate": 0.7
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 16,
+              "n": 20,
+              "rate": 0.8
+            },
+            "strict": {
+              "k": 16,
+              "n": 20,
+              "rate": 0.8
+            }
+          }
+        },
+        "attribution": {
+          "detected": 28,
+          "primary_type": 25,
+          "primary_or_also_matches": 26
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.2821
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1
+        },
+        "block_rate_clean": {
+          "k": 18,
+          "n": 40,
+          "rate": 0.45
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.2821
+        ],
+        "block_rate_clean_ci95": [
+          0.1579,
+          0.7143
+        ],
+        "recall_decided": {
+          "k": 4,
+          "n": 22,
+          "rate": 0.1818
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 10,
+              "rate": 0.3
+            },
+            "strict": {
+              "k": 3,
+              "n": 10,
+              "rate": 0.3
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 5,
+              "rate": 0.2
+            },
+            "strict": {
+              "k": 1,
+              "n": 5,
+              "rate": 0.2
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 4,
+          "primary_type": 3,
+          "primary_or_also_matches": 4
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 22,
+          "n": 40,
+          "rate": 0.55
+        },
+        "fpr": {
+          "k": 18,
+          "n": 40,
+          "rate": 0.45
+        },
+        "recall_ci95": [
+          0.2857,
+          0.8421
+        ],
+        "fpr_ci95": [
+          0.2105,
+          0.7143
+        ],
+        "recall_strict": {
+          "k": 22,
+          "n": 40,
+          "rate": 0.55
+        },
+        "block_rate_clean": {
+          "k": 36,
+          "n": 40,
+          "rate": 0.9
+        },
+        "recall_strict_ci95": [
+          0.2857,
+          0.8421
+        ],
+        "block_rate_clean_ci95": [
+          0.7436,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 22,
+          "n": 22,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 18,
+          "n": 22,
+          "rate": 0.8182
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 5,
+              "n": 10,
+              "rate": 0.5
+            },
+            "strict": {
+              "k": 5,
+              "n": 10,
+              "rate": 0.5
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            },
+            "strict": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 20,
+              "rate": 0.75
+            },
+            "strict": {
+              "k": 15,
+              "n": 20,
+              "rate": 0.75
+            }
+          }
+        },
+        "attribution": {
+          "detected": 22,
+          "primary_type": 20,
+          "primary_or_also_matches": 21
+        }
+      }
+    }
+  },
+  "without_disputed": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 62,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 19,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 12,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 14,
+          "clean": 5,
+          "unverifiable": 0,
+          "error": 12,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 16,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 15,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 14,
+          "clean": 2,
+          "unverifiable": 0,
+          "error": 15,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 19,
+          "n": 31,
+          "rate": 0.6129
+        },
+        "fpr": {
+          "k": 14,
+          "n": 31,
+          "rate": 0.4516
+        },
+        "recall_ci95": [
+          0.3226,
+          0.9032
+        ],
+        "fpr_ci95": [
+          0.1667,
+          0.7419
+        ],
+        "recall_strict": {
+          "k": 19,
+          "n": 31,
+          "rate": 0.6129
+        },
+        "block_rate_clean": {
+          "k": 26,
+          "n": 31,
+          "rate": 0.8387
+        },
+        "recall_strict_ci95": [
+          0.3226,
+          0.9032
+        ],
+        "block_rate_clean_ci95": [
+          0.5806,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 6,
+              "rate": 0.5
+            },
+            "strict": {
+              "k": 3,
+              "n": 6,
+              "rate": 0.5
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            },
+            "strict": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            }
+          }
+        },
+        "attribution": {
+          "detected": 19,
+          "primary_type": 18,
+          "primary_or_also_matches": 19
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 16,
+          "n": 31,
+          "rate": 0.5161
+        },
+        "fpr": {
+          "k": 14,
+          "n": 31,
+          "rate": 0.4516
+        },
+        "recall_ci95": [
+          0.2258,
+          0.8065
+        ],
+        "fpr_ci95": [
+          0.1667,
+          0.7419
+        ],
+        "recall_strict": {
+          "k": 16,
+          "n": 31,
+          "rate": 0.5161
+        },
+        "block_rate_clean": {
+          "k": 29,
+          "n": 31,
+          "rate": 0.9355
+        },
+        "recall_strict_ci95": [
+          0.2258,
+          0.8065
+        ],
+        "block_rate_clean_ci95": [
+          0.7931,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 16,
+          "n": 16,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 16,
+          "rate": 0.875
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            },
+            "strict": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            },
+            "strict": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            }
+          }
+        },
+        "attribution": {
+          "detected": 16,
+          "primary_type": 15,
+          "primary_or_also_matches": 16
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 19,
+          "n": 31,
+          "rate": 0.6129
+        },
+        "fpr": {
+          "k": 14,
+          "n": 31,
+          "rate": 0.4516
+        },
+        "recall_ci95": [
+          0.3226,
+          0.9032
+        ],
+        "fpr_ci95": [
+          0.1667,
+          0.7419
+        ],
+        "recall_strict": {
+          "k": 19,
+          "n": 31,
+          "rate": 0.6129
+        },
+        "block_rate_clean": {
+          "k": 26,
+          "n": 31,
+          "rate": 0.8387
+        },
+        "recall_strict_ci95": [
+          0.3226,
+          0.9032
+        ],
+        "block_rate_clean_ci95": [
+          0.5806,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 6,
+              "rate": 0.5
+            },
+            "strict": {
+              "k": 3,
+              "n": 6,
+              "rate": 0.5
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            },
+            "strict": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            }
+          }
+        },
+        "attribution": {
+          "detected": 19,
+          "primary_type": 18,
+          "primary_or_also_matches": 19
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.1071
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "block_rate_clean": {
+          "k": 15,
+          "n": 31,
+          "rate": 0.4839
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.1071
+        ],
+        "block_rate_clean_ci95": [
+          0.1935,
+          0.7742
+        ],
+        "recall_decided": {
+          "k": 1,
+          "n": 16,
+          "rate": 0.0625
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 16,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            },
+            "strict": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 1,
+          "primary_type": 0,
+          "primary_or_also_matches": 1
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 16,
+          "n": 31,
+          "rate": 0.5161
+        },
+        "fpr": {
+          "k": 14,
+          "n": 31,
+          "rate": 0.4516
+        },
+        "recall_ci95": [
+          0.2258,
+          0.8065
+        ],
+        "fpr_ci95": [
+          0.1667,
+          0.7419
+        ],
+        "recall_strict": {
+          "k": 16,
+          "n": 31,
+          "rate": 0.5161
+        },
+        "block_rate_clean": {
+          "k": 29,
+          "n": 31,
+          "rate": 0.9355
+        },
+        "recall_strict_ci95": [
+          0.2258,
+          0.8065
+        ],
+        "block_rate_clean_ci95": [
+          0.7931,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 16,
+          "n": 16,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 16,
+          "rate": 0.875
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            },
+            "strict": {
+              "k": 1,
+              "n": 6,
+              "rate": 0.1667
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            },
+            "strict": {
+              "k": 15,
+              "n": 19,
+              "rate": 0.7895
+            }
+          }
+        },
+        "attribution": {
+          "detected": 16,
+          "primary_type": 15,
+          "primary_or_also_matches": 16
+        }
+      }
+    }
+  },
+  "per_case": {
+    "kl03": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl04": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl05": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        }
+      }
+    },
+    "kl06": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl07": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl08": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        }
+      }
+    },
+    "kl09": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 1,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 1,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        }
+      }
+    },
+    "kl10": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        }
+      }
+    },
+    "kl11": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        }
+      }
+    },
+    "kl12": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          }
+        }
+      }
+    },
+    "kl14": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 1,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl15": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl16": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl17": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          }
+        }
+      }
+    }
+  },
+  "problems": [
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]",
+      "queries": 6,
+      "leaky": 3,
+      "clean": 3,
+      "cases": [
+        "kl14"
+      ]
+    },
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]",
+      "queries": 6,
+      "leaky": 3,
+      "clean": 3,
+      "cases": [
+        "kl04"
+      ]
+    },
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "error: LeakageSpec is missing required fields: entity_keys",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl03",
+        "kl16"
+      ]
+    },
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl06",
+        "kl07"
+      ]
+    },
+    {
+      "mode": "static",
+      "class": "error",
+      "message": "error: LeakageSpec is missing required fields: entity_keys",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl03",
+        "kl16"
+      ]
+    },
+    {
+      "mode": "static",
+      "class": "error",
+      "message": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl06",
+        "kl07"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"visitstarttime\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9999",
+      "leak_types": "L1,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L1,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 27,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9999",
+      "leak_types": "L1,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L1,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 22,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9995",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 22,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L2,L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L2,L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "KeyError: 'Field \"transactiondt\" does not exist in schema' [replay.py:257 __init__]"
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9999",
+      "leak_types": "L1,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9999",
+      "leak_types": "L1,L6",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "unverifiable",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 25,
+      "rows_mismatched": 19,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": ""
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": ""
+    }
+  ],
+  "variant": {
+    "primary_stem": "20261107-6bc64b8",
+    "placeholder": {
+      "unused_placeholder_events": "occurred_at"
+    },
+    "time_columns": {
+      "kl03": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl04": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl05": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl06": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl07": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl08": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl09": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl10": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl11": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl12": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl14": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl15": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl16": {
+        "unused_placeholder_events": "occurred_at"
+      },
+      "kl17": {
+        "unused_placeholder_events": "occurred_at"
+      }
+    },
+    "loadable": [
+      "kl04",
+      "kl05",
+      "kl08",
+      "kl09",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl14",
+      "kl15",
+      "kl17"
+    ],
+    "rejected": [
+      "kl03",
+      "kl06",
+      "kl07",
+      "kl16"
+    ]
+  },
+  "loadable": {
+    "cases": [
+      "kl04",
+      "kl05",
+      "kl08",
+      "kl09",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl14",
+      "kl15",
+      "kl17"
+    ],
+    "queries": 56,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 28,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 19,
+          "clean": 9,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 22,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 6,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 18,
+          "clean": 4,
+          "unverifiable": 0,
+          "error": 6,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 28,
+        "n_clean": 28,
+        "recall": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4231,
+          0.9286
+        ],
+        "recall_strict": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.4231,
+          0.9286
+        ],
+        "recall_decided": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 7,
+              "n": 7,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 7,
+              "n": 7,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 16,
+              "n": 16,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 16,
+              "n": 16,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 28,
+          "primary_type": 25,
+          "primary_or_also_matches": 26
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 28,
+        "n_clean": 28,
+        "recall": {
+          "k": 22,
+          "n": 28,
+          "rate": 0.7857
+        },
+        "fpr": {
+          "k": 18,
+          "n": 28,
+          "rate": 0.6429
+        },
+        "recall_ci95": [
+          0.5,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.36,
+          0.9259
+        ],
+        "recall_strict": {
+          "k": 22,
+          "n": 28,
+          "rate": 0.7857
+        },
+        "block_rate_clean": {
+          "k": 24,
+          "n": 28,
+          "rate": 0.8571
+        },
+        "recall_strict_ci95": [
+          0.5,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.6552,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 22,
+          "n": 22,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 18,
+          "n": 22,
+          "rate": 0.8182
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 5,
+              "n": 7,
+              "rate": 0.7143
+            },
+            "strict": {
+              "k": 5,
+              "n": 7,
+              "rate": 0.7143
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            },
+            "strict": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 16,
+              "rate": 0.9375
+            },
+            "strict": {
+              "k": 15,
+              "n": 16,
+              "rate": 0.9375
+            }
+          }
+        },
+        "attribution": {
+          "detected": 22,
+          "primary_type": 20,
+          "primary_or_also_matches": 21
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 28,
+        "n_clean": 28,
+        "recall": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4231,
+          0.9286
+        ],
+        "recall_strict": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.4231,
+          0.9286
+        ],
+        "recall_decided": {
+          "k": 28,
+          "n": 28,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 19,
+          "n": 28,
+          "rate": 0.6786
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 7,
+              "n": 7,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 7,
+              "n": 7,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 16,
+              "n": 16,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 16,
+              "n": 16,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 28,
+          "primary_type": 25,
+          "primary_or_also_matches": 26
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 28,
+        "n_clean": 28,
+        "recall": {
+          "k": 4,
+          "n": 28,
+          "rate": 0.1429
+        },
+        "fpr": {
+          "k": 0,
+          "n": 28,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.3929
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 4,
+          "n": 28,
+          "rate": 0.1429
+        },
+        "block_rate_clean": {
+          "k": 6,
+          "n": 28,
+          "rate": 0.2143
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.3929
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.5
+        ],
+        "recall_decided": {
+          "k": 4,
+          "n": 22,
+          "rate": 0.1818
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 22,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 7,
+              "rate": 0.4286
+            },
+            "strict": {
+              "k": 3,
+              "n": 7,
+              "rate": 0.4286
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 5,
+              "rate": 0.2
+            },
+            "strict": {
+              "k": 1,
+              "n": 5,
+              "rate": 0.2
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 16,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 16,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 4,
+          "primary_type": 3,
+          "primary_or_also_matches": 4
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 28,
+        "n_clean": 28,
+        "recall": {
+          "k": 22,
+          "n": 28,
+          "rate": 0.7857
+        },
+        "fpr": {
+          "k": 18,
+          "n": 28,
+          "rate": 0.6429
+        },
+        "recall_ci95": [
+          0.5,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.36,
+          0.9259
+        ],
+        "recall_strict": {
+          "k": 22,
+          "n": 28,
+          "rate": 0.7857
+        },
+        "block_rate_clean": {
+          "k": 24,
+          "n": 28,
+          "rate": 0.8571
+        },
+        "recall_strict_ci95": [
+          0.5,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.6552,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 22,
+          "n": 22,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 18,
+          "n": 22,
+          "rate": 0.8182
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 5,
+              "n": 7,
+              "rate": 0.7143
+            },
+            "strict": {
+              "k": 5,
+              "n": 7,
+              "rate": 0.7143
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            },
+            "strict": {
+              "k": 2,
+              "n": 5,
+              "rate": 0.4
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 16,
+              "rate": 0.9375
+            },
+            "strict": {
+              "k": 15,
+              "n": 16,
+              "rate": 0.9375
+            }
+          }
+        },
+        "attribution": {
+          "detected": 22,
+          "primary_type": 20,
+          "primary_or_also_matches": 21
+        }
+      }
+    }
+  },
+  "loadable_without_disputed": {
+    "cases": [
+      "kl04",
+      "kl08",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl15",
+      "kl17"
+    ],
+    "queries": 38,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 19,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 14,
+          "clean": 5,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 16,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 3,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 14,
+          "clean": 2,
+          "unverifiable": 0,
+          "error": 3,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 19,
+        "n_clean": 19,
+        "recall": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_strict": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 3,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 3,
+              "n": 3,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 19,
+          "primary_type": 18,
+          "primary_or_also_matches": 19
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 19,
+        "n_clean": 19,
+        "recall": {
+          "k": 16,
+          "n": 19,
+          "rate": 0.8421
+        },
+        "fpr": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_ci95": [
+          0.5263,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_strict": {
+          "k": 16,
+          "n": 19,
+          "rate": 0.8421
+        },
+        "block_rate_clean": {
+          "k": 17,
+          "n": 19,
+          "rate": 0.8947
+        },
+        "recall_strict_ci95": [
+          0.5263,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.6471,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 16,
+          "n": 16,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 16,
+          "rate": 0.875
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            },
+            "strict": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 16,
+          "primary_type": 15,
+          "primary_or_also_matches": 16
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 19,
+        "n_clean": 19,
+        "recall": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_strict": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 19,
+          "n": 19,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 3,
+              "n": 3,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 3,
+              "n": 3,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 19,
+          "primary_type": 18,
+          "primary_or_also_matches": 19
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 19,
+        "n_clean": 19,
+        "recall": {
+          "k": 1,
+          "n": 19,
+          "rate": 0.0526
+        },
+        "fpr": {
+          "k": 0,
+          "n": 19,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.1765
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 1,
+          "n": 19,
+          "rate": 0.0526
+        },
+        "block_rate_clean": {
+          "k": 3,
+          "n": 19,
+          "rate": 0.1579
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.1765
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.45
+        ],
+        "recall_decided": {
+          "k": 1,
+          "n": 16,
+          "rate": 0.0625
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 16,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            },
+            "strict": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 15,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 15,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 1,
+          "primary_type": 0,
+          "primary_or_also_matches": 1
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 19,
+        "n_clean": 19,
+        "recall": {
+          "k": 16,
+          "n": 19,
+          "rate": 0.8421
+        },
+        "fpr": {
+          "k": 14,
+          "n": 19,
+          "rate": 0.7368
+        },
+        "recall_ci95": [
+          0.5263,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.4118,
+          1.0
+        ],
+        "recall_strict": {
+          "k": 16,
+          "n": 19,
+          "rate": 0.8421
+        },
+        "block_rate_clean": {
+          "k": 17,
+          "n": 19,
+          "rate": 0.8947
+        },
+        "recall_strict_ci95": [
+          0.5263,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.6471,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 16,
+          "n": 16,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 14,
+          "n": 16,
+          "rate": 0.875
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            },
+            "strict": {
+              "k": 1,
+              "n": 3,
+              "rate": 0.3333
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 15,
+              "n": 15,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 16,
+          "primary_type": 15,
+          "primary_or_also_matches": 16
+        }
+      }
+    }
+  }
+}

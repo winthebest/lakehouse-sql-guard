@@ -1,0 +1,34 @@
+catalog_id: kl07
+competition: Riiid Answer Correctness Prediction (2020), cumulative features and bundle ties
+source_urls:
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/discussion/207460
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/discussion/200636
+  - https://www.kaggle.com/competitions/riiid-test-answer-prediction/data
+source_kind: [discussion, discussion, host]
+leak_type: L5
+description: >
+  In one thread a participant with a suspiciously good validation score is asked whether he
+  shifted his cumulative features forward after computing them. He replies that his features
+  use no future rows except within the same task container. A second thread shows that several
+  questions of one bundle carry the same timestamp, so code that groups or orders by timestamp
+  or task_container_id does not separate a question from its bundle mates. The data page says
+  a bundle's answers are only revealed when the next group is served. So a cumulative
+  correctness feature that includes the current row, or is shifted by one row instead of by
+  one timestamp, contains answers that are not known yet when the question is asked.
+fidelity:
+  level: adapted
+  note: >
+    The source is thin: a question in a reply plus a bug report about equal timestamps, so
+    reading it as an inclusive-boundary leak is an interpretation. The table is train.csv as
+    on the data page, without the prior_question_* columns. Because the cumulated column is
+    the label, every leaky query here is also an L6 case.
+check:
+  spine_key: [row_id]
+  spine_filter: content_type_id = 0
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L5, also_matches: [L6], pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L5, also_matches: [L6], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L5, also_matches: [L6], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

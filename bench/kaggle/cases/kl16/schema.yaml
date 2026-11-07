@@ -1,0 +1,25 @@
+# data.csv with field names from the data page (lat/lon/loc_x/loc_y, action_type, playoffs,
+# shot_type, shot_zone_basic, shot_zone_range, team_id, team_name, matchup dropped).
+tables:
+  data:
+    columns:
+      shot_id: INTEGER
+      game_id: INTEGER
+      game_event_id: INTEGER
+      game_date: DATE
+      season: VARCHAR
+      period: TINYINT
+      minutes_remaining: TINYINT
+      seconds_remaining: TINYINT
+      combined_shot_type: VARCHAR
+      shot_distance: SMALLINT
+      shot_zone_area: VARCHAR
+      opponent: VARCHAR
+      shot_made_flag: DOUBLE     # the target; missing for the 5000 test shots in the real file
+    event_time: game_date
+    availability_time: null
+spine:
+  table: data
+  entity_keys: []                # one player; shot_id identifies the row
+  prediction_time: game_date
+  label_columns: [shot_made_flag]

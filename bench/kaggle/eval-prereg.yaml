@@ -1,0 +1,248 @@
+# Pre-registration: the frozen v3 leakage checker (release v0.2.0) on the 14 Kaggle leak cases.
+#
+# Written and committed before the checker was run on any of these cases. The harness
+# (bench/kaggle/evaluate.py) reads the thresholds, the seed and the case digest from this file and
+# refuses to run if the file is not committed as it is, if the cases or the checker changed, or if
+# the thresholds no longer match results/leakage/prereg-8928019.json.
+#
+# What the author of this file had read before registering: the checker's source (spec.py,
+# validator.py, replay.py, cli/leakage.py, catalog.py), bench/leakage (run.py, metrics.py,
+# world.py, baseline.py), docs/spec.md, docs/architecture.md, the case metadata, schemas, specs
+# and generators, and the case author's report. The checker had not been run on a case.
+
+version: 1
+date: "2026-11-07"
+
+question: >
+  How does the released checker, unchanged and given each case exactly as authored, score
+  80 queries (40 leaky, 40 clean) rebuilt from documented competition leaks, statically and with
+  point-in-time replay over Iceberg snapshot history built from each case's synthetic data?
+
+checker:
+  release_tag: v0.2.0
+  # `git rev-parse HEAD:src/sqlguard` must equal `git rev-parse v0.2.0:src/sqlguard`
+  src_tree: 5e260ebc75d0a885697a1e46d9d81bd8d1efdebd
+  frozen_check: "git diff --quiet rules-frozen-v3 HEAD -- src/sqlguard/leakage src/sqlguard/core src/sqlguard/dbt"
+  interface: "sqlguard leakage check FILE --spec SPEC --schema SCHEMA [--replay --warehouse DIR] --json"
+  verdict_threshold: 0.5   # src/sqlguard/leakage/weights.yaml, read by the checker itself
+
+inputs:
+  cases_dir: bench/kaggle/cases
+  cases: [kl03, kl04, kl05, kl06, kl07, kl08, kl09, kl10, kl11, kl12, kl14, kl15, kl16, kl17]
+  queries: {total: 80, leaky: 40, clean: 40}
+  # sha256 over "<path relative to cases_dir>\t<sha256 of file>\n" lines, files sorted by path
+  cases_digest: 447490465518759c383f870e887a6f998de882b2a0d787f425cf25e16db30ef0
+  cases_file_count: 136
+  # Labels, leak types, also_matches and the dispute flag are read from case.yaml. Nothing in a
+  # case (labels, specs, SQL, generators, schemas) is edited. The spec file given to the checker
+  # is the case's spec.yaml, byte for byte.
+
+conversions:
+  # The only transformations the harness applies to a case. Each is code in evaluate.py with a test.
+  schema_to_checker_format: >
+    schema.yaml tables.<table>.columns ({column: TYPE}) becomes the flat mapping the --schema
+    flag reads: {<table>: {<column>: TYPE}}. Type strings are passed through unchanged, table and
+    column order is kept. Everything else in schema.yaml (event_time, time_unit, availability_time,
+    spine) is not part of the checker's format and is not passed on.
+  warehouse_types: >
+    Iceberg column types from the schema.yaml types: TINYINT, SMALLINT, INTEGER -> int (32 bit);
+    BIGINT -> long; FLOAT -> float; DOUBLE -> double; BOOLEAN -> boolean; VARCHAR -> string;
+    DATE -> date; TIMESTAMP -> timestamp (microseconds); DECIMAL(p,s) -> decimal(p,s). A column
+    keeps its declared meaning; integer time columns stay integers in the table. Any other type
+    makes the case static-only.
+  csv_loading: >
+    Each generator is run into a temporary directory and its CSVs are read with DuckDB read_csv
+    using the schema.yaml types, empty string as NULL, the same options as check_cases.py.
+
+warehouse:
+  # Built with the repo's own tooling (LakehouseCatalog.local, create_empty, append with the
+  # sqlguard.logical-ts snapshot property), following bench/leakage/world.py.
+  location: "a fresh temporary directory per run, outside the repository, removed afterwards"
+  namespace: db
+  commit_rules:
+    - "static tables (spec static_tables): one commit, logical time one day before the earliest event time in the case"
+    - "label table (spine.table): one commit, logical time one day after the latest event time in the case (as world.py commits labels at the end)"
+    - "outcome tables (tables named in spec outcome_columns other than the label table): one commit, same time as the label table"
+    - "every other table: rows sorted by load time (schema.yaml availability_time when it has one, otherwise event_time); one commit per distinct load-time value, logical time equal to that value"
+  time_values: >
+    TIMESTAMP as is; DATE at midnight; integer time columns as the Unix epoch plus the value in the
+    unit schema.yaml gives (time_unit s or ms). An integer time column without a unit, a null time
+    in a table that needs commits by time, or an unsupported type makes the case static-only.
+  static_only: >
+    A case is static-only when its warehouse cannot be built under the rules above, and the report
+    says why. A case whose warehouse builds is replayed whatever the type of its time columns:
+    what the checker does with it (error, unverifiable, verdict) is the result.
+  replay_flags: "--warehouse DIR --replay, checker defaults (Replayer max_points 24, seed 0)"
+
+runs:
+  # Every one of the 80 queries is run once per mode, as a separate CLI invocation.
+  static: "sqlguard leakage check FILE --spec SPEC --schema SCHEMA --json"
+  replay: "sqlguard leakage check FILE --spec SPEC --schema SCHEMA --warehouse DIR --replay --json"
+  timeout_seconds: 900
+  outcome_classes:
+    leaky: "stdout is a JSON list and the report verdict is leaky"
+    clean: "stdout is a JSON list and the report verdict is clean"
+    unverifiable: "stdout is a JSON list and the report verdict is unverifiable"
+    error: "stdout is not a JSON list (the CLI raised, printed an error, or timed out); recorded with the last stderr line and the deepest sqlguard frame as the traceback summary"
+    static_only: "replay mode only: the case has no warehouse; the query has no replay result"
+  rerun_policy: >
+    One run. It may be repeated only for a crash of the harness itself, never because of what the
+    checker did; any such repeat is listed in the report.
+
+scores:
+  # Exactly as bench/leakage/run.py score_cases computes them, taken from the CLI's JSON.
+  static: "report.score of the static run"
+  replay: "replay.rows_mismatched / replay.rows_compared when replay.status is mismatch, else 0.0 (replay of the replay run)"
+  combined: "report.score of the replay run"
+  no_score: "a query that errored has no score and counts as not detected under the thresholds"
+  unverifiable_scoring: >
+    An unverifiable query keeps the score the checker reports for it (bench/leakage does the same:
+    an analysis failure scores 1.0), so it can count as detected under a threshold. This is why the
+    strict variants below exist.
+
+thresholds:
+  # Copied from results/leakage/prereg-8928019.json (thresholds.static / replay / combined).
+  source: results/leakage/prereg-8928019.json
+  source_sha256: 247844f47f56bb38125a5ef097731233e373d5e36d08b956defa44c56d0f753b
+  static: 0.425
+  replay: 0.003968253968253968
+  combined: 0.475
+  rule: "detected when score >= threshold"
+
+metrics:
+  population: "all 80 queries; recall on the 40 leaky, FPR on the 40 clean"
+  counts_kept_separate: >
+    For each mode (static, replay) the number of queries of each outcome class (leaky, clean,
+    unverifiable, error, static_only), separately for the leaky and the clean queries, and for the
+    unverifiable ones the first finding or reason.
+  recall: "detected leaky queries / 40"
+  fpr: "detected clean queries / 40"
+  decided_variants: "recall and FPR over the queries whose class is leaky or clean only (unverifiable, error and static_only left out of the denominator), reported next to the counts"
+  strict_variants:
+    recall_strict: "unverifiable, error and static_only leaky queries counted as misses, also when the score reaches the threshold; denominator 40"
+    block_rate_clean: "clean queries that are detected, unverifiable, error or static_only / 40 (the product fails closed on those)"
+  per_leak_type_recall: "recall by the primary leak_type in case.yaml (L1, L3, L5, L6), for every rule below, as scored and strict"
+  per_case: "for every case and mode: counts of each outcome class for leaky and clean queries, detected leaky and clean queries per rule"
+  type_attribution: >
+    Among detected leaky queries, the share whose reported leak_types contain the primary
+    leak_type (strict reading) and the share that contain the primary type or one of also_matches
+    (lenient reading); the two are reported side by side.
+  per_query_table: "results/kaggle/<date>-<sha>.csv, one row per query and mode"
+
+decision_rules:
+  a_verdict:
+    description: "the checker's own verdict as a user sees it"
+    positive: "verdict leaky"
+    negative: "verdict clean or unverifiable (and a query that errored)"
+    modes: [static, replay]
+  b_thresholds:
+    description: "the frozen thresholds of results/leakage/prereg-8928019.json, scores as above"
+    rows: [static, replay, combined]
+
+intervals:
+  method: "cluster bootstrap by case (all queries of a case resampled together), bench.leakage.metrics.bootstrap_ci"
+  seed: 42
+  resamples: 2000
+  level: 0.95
+  note: "resamples without a leaky (or a clean) query do not enter the recall (FPR) interval, as in bench/leakage"
+
+disputed_labels:
+  cases: [kl05, kl09, kl14]
+  reason: "labelled leaky under the deployment reading; participants of those competitions dispute that reading"
+  reporting: "every metric is reported over all 14 cases and over the 11 cases without these three, side by side; no label is changed"
+
+not_done:
+  - "no edit of a case, label, spec, SQL file or generator, and no change to src/sqlguard"
+  - "no placeholder table, renamed table, rewritten time column, rescaled duration or other change to make a spec load; what the checker does with the spec as authored is the result"
+  - "no re-scoring with different thresholds, weights or seeds after seeing results"
+
+expectations:
+  # Predictions from reading the checker's source, written before any run. They are not results.
+  - id: spec-load
+    text: >
+      LeakageSpec.from_dict / __post_init__ rejects all 14 specs, so every query ends as error in
+      both modes: kl03 and kl16 on the empty entity_keys list ("missing required fields");
+      kl06 and kl07 on label_known_after "0 seconds" (durations must be positive); the other ten
+      (kl04, kl05, kl08, kl09, kl10, kl11, kl12, kl14, kl15, kl17) on "label_table must not also
+      be declared temporal or static", because each case's label table is also its only event
+      table. If so, recall and FPR are 0 for every rule, the block rate on the clean queries is
+      40/40, no replay is ever executed, and the warehouses are built but never read.
+  - id: not-observable
+    text: >
+      If the specs do not load, nothing is observed about integer time columns (kl04, kl06, kl07,
+      kl08, kl14) or DATE prediction times (kl09, kl10, kl11, kl15, kl16) in replay. Reading
+      replay.py, the replayer keeps only datetime-typed prediction times, so both kinds would be
+      expected to end as unverifiable; that stays a reading of the code, not a measurement.
+  - id: unresolved-questions
+    text: >
+      The case author's four questions are answered by what the checker does: integer time columns
+      and the unit (not expressible; no field carries it), empty entity_keys (rejected), 0 seconds
+      (rejected), schema format (converted by the harness).
+
+# --- Secondary variant, registered after the primary run -----------------------------------------
+# The primary run (above, results/kaggle/20261107-6bc64b8.*) stands unchanged: it is the result of
+# the checker on the cases as authored. Its outcome was 80 of 80 queries rejected at spec load, so
+# it says nothing about the rules. This section registers a second, clearly labelled run that
+# applies the one workaround the repository already uses, so that the rules are measured on the cases
+# whose specs the checker accepts. It is committed before that run and before its code.
+variant_spec_workaround:
+  status: "secondary; not an evaluation of the cases as authored"
+  precedent: >
+    docs/limitations.md ("Real-world dbt projects"): projects that keep the label and all history
+    in one table declare a placeholder temporal table that no model reads, because the spec
+    requires one temporal table. bench/realworld/specs/*.yaml write it as
+    `time_columns: {unused_placeholder_events: occurred_at}`.
+  spec_rewrite:
+    rule: >
+      The spec given to the checker is the case's spec.yaml with one change to `time_columns`: the
+      entry of the label table is removed, and if the mapping is then empty it becomes
+      {unused_placeholder_events: occurred_at}. The label table stays the label table. Every other
+      field (entity_keys, prediction_ts, label_columns, static_tables, outcome_columns, boundary,
+      label_known_after, availability_columns, max_ingest_delay, relations) keeps its value.
+    not_changed: >
+      No dummy key, no changed duration, no change to a case file, schema.yaml, SQL, label, or
+      generator. The placeholder table is not added to the --schema file or to the warehouse, as in
+      the real-world specs. The rewrite is code in evaluate.py (flag --variant) with a test; the
+      rewritten specs are written to the temporary work directory, not into the cases.
+  placeholder_probe: >
+    Run before this section was written, on non-case data: the synthetic churn world of
+    bench/leakage (spec.yaml) with and without an extra `unused_placeholder_events: occurred_at`
+    entry, one leaky and one clean query, statically and with replay. Verdict, score, leak types and
+    replay status were identical in all eight pairs. The checker was not run on any case under this
+    rewrite before this commit.
+  runs: >
+    Exactly as in `runs` above (static and replay, 80 queries each, same CLI, timeout, warehouses),
+    with the rewritten spec. Results go to results/kaggle/<date>-<sha>-variant.{json,csv,md}; the
+    primary files are not touched. One run.
+  expected_errors:
+    - "kl03 and kl16: empty entity_keys (rejected before and after the rewrite)"
+    - "kl06 and kl07: label_known_after 0 seconds (rejected before and after the rewrite)"
+    - "These four cases (24 queries) stay errors in the variant and are reported as errors."
+    - "The other ten cases (56 queries, 28 leaky and 28 clean) are expected to load."
+  expected_limitation: >
+    With the label table no longer declared as temporal, the checker does not know it holds
+    history. Features computed over the label table itself (same-table self-joins, window frames,
+    aggregates over the spine) may therefore be invisible to it or classified differently from the
+    way a separate history table would be. Misses on those queries are a limit of the workaround as
+    much as of the rules, and the variant cannot separate the two.
+  expectations_from_code:
+    # Predictions from reading analysis.py and replay.py, not results.
+    - >
+      Replay: the replayer keeps only datetime-typed prediction times. For the cases whose
+      prediction column is an integer (kl04, kl08, kl14) or a DATE (kl09, kl10, kl11, kl15), replay
+      is expected to end unverifiable ("no label prediction time appears in the query output"),
+      which by itself does not change the static verdict. Only kl05, kl12 and kl17 (TIMESTAMP) are
+      expected to be replayed.
+    - >
+      Integer time columns: a bare number only counts as seconds when both sides went through
+      epoch(), so integer-time bounds are expected to be misread or ignored.
+  metrics: >
+    The same as the primary run for every rule and mode, over all 14 cases (80 queries), with and
+    without the disputed cases (kl05, kl09, kl14). In addition, because the four rejected cases
+    contribute only errors, the same tables over the ten cases the rewrite lets load (kl04, kl05,
+    kl08, kl09, kl10, kl11, kl12, kl14, kl15, kl17; 56 queries), with and without the disputed
+    cases (7 cases, 38 queries). Counts of leaky, clean, unverifiable and error outcomes are
+    reported separately as before; no threshold, weight or seed changes.
+  not_done:
+    - "no further rewrite if a case still errors or a query is misjudged: no second variant is run after seeing these results"
+    - "the variant never replaces or is merged into the primary numbers"

@@ -1,0 +1,20 @@
+# train.csv (v1 framing): one row per visit. Field names from the data page; the totals JSON
+# blob is flattened to totals_transactionRevenue; device/geoNetwork/trafficSource/hits omitted.
+tables:
+  train:
+    columns:
+      channelGrouping: VARCHAR
+      date: INTEGER                      # YYYYMMDD
+      fullVisitorId: VARCHAR
+      visitId: BIGINT
+      visitNumber: INTEGER
+      visitStartTime: BIGINT             # POSIX seconds
+      totals_transactionRevenue: BIGINT  # revenue x 10^6; empty when the visit had no purchase
+    event_time: visitStartTime
+    time_unit: s
+    availability_time: null
+spine:
+  table: train
+  entity_keys: [fullVisitorId]
+  prediction_time: visitStartTime
+  label_columns: [totals_transactionRevenue]

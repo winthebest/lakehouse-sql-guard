@@ -1,0 +1,11 @@
+# G-Research: each 1-minute bar is a prediction row and also history for later bars.
+label_table: train
+entity_keys: [Asset_ID]
+prediction_ts: timestamp          # BIGINT, Unix seconds
+label_columns: [Target]
+time_columns: {train: timestamp}
+static_tables: []
+outcome_columns: []
+# Data page: Target is a 15-minute return. A participant (thread 302530) notes target(t-1)
+# needs the close 15 minutes later, so only targets about 16 minutes old are known.
+label_known_after: 15 minutes

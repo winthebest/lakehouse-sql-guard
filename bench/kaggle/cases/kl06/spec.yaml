@@ -1,0 +1,13 @@
+# Riiid: every interaction row is both a prediction (spine) row and history for later rows.
+label_table: train
+entity_keys: [user_id]
+prediction_ts: timestamp          # BIGINT, milliseconds since the user's first event
+label_columns: [answered_correctly]
+time_columns: {train: timestamp}
+static_tables: []
+outcome_columns:
+  - train.user_answer             # the answer itself; the API only reveals it with the next group
+# The data page says prior_group_answers_correct reveals the previous group's answered_correctly
+# when the next group is served, so a row's label is known to any strictly later row of the
+# same user. Zero is unit-free, which matters because the time column is an integer.
+label_known_after: 0 seconds

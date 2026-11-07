@@ -1,0 +1,32 @@
+catalog_id: kl16
+competition: Kobe Bryant Shot Selection (2016)
+source_urls:
+  - https://www.kaggle.com/competitions/kobe-bryant-shot-selection/discussion/21606
+  - https://www.kaggle.com/competitions/kobe-bryant-shot-selection/data
+source_kind: [discussion, host]
+leak_type: L6
+description: >
+  The data page asks participants, to avoid leakage, to use only events that occurred before
+  the shot being predicted. A participant observed that most public scripts fit one model on
+  the whole data set and so ignore this; he refits month by month on earlier months. A reply
+  agrees, describes sliding-window features of recent performance (by game, distance or
+  region) as the honest alternative, and mentions an entry removed by the admin for
+  exploiting the leak. A feature such as shooting accuracy by zone computed over all shots,
+  or over shots up to and including the current game, uses outcomes that are not yet known.
+fidelity:
+  level: adapted
+  note: >
+    data.csv with the data page's field names, fewer columns. The source talks about model
+    fitting; the queries express the same rule as accuracy features (zone, shot type, recent
+    30 days). game_date is the only time column, so the clean twins use earlier games only
+    and leave out earlier shots of the same game. The catalog row lists L3; this case labels
+    the label-derived aggregates L6 and keeps L3/L5 as secondary readings.
+check:
+  spine_key: [shot_id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, also_matches: [L3], pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L5, also_matches: [L6], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L5, also_matches: [L6], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}
