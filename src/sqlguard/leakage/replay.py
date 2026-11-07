@@ -334,6 +334,9 @@ class Replayer:
         self._pinned_data: dict[tuple[datetime, bool], dict[str, pa.Table]] = {}
         # tables whose history starts after the pinned time (read as empty), by (time, history)
         self._late: dict[tuple[datetime, bool], dict[str, str]] = {}
+        # prediction times whose earlier label rows came from the table as it is now (the label
+        # table has no snapshot from before the time), chosen by prediction time and not load time
+        self._unversioned: set[datetime] = set()
         self._reads: dict[tuple[str, int | None], pa.Table] = {}
         self._predates: dict[tuple[str, datetime], bool] = {}
         self._schema: dict | None = None
@@ -563,16 +566,21 @@ class Replayer:
             )
         return self._counts[key]
 
-    def _earlier_source(self, before: datetime) -> pa.Table:
-        """The label table the earlier rows come from: when it is also event history (listed in
-        `time_columns`) and was committed before `before`, the snapshot visible then, so rows that
-        reached the table late are absent as they were; else the table as it is now."""
+    def _earlier_source(self, before: datetime) -> tuple[pa.Table, bool]:
+        """The label table the earlier rows come from, and whether that is a stand-in.
+
+        When the table is also event history (listed in `time_columns`) and was committed before
+        `before`, it is the snapshot visible then, so rows that reached the table late are absent
+        as they were. Otherwise it is the table as it is now, which for an event-history table
+        (the flag) means its earlier rows are chosen by prediction time, not by when they loaded.
+        """
         label_table = self.spec.label_table
         if label_table in self.spec.time_columns:
             snapshot = self.catalog.snapshot_as_of(label_table, before, strict_history=True)
             if snapshot is not None:
-                return self._read(label_table, snapshot)
-        return self.labels
+                return self._read(label_table, snapshot), False
+            return self.labels, True
+        return self.labels, False
 
     def _instants(self, table: pa.Table) -> pa.ChunkedArray:
         """The prediction times of `table` as naive-UTC `timestamp[us]` (one clock for dates,
@@ -587,7 +595,9 @@ class Replayer:
         at = self.labels.filter(pc.equal(self._label_clock, now))
         if not history:
             return at
-        source = self._earlier_source(before)
+        source, unversioned = self._earlier_source(before)
+        if unversioned:
+            self._unversioned.add(ts)
         earlier = source.filter(pc.less(self._instants(source), now))
         if self.spec.label_known_after is not None:
             cutoff = pa.scalar(
@@ -772,6 +782,7 @@ class Replayer:
         exposure: Counter[str] = Counter()
         exposed_points: Counter[str] = Counter()
         skipped: list[str] = []  # why prediction times before a table's history were left out
+        unversioned: list[datetime] = []  # compared times whose earlier label rows are a stand-in
         for ts in points:
             try:
                 conn = self.pinned(ts, history=True)
@@ -781,6 +792,8 @@ class Replayer:
                     continue
                 self._bind(conn, relations)
                 replayed = conn.sql(sql).to_arrow_table()
+                if ts in self._unversioned:
+                    unversioned.append(ts)
             except HistoryGap as err:
                 return ReplayResult(ReplayStatus.UNVERIFIABLE, reason=str(err))
             except duckdb.Error as err:
@@ -818,6 +831,18 @@ class Replayer:
         notes = list(flight_notes)
         if skipped:
             notes.append(f"{len(skipped)} of {len(points)} point(s) skipped: {skipped[0]}")
+        if unversioned:
+            notes.append(
+                f"label table {spec.label_table!r} had no snapshot before "
+                f"{unversioned[0].isoformat()}"
+                + (
+                    f" (and {len(unversioned) - 1} more of the {len(points)} point(s))"
+                    if len(unversioned) > 1
+                    else ""
+                )
+                + f"; earlier rows were taken by {spec.prediction_ts} instead of load time "
+                "(late rows of it are not visible)"
+            )
         if excluded:
             notes.append(
                 f"{excluded} prediction time(s) before the start of history left out, "
