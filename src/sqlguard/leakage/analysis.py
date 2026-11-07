@@ -173,6 +173,10 @@ _ROW_MULTIPLIERS = (
     exp.Lateral,
 )
 _MAX_PATHS = 256
+# seconds: below this a credit of a unit-converted bound is lost in floating-point arithmetic
+_FLOAT_GRAIN = 1e-3
+# the largest bare constant added to an integer time column: a double holds 2**53 exactly
+_EXACT_LIMIT = 2.0**53
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
 
 Use = tuple[int, str]  # (id(scope), alias) of one CTE / derived-table use
@@ -597,6 +601,10 @@ def _amount_seconds(
         if per is None:
             return None
         slack = _UNIT_SLACK.get(_unit_name(unit), 0.0) * abs(value)
+        if per >= 60:
+            # an engine may cut a fractional amount to whole units (DuckDB reads INTERVAL 0.5 DAY
+            # as zero days): the fraction is no credit
+            slack += (abs(value) - math.floor(abs(value))) * per
         return sign * value * per, slack
     value = _constant(amount)
     per = _unit_seconds(unit)
@@ -923,6 +931,8 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
             node = node.this
         elif isinstance(node, exp.Add | exp.Sub) and _constant(node.expression) is not None:
             amount = _constant(node.expression)
+            if abs(amount) > _EXACT_LIMIT:
+                return None  # added to an epoch value in a double it would be rounded away
             pending += amount if isinstance(node, exp.Add) else -amount
             node = node.this
         elif isinstance(node, exp.Mul | exp.Div | exp.IntDiv) and (got := _factor(node)):
@@ -2350,6 +2360,10 @@ def _record(
             # across several labels (UNION branches) the loosest reading counts
             pick = max if upper else min
             offset = pick(lab.offset for lab in labels) + signed * scale - feature.offset
+            if scaled and upper and -_FLOAT_GRAIN < offset < 0:
+                # a credit finer than a double or a timestamp resolves at epoch size is rounded
+                # away by the engine: the row at the same instant passes
+                offset = 0.0
             # a label that went through a unit conversion earns no credit for a truncation: whether
             # a division drops a fraction depends on the engine
             label_trunc = min(0.0 if lab.scale or lab.converted else lab.trunc for lab in labels)

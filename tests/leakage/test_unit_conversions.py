@@ -295,3 +295,51 @@ def test_a_literal_of_a_million_digits_does_not_stall_the_check():
     started = time.perf_counter()
     assert self_rules("h.ts_ms * 1e10000000 < s.ts_ms * 1e10000000")
     assert time.perf_counter() - started < 5
+
+
+# --- fuzz against DuckDB: credits finer than a double resolves, and fractional intervals -------
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "p.ts_ms * 1e6 + 1 <= s.ts_ms * 1e6",
+        "p.ts_ms * 1e3 + 1e-3 <= s.ts_ms * 1e3",
+        "to_timestamp(p.ts_ms / 1000 + 4e-7) <= to_timestamp(s.ts_ms / 1000)",
+        "p.ts_ms // 10 <= s.ts_ms // 10 - 1e-300",
+    ],
+)
+def test_a_credit_too_small_for_a_double_at_epoch_size_is_no_credit(bound):
+    assert ev_rules(bound), bound
+
+
+def test_a_credit_a_millisecond_or_more_still_counts():
+    assert ev_rules("p.ts_ms * 1000 + 2000 <= s.ts_ms * 1000") == set()
+    assert ev_rules("p.ts_ms // 1000 * 1000 < s.ts_ms - 2000") == set()
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "epoch_ms(p.ts_ms) + INTERVAL 0.5 DAY <= epoch_ms(s.ts_ms)",
+        "epoch_ms(p.ts_ms) <= epoch_ms(s.ts_ms) - INTERVAL 0.5 HOUR",
+    ],
+)
+def test_a_fractional_interval_may_be_cut_to_whole_units_by_the_engine(bound):
+    # DuckDB reads INTERVAL 0.5 DAY as zero days: the half is no credit
+    assert ev_rules(bound), bound
+    assert ev_rules("epoch_ms(p.ts_ms) <= epoch_ms(s.ts_ms) - INTERVAL 2 HOUR") == set()
+    assert ev_rules("epoch_ms(p.ts_ms) <= epoch_ms(s.ts_ms) - INTERVAL 1.5 HOUR") == set()
+    assert ev_rules("epoch_ms(p.ts_ms) <= epoch_ms(s.ts_ms) - INTERVAL '1.5 hours'") == set()
+
+
+def test_a_bare_constant_too_large_for_exact_arithmetic_is_not_read():
+    # 1e300 added on both sides cancels in exact arithmetic and absorbs everything in doubles
+    sql = (
+        "WITH h AS (SELECT user_id, correct, ts_ms // 60000 + 1e300 AS t FROM interactions), "
+        "sp AS (SELECT user_id, ts_ms, correct, ts_ms / 60000 AS t FROM interactions) "
+        "SELECT s.user_id, s.ts_ms, s.correct, AVG(p.correct) AS f FROM sp s "
+        "LEFT JOIN h p ON p.user_id = s.user_id AND p.t + 999 <= s.t + 1e300 - 1e3 GROUP BY ALL"
+    )
+    spec = LeakageSpec.from_dict({**SPEC, **HISTORY})
+    assert {f.rule_id for f in static_findings(sql, spec, SCHEMA)}
