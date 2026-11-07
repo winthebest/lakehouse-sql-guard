@@ -2,6 +2,10 @@
 
 Three checks: column lineage of every output feature; any reference to an outcome table;
 and any use of a label column other than passing it through or filtering the final rows.
+
+An outcome column is the target wherever it sits. In a table the spec classifies otherwise (the
+label table, a temporal table) only the listed columns are; a table that holds nothing but
+outcome columns is outcome data as a whole.
 """
 
 from __future__ import annotations
@@ -34,14 +38,22 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
         if _is_passthrough(column.lower(), sources, analysis):
             continue
         hits = sorted(
-            s for s in sources if s in spec.target_sources or s.table in spec.outcome_tables
+            s for s in sources if s in spec.target_sources or s.table in spec.outcome_only_tables
         )
         if hits:
+            labels = {SourceColumn(spec.label_table, c) for c in spec.label_columns}
+            after_outcome = [f"{s.table}.{s.column}" for s in hits if s not in labels]
+            message = (
+                f"feature {column!r} is derived from the target or post-outcome data"
+                if len(after_outcome) < len(hits)
+                else f"feature {column!r} is computed from {', '.join(after_outcome)}, "
+                "which is only known after the outcome"
+            )
             findings.append(
                 Finding(
                     "L6",
                     Severity.HIGH,
-                    f"feature {column!r} is derived from the target or post-outcome data",
+                    message,
                     column,
                     {"sources": [f"{s.table}.{s.column}" for s in hits]},
                 )
