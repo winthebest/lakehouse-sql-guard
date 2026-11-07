@@ -1,0 +1,290 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#6,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,info,label column 'is_churned' is used to compute or select feature rows (feeds only label/metadata columns: state_transition),stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""CASE WHEN \""c\"".\""is_churned\"" THEN 'active_to_churn' END"",""non_feature_only"":true,""outputs"":[""state_transition""]}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",,,,
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#7,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,info,label column 'is_churned' is used to compute or select feature rows (feeds only label/metadata columns: state_transition),stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""\""c\"".\""is_churned\"" AND NOT \""lp\"".\""latest_promotion_ts\"" IS NULL"",""non_feature_only"":true,""outputs"":[""state_transition""]}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",,,,
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#8,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,info,label column 'is_churned' is used to compute or select feature rows (feeds only label/metadata columns: state_transition),stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""NOT \""c\"".\""is_churned\"""",""non_feature_only"":true,""outputs"":[""state_transition""]}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",,,,
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#9,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L7,info,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row (feeds only label/metadata columns: model_built_at)",CURRENT_TIMESTAMP,models/marts/fct_gold_customer_features.sql,model,1.0,leaky,"{""non_feature_only"":true,""outputs"":[""model_built_at""]}","-- models/marts/fct_gold_customer_features.sql
+        coalesce(b.invoice_count, 0) as invoice_count,
+        coalesce(b.invoice_total_amount, 0) as invoice_total_amount,
+        coalesce(b.avg_invoice_amount, 0) as avg_invoice_amount,
+        coalesce(t.state_transition, 'active_without_discount') as state_transition,
+        case
+            when lower(c.product_tier) = 'enterprise' then 0.72
+            when lower(c.product_tier) = 'pro' then 0.68
+            else 0.62
+        end as gross_margin_rate,
+        case
+            when lower(c.product_tier) = 'enterprise' then 2500
+            when lower(c.product_tier) = 'pro' then 1200
+            else 600
+        end as acquisition_cost
+    from customers c
+    left join promotions p on c.customer_id = p.customer_id
+    left join billing b on c.customer_id = b.customer_id
+    left join transitions t on c.customer_id = t.customer_id
+)
+
+select
+    customer_id,
+    product_tier,
+    signup_ts,
+    churn_ts,
+    is_churned,
+    customer_tenure_months,
+    monthly_recurring_revenue,
+    max_discount_percent,
+    avg_discount_percent,
+    discount_intensity_index,
+    invoice_count,
+    invoice_total_amount,
+    avg_invoice_amount,
+    state_transition,
+    gross_margin_rate,
+    acquisition_cost,
+    monthly_recurring_revenue * gross_margin_rate * (1 - discount_intensity_index) as contributed_margin_monthly,
+    current_timestamp() as model_built_at
+from assembled",,,,
+LNshuti/soma#demand_forecasting_features#8,LNshuti/soma,round2,demand_forecasting_features,L7,info,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row (feeds no output column)",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,"{""non_feature_only"":true,""outputs"":[]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",,,,
+LNshuti/soma#demand_forecasting_features#9,LNshuti/soma,round2,demand_forecasting_features,L7,info,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row (feeds no output column)",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,"{""non_feature_only"":true,""outputs"":[]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",,,,
+LNshuti/soma#demand_forecasting_features#10,LNshuti/soma,round2,demand_forecasting_features,L7,info,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row (feeds no output column)",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,"{""non_feature_only"":true,""outputs"":[]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",,,,
+sumanoj/hoteliq-analytics#mart_ml_features#4,sumanoj/hoteliq-analytics,round2,mart_ml_features,L7,info,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row (feeds only label/metadata columns: _feature_generated_at)",CURRENT_TIMESTAMP,models/marts/ml/mart_ml_features.sql,model,0.95,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#5,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,info,window over asx_stock_prices looks at later rows (feeds only label/metadata columns: next_month_return),asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),,,,

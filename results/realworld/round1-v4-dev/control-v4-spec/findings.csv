@@ -1,0 +1,35 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+SarrangTech/fraud-detection-feature-store#silver_transaction_features#1,SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,L2,high,bronze_transactions is joined without bounding event_time before event_time,bronze_transactions,models/staging/stg_transactions.sql,model,0.9,leaky,"{""bounds"":[],""table"":""bronze_transactions""}","-- models/staging/stg_transactions.sql
+-- Cleans and dedupes raw bronze events. Both the Kafka producer's `acks=all` retry
+-- behavior and Structured Streaming's at-least-once delivery guarantee can produce
+-- duplicate transaction_id rows on rare occasions; window functions downstream are
+-- pass-sensitive to duplicates (velocity counts inflate), so dedupe here once, in a
+-- single place, rather than in every downstream model.
+
+with source as (
+    select * from ""{{ env_var('UC_CATALOG', 'workspace') }}"".""{{ env_var('UC_SCHEMA', 'fraud_feature_store') }}"".""bronze_transactions""
+),
+
+deduped as (
+    select
+        *,
+        row_number() over (
+            partition by transaction_id
+            order by _ingested_at asc
+        ) as _dedupe_rank
+    from source
+)
+
+select
+    transaction_id,
+    user_id,
+    event_time,
+    cast(event_time as long) as event_time_unix,
+    cast(event_time as date) as event_date,
+    amount,
+    is_fraud,
+    V1, V2, V3, V4, V5, V6, V7, V8, V9, V10,
+    V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
+    V21, V22, V23, V24, V25, V26, V27, V28
+from deduped
+where _dedupe_rank = 1",false,false,false,training row reads only its own transaction; label table doubles as history in the spec; no other rows joined

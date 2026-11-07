@@ -1,0 +1,233 @@
+{
+  "dev": true,
+  "git_sha": "f8f7119",
+  "premise": "(entity_keys, prediction_ts) names one row of the label table",
+  "kaggle_cases": {
+    "kl03": {
+      "table": "training",
+      "rows": 1560,
+      "pairs": 1560,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl04": {
+      "table": "train",
+      "rows": 1193,
+      "pairs": 1193,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl05": {
+      "table": "train",
+      "rows": 1737,
+      "pairs": 1693,
+      "duplicated_pairs": 29,
+      "extra_rows": 44,
+      "examples": [
+        [
+          "65824",
+          "2017-11-08 23:59:59",
+          "10"
+        ],
+        [
+          "138054",
+          "2017-11-08 23:59:59",
+          "5"
+        ],
+        [
+          "198555",
+          "2017-11-08 23:59:59",
+          "5"
+        ]
+      ],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl06": {
+      "table": "train",
+      "rows": 2364,
+      "pairs": 1188,
+      "duplicated_pairs": 574,
+      "extra_rows": 1176,
+      "examples": [
+        [
+          "80811586",
+          "3798610",
+          "4"
+        ],
+        [
+          "45677651",
+          "1091756",
+          "4"
+        ],
+        [
+          "56732344",
+          "6893449",
+          "4"
+        ]
+      ],
+      "queries_with_accepted_past_label_windows": [
+        "clean_1.sql"
+      ]
+    },
+    "kl07": {
+      "table": "train",
+      "rows": 2762,
+      "pairs": 963,
+      "duplicated_pairs": 735,
+      "extra_rows": 1799,
+      "examples": [
+        [
+          "37348124",
+          "8615350",
+          "5"
+        ],
+        [
+          "56639388",
+          "9750222",
+          "5"
+        ],
+        [
+          "99420741",
+          "6252803",
+          "5"
+        ]
+      ],
+      "queries_with_accepted_past_label_windows": [
+        "clean_1.sql",
+        "clean_2.sql"
+      ]
+    },
+    "kl08": {
+      "table": "train",
+      "rows": 1770,
+      "pairs": 1770,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl09": {
+      "table": "train",
+      "rows": 4736,
+      "pairs": 4736,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl10": {
+      "table": "train_users",
+      "rows": 900,
+      "pairs": 900,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl11": {
+      "table": "accepted_2007_to_2018q4",
+      "rows": 1000,
+      "pairs": 1000,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl12": {
+      "table": "flights",
+      "rows": 4470,
+      "pairs": 4470,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl14": {
+      "table": "train_transaction",
+      "rows": 1492,
+      "pairs": 1492,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl15": {
+      "table": "act_train",
+      "rows": 1673,
+      "pairs": 1650,
+      "duplicated_pairs": 22,
+      "extra_rows": 23,
+      "examples": [
+        [
+          "ppl_68968",
+          "2022-12-29",
+          "3"
+        ],
+        [
+          "ppl_324932",
+          "2023-06-03",
+          "2"
+        ],
+        [
+          "ppl_317388",
+          "2022-12-18",
+          "2"
+        ]
+      ],
+      "queries_with_accepted_past_label_windows": []
+    },
+    "kl16": {
+      "table": "data",
+      "rows": 1660,
+      "pairs": 120,
+      "duplicated_pairs": 120,
+      "extra_rows": 1540,
+      "examples": [
+        [
+          "2001-08-11",
+          "20"
+        ],
+        [
+          "2001-04-30",
+          "20"
+        ],
+        [
+          "2001-06-09",
+          "20"
+        ]
+      ],
+      "queries_with_accepted_past_label_windows": [
+        "clean_2.sql"
+      ]
+    },
+    "kl17": {
+      "table": "page_views",
+      "rows": 2297,
+      "pairs": 2297,
+      "duplicated_pairs": 0,
+      "extra_rows": 0,
+      "examples": [],
+      "queries_with_accepted_past_label_windows": []
+    }
+  },
+  "synthetic_world_w1": {
+    "table": "labels",
+    "rows": 409,
+    "pairs": 409,
+    "duplicated_pairs": 0,
+    "extra_rows": 0,
+    "examples": []
+  },
+  "synthetic_world_w2": "not available at this commit (made by the held-out preparation)",
+  "cases_with_duplicated_pairs": {
+    "kl05": 29,
+    "kl06": 574,
+    "kl07": 735,
+    "kl15": 22,
+    "kl16": 120
+  }
+}

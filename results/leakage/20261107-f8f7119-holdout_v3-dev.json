@@ -1,0 +1,1969 @@
+{
+  "dev": true,
+  "rules_tag": null,
+  "note": "development run: the rules were changed while looking at holdout_v3 (seen); not held-out evidence",
+  "created_at": "2026-11-07T15:49:27+00:00",
+  "git_sha": "f8f7119",
+  "dirty": false,
+  "seed": 42,
+  "prereg_sha": "f8f7119",
+  "prereg_file": null,
+  "held_out_run_checked": false,
+  "template_sha256": {
+    "holdout_v3": {
+      "hv3_l4_plan_asof_short_offset.sql": "2281e4f61e80e317bb8f75ca898732f71ece1d4d1881053757abb758cbe11d7b",
+      "hv3_clean_dbt_stats_validity_intervals.sql": "993ad1ebf97c8e0959efa349c5670c5a64268456e2d112800c286bc8d7e85d38",
+      "hv3_l4_timeline_event_time_order.sql": "1ec6269f95375e5ab62fa97c82bcc280f477fc28b76f456a3eb0f4c5a7642582",
+      "hv3_clean_amount_buckets_filter_agg.sql": "b5b90d36e0d21554738e98b6c8cb5c0714b96c5b4b61cae951d6e465678ef6e4",
+      "hv3_clean_event_time_margin_window.sql": "bb722ac837506996be39fbd821a91552a201b71898acac24b678f72fa1f8b483",
+      "hv3_l5_dbt_plan_ingested_le.sql": "6d4380bf841f3b96e7ccd76d011fd949c8c84670812b4a563dc24069faebcceb",
+      "hv3_clean_time_split_max_cutoff.sql": "ee8c7c189eb5f78b144c0a569c6947249012b82925737c4f5c08674678d7a8aa",
+      "hv3_l2_lateral_latest_loaded.sql": "bd9878a0a38ef2772791a8bd3e70b99050a82c2b2b7744cfbe7e7395c7f3d4d7",
+      "hv3_clean_known_load_delay_profile.sql": "f9e5280d907b1135e080a87f34ff48c39aaecfcc043394c4670564534131d76c",
+      "hv3_l3_lower_bound_only.sql": "c0bc5be931c8e93e6b3ac13e3fb20ccf61ab46b3850bf529718f5ade4109ca8d",
+      "hv3_clean_quantified_all_small_purchases.sql": "f1723382591beae246c0d3ab6433c41c48636566f45b01ef079aeae9b1645068",
+      "hv3_l4_dbt_daily_rollup_prior_dates.sql": "995ceae06c348799a08f79d76550195e3b3e45921141320cc187b0dc2867a2c2",
+      "hv3_clean_union_distinct_active_days.sql": "5f4b1b55ff3d98df76f272e5975d29a6a3bcf1f91e444ed91c953e1886b6f8d7",
+      "hv3_l1_asof_next_stats_row.sql": "a7e149d2a9127d0b9cb29deb16e7876136e147aadc71c95d8d3d3ba1ba0b6a5e",
+      "hv3_clean_timeline_rows_preceding_spine_first.sql": "3dc6ca0eb07427fa5e99c95a6cf701df6bc943943952c68661633e0f8560a229",
+      "hv3_l2_events_max_by_last_purchase.sql": "63435efcd099998b0259ad177eca408a2bb1316c75c8456da8df663f355d2b1f",
+      "hv3_l5_timeline_tie_events_first.sql": "c6202faffe5d57d8a8f16fe31cd2de6c75371b1187971b31f02b603bd55d94d5",
+      "hv3_clean_multi_window_values_join.sql": "1733dec4159e773ba043e64ed54627eaa0818e7559b521c974cb666854ef9fcf",
+      "hv3_clean_country_region_seed_map.sql": "9b471cb833c1e72bce8f752a54e90c96738335ec3c931e079537ebbebd707778",
+      "hv3_clean_country_target_encoding_matured.sql": "2e57b9cfb7db69e7e957293c640706e964307d1e3e681fdd223b3db9205df690",
+      "hv3_l7_decay_weighted_spend_today.sql": "fe496274dbf14c789cc4551210d4950d12ead92016b2fd6b214278728dec5a37",
+      "hv3_l4_events_list_filter_event_time.sql": "1618e4d016cc43e29c7da68704a22e95d01694ea9d4a6e5acdfa4dec90266a34",
+      "hv3_clean_dbt_matured_by_today_filter.sql": "f426727bc207ecc2da06abd1b26cba3035185b5ba79c1f870190f67b859503e6",
+      "hv3_l7_feature_switch_on_run_date.sql": "f82a870273370a510374d999be8a08ef4557a47f082336293138c852576eafcd",
+      "hv3_clean_dbt_event_margin_layered.sql": "8950ded62019b8bf3ab59a6c555da7394d4fb01ff621367efeed7741e34a6085",
+      "hv3_l1_dbt_spine_last_prediction_per_user.sql": "d956010b6cc11128fe8ec60f53b3917066e62899655ded19e8a3d0481edc0313",
+      "hv3_clean_spine_lag_churn_if_matured.sql": "b881085ee5440adb2689f5672b3b1fbaad000ee319719eb2faeea19a5d7a66bc",
+      "hv3_clean_dbt_plan_rank_pivot.sql": "c61c257990793ce0eb20b6c01b0cc7034bf1493f7a94f65b220f0142dcc9f882",
+      "hv3_l5_tz_shift_forward.sql": "aa08c3c5a5c2a52894c42d0a32d21fa1dd856f978e5d76825971f9058fe20de6",
+      "hv3_l7_dbt_incremental_events_filter.sql": "5202c5d9ef9c69b55f4db1c1923e565336e0a43a39231cd798c9b69db25e4d70",
+      "hv3_clean_asof_events_eight_day_key.sql": "45560a16351afe52023c0da4636425273d8a67a5d6724194cbe9480213b8dc4c",
+      "hv3_clean_events_settled_qualify_last_amount.sql": "851f406c8b5a2b6abec890f660c88b38b54f018135611fe015ad204ae3b8eea8",
+      "hv3_l2_distinct_on_latest_event.sql": "4fe3f7bee8454ec5ffeb48f70446698d750ada3ed7468bc0f8658f3508990390",
+      "hv3_l2_first_value_desc_window.sql": "bf7e0c37a81e689461f4b40fe8192c0bc2af07ced4ad641c8930391b4e0d1fbe",
+      "hv3_l6_lag_churned.sql": "710aa9d0f0f7073be86773cdab73854fc6f3ab7becfd829dfc7f6eba76127fda",
+      "hv3_l4_dbt_event_margin_too_short.sql": "58de51a1c8d02086244ae676a561a7767eb247d3a4fd75dbc58d93d72234a910",
+      "hv3_l2_dbt_stats_latest_unbounded.sql": "3ed8330cef46dbc140b0c15a69564267ada1a2a33ab24351adaf0e2a16a49dbd",
+      "hv3_l3_events_list_filter_unbounded_lists.sql": "b5b292a5c2901b9b057e157fca21234871e186444fbbac3434149795052e0e2d",
+      "hv3_clean_pivot_statement_amount_bands.sql": "16236dc124d65d0688ab7dc8f930f161ac00628a52c30a434002b9b7bac9fd41",
+      "hv3_l1_plan_lookahead_ingest.sql": "4e50afa1e8cca48457b1ca33f060ba2986eb1b6c3d1c1ee64aa629d79e2fd0be",
+      "hv3_clean_country_active_users_known.sql": "4cc4ec6ecf90a62d7c0ef2d299fc79f0a1af59781a1335de121a440598d7744e",
+      "hv3_clean_semi_anti_dormancy_union.sql": "e855578c5eeb5639b9bb78b49df6f2625804655128a2191f5c92118ba7353b2e",
+      "hv3_l4_semi_anti_dormancy_event_time.sql": "d535476192413f14a7c7a268f5e7be3f4fb83181339a34709d837cb6442794a7",
+      "hv3_clean_country_matured_range_frame.sql": "dfdc79aae85fb32db32ebe9443a490104cc7dcccf9e818635ad7f5e22622038a",
+      "hv3_clean_dbt_time_split_quantile.sql": "7f119f78129faa1c4415bc19ae512a54b7ff7fa17e293999b065601ebf4c5d95",
+      "hv3_clean_night_share_known.sql": "2b31f721ee1456f5fb70c8cd4e90cb5453003cdc25e83127b54350830b1ca6a3",
+      "hv3_l4_dbt_plan_valid_from_only.sql": "2d33eb3f673097112c3f456167cab2a1063d32509966caf1ab03d66136aa4b34",
+      "hv3_l4_plan_tenure_uses_valid_to.sql": "25f2dde1f7a615838bd27edd0849a5c93cdb606706f2db6dc2fe46fd05f99ab2",
+      "hv3_clean_plan_newest_valid_from_eight_days.sql": "56be554dd5438b02605bb2171ff45d2e52d8176cde1a9b34b939351bb016f138",
+      "hv3_l3_dbt_plan_history_counts.sql": "2ab7f05497ba9c296f9bd929a355915498fa936421457c165283a97227f5fb37",
+      "hv3_clean_plan_asof_eight_days_back.sql": "f2934e0fdde196d8b6d93cef917ff500a90e9e4101762c2be12e38f778c402aa",
+      "hv3_clean_prediction_time_calendar.sql": "43c1442c7d0c23c015ea85723c02c7cb079a7d6135caa046679f7a5d77b3682e",
+      "hv3_l6_user_label_mean_join.sql": "58ce6724e0ee62735d5a4778c1a0592c21f6898692e66f19d23d6a99197bc329",
+      "hv3_clean_time_split_min_warmup.sql": "c778850d95caa0861103cab793991a548da5929eb3d21ba0e7518283407fbc97",
+      "hv3_clean_activity_union_known.sql": "af1755c4e72638564f2a39c51706230eeb5e2a428aac7a4efc66371ea77376c6",
+      "hv3_clean_stats_week_over_week_two_asof.sql": "30d2f90fe7b12696c3f250bf34fe9922c3ddf95a790f5d29708b6327557f05b9",
+      "hv3_l2_stats_lower_bound_only.sql": "f011eaa07f71b7e6cfbe8a4b0840e9c4b043bc8bf79b127418b06c4c01479624",
+      "hv3_l1_stats_following_frame.sql": "e76b5106944662d43f311cec6798d54ad93f5f6d994f137354b7c6d89362cefe",
+      "hv3_l1_timeline_following_frame.sql": "12630620de2510776fdbcc2574cb69084b2256d08496176327c9fcd124041649",
+      "hv3_clean_stats_lag_delta_then_bound.sql": "1b568680aef9b047c74fb85bfabdd1245c2d732b6946e15769ae8819e8621473",
+      "hv3_l5_events_list_filter_le.sql": "e8af690ea1dbac658959bf644e60a30a51c0d2bec11c9503a77e21b14242c011",
+      "hv3_l7_new_account_flag_localtime.sql": "bb3a02afe48e08cd19ac50f6f7387d8f9780592efbafff717414b5883d853aad",
+      "hv3_clean_dbt_plan_versions_known_counts.sql": "85e2ca0e24db631d3e4e1f575cff04045a6c713e77a10f876b08ed8c8a1496c4",
+      "hv3_l5_stats_epsilon_shift.sql": "2b714923380ac3a1c5bb15e71dc0a48c7ee99f29f273dd3c5bb88520a731d548",
+      "hv3_clean_share_of_known_platform_spend.sql": "c7b849877a11fb23b3b1649e678e435f18ea47799a24807c925e3f15816fd708",
+      "hv3_l4_activity_union_event_time.sql": "69abbbe897362631d2083ca38d6489eeead696fd8f369e44599803ea257d3b09",
+      "hv3_l1_spine_lead_next_prediction.sql": "98569ab0b5d09dda819aeed7bd0a005f2d9f28c6cc380b026af060d2ce52f763",
+      "hv3_clean_plan_scalar_fee_change.sql": "34c2d3fb10877f737960ec3d9f957b1fb977249f55bb55021b94ee3014732fbe",
+      "hv3_l6_prior_churn_unmatured.sql": "bc12acbfe03d97c3e574a5a5590e1e3e6f6f3d48f8302b71490a96488b34a02f",
+      "hv3_clean_reconcile_events_vs_stats.sql": "c0674893c26ec7ac61c5a78d3d994de8cc43ce37fbbf01f0a91f27173f494a7d",
+      "hv3_clean_dbt_dedup_first_load_surrogate_key.sql": "ceab9f4283ece413f5528b35ffc21f06e4bcc1cedf36ada9a488d35bc3f5cbbf",
+      "hv3_l6_days_to_churn_bucket.sql": "5c8a4b4a9cf7dd6206aa9f8a902f228f5bb3887536613a95e05781c695eaf56e",
+      "hv3_l4_plan_open_version_ingested.sql": "efc43d6621d7d9bdff9eb36403c2c2c94a465b0ba3b360c4b0687e79ee1b4380",
+      "hv3_l1_datediff_args_reversed.sql": "31e2431bcc366246dfafdf92a42c0d2c4d663ca93670a572b6c3189ef9ee245f",
+      "hv3_l5_stats_validity_intervals_inclusive.sql": "b149f4eb06a389184d9d52f230ac1fb932ca69eb4cda258afb9f8208bf28a970",
+      "hv3_l7_sample_age_weight.sql": "18c6ea0b4d05e5d15cf1eeaa39ef312329cb26d2965cb502e23003eeaebad05c",
+      "hv3_clean_lateral_last_k_known.sql": "daecf700c59a781fd3fef461d55baa6ef7e5ae98e44c503c961bfbe122b63441",
+      "hv3_l3_stats_avg_all_rows.sql": "e18caf8d6e6cae797d5204aad0e988d8737747d37aaa11cd5cbc8628a6da750b",
+      "hv3_l3_country_normaliser_all_history.sql": "036460032b42c2fe452e2ccb63cbce10d2d798c200d4a9d7cb45e1e9f04ba677",
+      "hv3_clean_stats_rolling_preceding_frame.sql": "b225509acebb88aa8a6e7c048ec6a58c7368243a03b7b5a0cfa2b9c07c9bb107",
+      "hv3_l3_zscore_population_all_history.sql": "b3c879dbd830faae6177f6c00559d59f7a9bd5f1c1171dda5e8f7225dde6d019",
+      "hv3_clean_dbt_spend_per_plan_fee.sql": "6c52f797b6ba834bcadcb9cf3ddb9db333d558b2f2b3486e32da573941d31405",
+      "hv3_l2_dbt_mart_plan_current_row.sql": "07087215f112ec87b65535ed8fd03082ef5dc4d3c0ef75b8f095d28a47083d2d",
+      "hv3_clean_nth_value_full_frame_known.sql": "7cc92e95c47a21ab600dde73f77617063ac31d48381ffe835bcd4f76e05b2d8b",
+      "hv3_l2_dbt_plan_latest_loaded_version.sql": "942c3616ab077cdbbe54db25d7af204d6ad269a852ea0e4fbeece72482bd0fe9",
+      "hv3_l1_reverse_asof_events_to_spine.sql": "044cfdba29937c9c0a7eabf99e9e548355acdc7f28f3ab336330fd90767265b5",
+      "hv3_l1_stats_lead_next_delta.sql": "9987150ca6d3ccb68b6f3e01619085cac292ef80138847a41a48c8c85c6a5e99",
+      "hv3_l4_scd2_asof_valid_to_with_ingest.sql": "35b9365e08a6eb690bd8bb1d9502f7a954e3922199cbd2e924e7e60012211857",
+      "hv3_clean_plan_list_current_previous.sql": "0aab0c87822674982b7b95bfb4f46744b3f1f2d82d8682b869d25a84c61f67ef",
+      "hv3_l3_global_share_normaliser.sql": "0a7add91436d8460e43407898896431c64495f97e35beaf4384a2a3d84095fc0",
+      "hv3_clean_dbt_lapsed_except.sql": "a31274ca30a82c2667babb5d33097b71a3716a9cd70e6416549ca1f0c673dcaa",
+      "hv3_clean_dbt_stats_pit_qualify.sql": "7337f813feb77fd5406c4e4b03bdc5a499d024fdd1dacb4f9382a46c2c0d6d61",
+      "hv3_clean_gaps_within_known_set.sql": "5d39786fad753dbaeb4dc400b403cd66908add71c80225b316fcd35795035e84",
+      "hv3_l6_lateral_last_country_churn.sql": "1034713a6f44b7941284f3a5f0deb9c05c6ac746bb421484836f69a397cbaab3",
+      "hv3_l3_stats_regr_slope_all_rows.sql": "ee70010ceb8116d388988439e3d5f95802011a7a18f187fc35a949dfa8abe667",
+      "hv3_clean_country_signups_before_t.sql": "dea295414b24f015d8bbdb5ad338d902a8a71cffef94d60a15acaa349dd66647",
+      "hv3_clean_plan_completed_versions_valid_to_old.sql": "1d67773dac6b9c16a84086535e46714aac8b6ed9cbf98501d27c126f5e6775e5",
+      "hv3_l1_lateral_next_purchase.sql": "18059974bfdc8900d93988a6d6d008722dcb908f68fedcccce12cd6994161259",
+      "hv3_l7_filter_clause_last_year_today.sql": "3f915c6bf0e22bcef2a5a0b6b77e1568f9ef54bd97f88ec8e54f4a56d6554881",
+      "hv3_l2_plan_max_by_valid_from.sql": "2c061eaaaa4c6d3b7744eeb1c3f69f1d5c468ac4f1b6ac26a9c6e4afb57f781d",
+      "hv3_clean_stats_regr_slope_known.sql": "8d4f92436cda985e3809a1026f3bf7e3687700bdc09dd0d5bb4d1d11dce12a3a",
+      "hv3_l1_dbt_stats_lookahead.sql": "38b867381230fe0ec15243029648ba033c27ac46e6f43b1903a4998f4cb3d449",
+      "hv3_l5_asof_stats_ge.sql": "56846f03eb294c22d12d6e765ea5596a092027ca434a3d60d0b9f6db8f0d6607",
+      "hv3_clean_dbt_incremental_constant_lower_bound.sql": "08f70ea88d912a0e3d12b3dc99195f8e167560cccb1286d30c104b111917557e",
+      "hv3_l6_dbt_outcome_refund.sql": "0cb5fc6c07bc37fead52e0c48250e3d25c5370ec2a22a044cc9c702f8082ee99",
+      "hv3_l7_years_customer_current_year.sql": "6322eb58f332aab447e4bc8d9673d9150697504bdd04d926febb1125a02813a8",
+      "hv3_clean_load_night_pivot.sql": "2e23f06cf79f2e26786047d612f8127de386d3ff06267144434982ddd6bc7157",
+      "hv3_clean_date_cast_previous_day.sql": "17fd1e762d18fad18db2515eaf9395a4f703c3c1a2ba4297521ef1444889fb44",
+      "hv3_clean_exists_pro_version_known.sql": "72f9d38c2cc36c876ba166ff4b2edaa28b6badcb7ee610ca4d7404b69173b224",
+      "hv3_clean_stats_plus_unrecomputed_loads.sql": "f456044f3d830e2c4ee4fca7507d2d465db381c13d55de2f49ef46d20492cce8",
+      "hv3_clean_plan_path_string_agg.sql": "6670622106ef8dc79d0e352d56315c9b046f743cc22b1ca8a23b76e38155444b",
+      "hv3_l3_dbt_dim_users_lifetime.sql": "46b51e22a3f53a3af08eced86ec4c222424d72744562b9079f20a97ccfb3603f",
+      "hv3_clean_dbt_plan_snapshot_pit.sql": "6a53fb30a05bfcae031b38e753b6bedc0322a77cf33e1d397453bcd7d396cbda",
+      "hv3_clean_country_benchmark_known.sql": "1c6c8bbb322208b592bea0f5584e5e70ebaac13bb6e51f2dfeb5bb39d8402078",
+      "hv3_l6_country_target_encoding_all.sql": "90384d211b8b2aec5c30f59cc0f21a45bb82c397dd54bdbdb093dd9db58bf9ee",
+      "hv3_clean_stats_avg_recent_recomputes.sql": "823fff0e0b5daab8c9e1b0a835502d958b75412b54ebe2e667db4d3227c657a4",
+      "hv3_clean_stats_max_by_bounded.sql": "c32358f3dde49a6284e55752cd1a24c4e6406647d91a21dc3574ca01d02d9a3a",
+      "hv3_clean_stats_timeline_spine_first.sql": "6c85d40cd3ff0f307bcc41e2cde050dd60ee872d355f01871666c1be87bbdd06",
+      "hv3_l6_exists_prior_outcome.sql": "dfd7a1a4052f9bcccf9889c7519e8cec6acaf938eed4b9e484487ec0a9459df9",
+      "hv3_clean_spine_lag_prior_predictions.sql": "12735bb962e7f1139444a52027840696137ffe15e7acd84893f56c63d00bd765",
+      "hv3_l6_dbt_plan_target_encoding.sql": "95e214d4c94cc513bb905bbe68a37db19d44dfbce80698e00978842ce31b5acd",
+      "hv3_clean_distinct_on_known_last_purchase.sql": "0a6db6de6fd364ce2f49bac6ceb8eb18128be907f4be21035fa880f5a97eff86",
+      "hv3_l5_hour_string_compare.sql": "ef212bd266d34262387588cdb06b1da5fd7c5fa62753198eafd3dd78400e3f35",
+      "hv3_l6_leave_one_out_young_labels.sql": "6a4643f75998722caa1acb819965716c76aa0b792720271806752ee357820a4c",
+      "hv3_clean_entities_static_profile.sql": "55a90f46a0d0ef8f18d4744a5855aaad96800ffe5b8825c25db578e18eab2b27",
+      "hv3_clean_plan_lateral_pit.sql": "a843a50387223160c4a9610228b229075d1b32c3e322bc3b8858191a6c913af4",
+      "hv3_clean_le_with_backoff.sql": "2ff94b2c27d3e69fae1ca128c1a12ee598b9153945254b9f896db62a2cb3d07a",
+      "hv3_clean_tz_shift_backward.sql": "6ee44a0eb3676302f6044fe6572d366c9dd64290f4aa5761f50cc41fdebcb4f2",
+      "hv3_l7_age_function_implicit_today.sql": "ad9c8688f1f2d085d32a298e1035e25b606f13c11ac442005e5a8bf635747ebd",
+      "hv3_l4_global_lag_gaps.sql": "395c677d4c399adf4984d8ff6610cb4bb78be06e3d1bbeedc08e399672543c59",
+      "hv3_l5_dbt_stats_same_day.sql": "abd22a0e52c545f9f4d13c127f2c3ed3ab05fb53cecd2f2be76a2fdc9c6fd996",
+      "hv3_clean_first_last_known_purchase.sql": "5c40d36282a52c26e5fcd870c3e80ca46aa500dfd6c589517bc6b18233dbd02f",
+      "hv3_l3_dbt_window_total_in_staging.sql": "cf9657bef78842498e9ede2a6fea28e89756d9f26932a2a6f0429b5378bbd259",
+      "hv3_l7_recency_current_date.sql": "5002d09fafb7e82efbaa575e2fb3d9eeaa946fc17a944b5b409676af7a426461",
+      "hv3_l3_weekday_pivot_all_history.sql": "8c290d5b5652e1fe7c00f5f2ba105ed26c99d1f06bfdc84c9315ce6389cf8794",
+      "hv3_clean_matured_prior_churn_self_join.sql": "1d5afe77fb4c5b0b2778e8cc4aa0d1889148e7f549abff5ef3241bb2d7e8ce8a",
+      "hv3_clean_dbt_full_feature_mart.sql": "82c023257a78863d0f55f5664b05c05951ec921f5906499c976f4ebbd4411106",
+      "hv3_clean_correlated_recency_known.sql": "1a72a250dbc8129c3334fb60a3515f4413a82ef11428717b7406cfe7b9847c22",
+      "hv3_l3_percent_rank_lifetime.sql": "1c8fd77f23b18e43ca0dc74bf89c0da444105a5a00712aa5c55da1ba81a1aae1",
+      "hv3_l2_stats_not_exists_later_row.sql": "e434366ef811d832c2771630ddeaf2fcdf22a05eaa1edabf5dc9d13ff37ba485",
+      "hv3_l7_plan_tenure_vs_now.sql": "358bc64aba2eabb1574126d01fc8bc18f74de07e8dcf29960d383c612735580f",
+      "hv3_clean_plan_ever_paid_bool_or.sql": "7ddf0ee3bf8872e9d7cfffa8a7ed461e141cd87b8f9bd00fefdaaad47522692f",
+      "hv3_l5_stats_range_frame_current_row.sql": "819a2a466bf65a1e0d851ad17a71e20b8053be9454797aa8d4adfbf631e8e684",
+      "hv3_clean_coalesce_chain_spend.sql": "c761122170e243f32b0fcc1d80cbbff1518730b9ff8a987596ac0768e94d4913",
+      "hv3_clean_dbt_load_batches_cumulative_asof.sql": "513e2966399392244dd51e33b3cef3a7ee15187a4bdc1f7d263e148b571dbd3d",
+      "hv3_l4_dbt_running_total_event_order.sql": "c6882293fba0e9001b4f57ea979a0d7fe94024b59b4e7377e8af4daeb8209032"
+    }
+  },
+  "thresholds": {
+    "baseline": null,
+    "static": 0.425,
+    "replay": 0.003968253968253968,
+    "combined": 0.475,
+    "v2v1_static": 0.625,
+    "v2v1_combined": 0.67
+  },
+  "splits": {
+    "holdout_v3": {
+      "n_cases": 221,
+      "n_leaky": 110,
+      "detectors": {
+        "baseline": {
+          "tp": 0,
+          "fp": 0,
+          "tn": 111,
+          "fn": 110,
+          "recall": 0.0,
+          "fpr": 0.0,
+          "precision": 0.0,
+          "f1": 0.0,
+          "ci95": {
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "fpr": [
+              0.0,
+              0.0
+            ]
+          },
+          "template_fpr": {
+            "k": 0,
+            "n": 70,
+            "rate": 0.0,
+            "ci95": [
+              0.0,
+              0.0513
+            ]
+          },
+          "block_rate_clean": {
+            "k": 0,
+            "n": 70,
+            "rate": 0.0,
+            "ci95": [
+              0.0,
+              0.0513
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 0,
+          "clean_cases_blocked": 0,
+          "threshold": null,
+          "auc": 0.5091,
+          "recall_by_type": {
+            "L1": 0.0,
+            "L2": 0.0,
+            "L3": 0.0,
+            "L4": 0.0,
+            "L5": 0.0,
+            "L6": 0.0,
+            "L7": 0.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": 2.62
+        },
+        "static": {
+          "tp": 104,
+          "fp": 3,
+          "tn": 108,
+          "fn": 6,
+          "recall": 0.9455,
+          "fpr": 0.027,
+          "precision": 0.972,
+          "f1": 0.9585,
+          "ci95": {
+            "recall": [
+              0.8878,
+              0.99
+            ],
+            "fpr": [
+              0.0,
+              0.0761
+            ]
+          },
+          "template_fpr": {
+            "k": 2,
+            "n": 70,
+            "rate": 0.0286,
+            "ci95": [
+              0.0035,
+              0.0994
+            ]
+          },
+          "block_rate_clean": {
+            "k": 3,
+            "n": 70,
+            "rate": 0.0429,
+            "ci95": [
+              0.0089,
+              0.1202
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 3,
+          "clean_cases_blocked": 5,
+          "threshold": 0.425,
+          "auc": 0.9651,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 0.7391,
+            "L5": 1.0,
+            "L6": 1.0,
+            "L7": 1.0
+          },
+          "n_unverifiable": 2,
+          "median_ms": 8.01
+        },
+        "replay": {
+          "tp": 94,
+          "fp": 0,
+          "tn": 111,
+          "fn": 16,
+          "recall": 0.8545,
+          "fpr": 0.0,
+          "precision": 1.0,
+          "f1": 0.9216,
+          "ci95": {
+            "recall": [
+              0.7706,
+              0.9252
+            ],
+            "fpr": [
+              0.0,
+              0.0
+            ]
+          },
+          "template_fpr": {
+            "k": 0,
+            "n": 70,
+            "rate": 0.0,
+            "ci95": [
+              0.0,
+              0.0513
+            ]
+          },
+          "block_rate_clean": {
+            "k": 0,
+            "n": 70,
+            "rate": 0.0,
+            "ci95": [
+              0.0,
+              0.0513
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 0,
+          "clean_cases_blocked": 0,
+          "threshold": 0.003968253968253968,
+          "auc": 0.9273,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 0.8696,
+            "L5": 1.0,
+            "L6": 1.0,
+            "L7": 0.0
+          },
+          "n_unverifiable": 0,
+          "median_ms": 102.83
+        },
+        "combined": {
+          "tp": 110,
+          "fp": 3,
+          "tn": 108,
+          "fn": 0,
+          "recall": 1.0,
+          "fpr": 0.027,
+          "precision": 0.9735,
+          "f1": 0.9865,
+          "ci95": {
+            "recall": [
+              1.0,
+              1.0
+            ],
+            "fpr": [
+              0.0,
+              0.0761
+            ]
+          },
+          "template_fpr": {
+            "k": 2,
+            "n": 70,
+            "rate": 0.0286,
+            "ci95": [
+              0.0035,
+              0.0994
+            ]
+          },
+          "block_rate_clean": {
+            "k": 3,
+            "n": 70,
+            "rate": 0.0429,
+            "ci95": [
+              0.0089,
+              0.1202
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 3,
+          "clean_cases_blocked": 5,
+          "threshold": 0.475,
+          "auc": 0.999,
+          "recall_by_type": {
+            "L1": 1.0,
+            "L2": 1.0,
+            "L3": 1.0,
+            "L4": 1.0,
+            "L5": 1.0,
+            "L6": 1.0,
+            "L7": 1.0
+          },
+          "n_unverifiable": 2,
+          "median_ms": null
+        },
+        "v2v1_static": {
+          "tp": 90,
+          "fp": 32,
+          "tn": 79,
+          "fn": 20,
+          "recall": 0.8182,
+          "fpr": 0.2883,
+          "precision": 0.7377,
+          "f1": 0.7759,
+          "ci95": {
+            "recall": [
+              0.7103,
+              0.9138
+            ],
+            "fpr": [
+              0.1754,
+              0.4031
+            ]
+          },
+          "template_fpr": {
+            "k": 21,
+            "n": 70,
+            "rate": 0.3,
+            "ci95": [
+              0.1962,
+              0.4213
+            ]
+          },
+          "block_rate_clean": {
+            "k": 37,
+            "n": 70,
+            "rate": 0.5286,
+            "ci95": [
+              0.4055,
+              0.6491
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 32,
+          "clean_cases_blocked": 60,
+          "threshold": 0.625,
+          "auc": 0.712,
+          "recall_by_type": {
+            "L1": 0.8235,
+            "L2": 1.0,
+            "L3": 0.9375,
+            "L4": 0.5217,
+            "L5": 0.8421,
+            "L6": 0.8,
+            "L7": 1.0
+          },
+          "n_unverifiable": 107,
+          "median_ms": null
+        },
+        "v2v1_combined": {
+          "tp": 98,
+          "fp": 32,
+          "tn": 79,
+          "fn": 12,
+          "recall": 0.8909,
+          "fpr": 0.2883,
+          "precision": 0.7538,
+          "f1": 0.8167,
+          "ci95": {
+            "recall": [
+              0.7949,
+              0.97
+            ],
+            "fpr": [
+              0.1754,
+              0.4031
+            ]
+          },
+          "template_fpr": {
+            "k": 21,
+            "n": 70,
+            "rate": 0.3,
+            "ci95": [
+              0.1962,
+              0.4213
+            ]
+          },
+          "block_rate_clean": {
+            "k": 32,
+            "n": 70,
+            "rate": 0.4571,
+            "ci95": [
+              0.3374,
+              0.5806
+            ]
+          },
+          "clean_cases": 111,
+          "clean_cases_flagged": 32,
+          "clean_cases_blocked": 47,
+          "threshold": 0.67,
+          "auc": 0.736,
+          "recall_by_type": {
+            "L1": 0.8235,
+            "L2": 1.0,
+            "L3": 0.9375,
+            "L4": 0.8696,
+            "L5": 0.8421,
+            "L6": 0.8,
+            "L7": 1.0
+          },
+          "n_unverifiable": 91,
+          "median_ms": null
+        }
+      },
+      "attribution_accuracy": 0.8273,
+      "combined_errors": [
+        {
+          "case_id": "hv3_clean_plan_completed_versions_valid_to_old-001",
+          "truth": "clean",
+          "predicted_types": [
+            "L3"
+          ],
+          "combined_score": 0.9,
+          "sql": "-- valid_to is safe here: a version that ended more than 8 days before t was closed by a load\n-- that happened before t.\nSELECT l.user_id, l.label_ts, l.churned,\n       COUNT(p.user_id)                                  AS n_completed_plans,\n       AVG(date_diff('day', p.valid_from, p.valid_to))   AS avg_completed_plan_days\nFROM labels l\nLEFT JOIN plan_history p\n       ON p.user_id = l.user_id\n      AND p.valid_to < l.label_ts - INTERVAL 10 DAY\nGROUP BY ALL"
+        },
+        {
+          "case_id": "hv3_clean_plan_completed_versions_valid_to_old-000",
+          "truth": "clean",
+          "predicted_types": [
+            "L3"
+          ],
+          "combined_score": 0.9,
+          "sql": "-- valid_to is safe here: a version that ended more than 8 days before t was closed by a load\n-- that happened before t.\nSELECT l.user_id, l.label_ts, l.churned,\n       COUNT(p.user_id)                                  AS n_completed_plans,\n       AVG(date_diff('day', p.valid_from, p.valid_to))   AS avg_completed_plan_days\nFROM labels l\nLEFT JOIN plan_history p\n       ON p.user_id = l.user_id\n      AND p.valid_to < l.label_ts - INTERVAL 8 DAY\nGROUP BY ALL"
+        },
+        {
+          "case_id": "hv3_clean_stats_timeline_spine_first-000",
+          "truth": "clean",
+          "predicted_types": [
+            "L2"
+          ],
+          "combined_score": 0.9,
+          "sql": "WITH timeline AS (\n    SELECT user_id, updated_at AS ts, 1 AS kind, updated_at AS stats_ts,\n           CAST(NULL AS TIMESTAMP) AS label_ts, CAST(NULL AS BIGINT) AS churned\n    FROM staging.stg_user_stats\n    UNION ALL BY NAME\n    SELECT user_id, label_ts AS ts, 0 AS kind, label_ts, churned\n    FROM marts.fct_training_spine\n),\nfilled AS (\n    SELECT *,\n           MAX(stats_ts) OVER (PARTITION BY user_id ORDER BY ts, kind\n                               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS last_stats_ts\n    FROM timeline\n)\nSELECT f.user_id, f.label_ts, f.churned,\n       date_diff('hour', f.last_stats_ts, f.label_ts) AS stats_age_hours,\n       s.n_orders                                     AS n_orders_known\nFROM filled f\nLEFT JOIN staging.stg_user_stats s\n       ON s.user_id = f.user_id\n      AND s.updated_at = f.last_stats_ts\nWHERE f.kind = 0"
+        }
+      ],
+      "unverifiable_cases": [
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_validity_intervals-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_validity_intervals-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_timeline_event_time_order-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-004",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l5_dbt_plan_ingested_le-000",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_dbt_plan_ingested_le-000",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_dbt_daily_rollup_prior_dates-001",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_dbt_daily_rollup_prior_dates-001",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_asof_next_stats_row-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l1_asof_next_stats_row-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_country_region_seed_map-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_country_region_seed_map-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-003",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_dbt_matured_by_today_filter-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_matured_by_today_filter-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_event_margin_layered-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_event_margin_layered-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_l1_dbt_spine_last_prediction_per_user-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_dbt_spine_last_prediction_per_user-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_rank_pivot-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_rank_pivot-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-001",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-001",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l7_dbt_incremental_events_filter-001",
+          "truth": "L7",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_l7_dbt_incremental_events_filter-001",
+          "truth": "L7",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_asof_events_eight_day_key-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_asof_events_eight_day_key-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_events_settled_qualify_last_amount-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_asof_events_eight_day_key-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_asof_events_eight_day_key-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l2_distinct_on_latest_event-000",
+          "truth": "L2",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 6, Col: 40"
+        },
+        {
+          "case_id": "hv3_l2_distinct_on_latest_event-000",
+          "truth": "L2",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 6, Col: 40"
+        },
+        {
+          "case_id": "hv3_clean_amount_buckets_filter_agg-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l6_lag_churned-000",
+          "truth": "L6",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_l6_lag_churned-000",
+          "truth": "L6",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_l4_dbt_event_margin_too_short-001",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_l4_dbt_event_margin_too_short-001",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-002",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-002",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_stats_latest_unbounded-000",
+          "truth": "L2",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_stats_latest_unbounded-000",
+          "truth": "L2",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-000",
+          "truth": "clean",
+          "detector": "static",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-000",
+          "truth": "clean",
+          "detector": "combined",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l1_plan_lookahead_ingest-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_plan_lookahead_ingest-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_semi_anti_dormancy_event_time-001",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_semi_anti_dormancy_event_time-001",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_time_split_quantile-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Cannot resolve 'label_ts' due to missing source schemas"
+        },
+        {
+          "case_id": "hv3_clean_dbt_time_split_quantile-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Cannot resolve 'label_ts' due to missing source schemas"
+        },
+        {
+          "case_id": "hv3_l4_dbt_plan_valid_from_only-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_dbt_plan_valid_from_only-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_plan_lookahead_ingest-001",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_plan_lookahead_ingest-001",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_plan_newest_valid_from_eight_days-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l3_dbt_plan_history_counts-000",
+          "truth": "L3",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_dbt_plan_history_counts-000",
+          "truth": "L3",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_plan_asof_eight_days_back-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_prediction_time_calendar-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_entities' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_prediction_time_calendar-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_entities' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l4_timeline_event_time_order-001",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_dbt_time_split_quantile-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Cannot resolve 'label_ts' due to missing source schemas"
+        },
+        {
+          "case_id": "hv3_clean_dbt_time_split_quantile-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Cannot resolve 'label_ts' due to missing source schemas"
+        },
+        {
+          "case_id": "hv3_l1_stats_following_frame-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_stats_following_frame-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_stats_lag_delta_then_bound-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_stats_lag_delta_then_bound-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_events_list_filter_le-001",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_events_list_filter_le-001",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_versions_known_counts-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_versions_known_counts-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-002",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-002",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_events_settled_qualify_last_amount-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l1_spine_lead_next_prediction-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_l1_spine_lead_next_prediction-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_clean_dbt_dedup_first_load_surrogate_key-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_dedup_first_load_surrogate_key-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_l6_days_to_churn_bucket-000",
+          "truth": "L6",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_outcomes' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l6_days_to_churn_bucket-000",
+          "truth": "L6",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_outcomes' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-002",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-002",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-001",
+          "truth": "clean",
+          "detector": "static",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-001",
+          "truth": "clean",
+          "detector": "combined",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_pivot_statement_amount_bands-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'pivoted' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l5_stats_validity_intervals_inclusive-000",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_stats_validity_intervals_inclusive-000",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-005",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l1_stats_following_frame-001",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_stats_following_frame-001",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_stats_avg_all_rows-000",
+          "truth": "L3",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l3_stats_avg_all_rows-000",
+          "truth": "L3",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_timeline_rows_preceding_spine_first-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_dbt_plan_ingested_le-001",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_dbt_plan_ingested_le-001",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_spend_per_plan_fee-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_spend_per_plan_fee-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_stats_validity_intervals_inclusive-001",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_stats_validity_intervals_inclusive-001",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_mart_plan_current_row-000",
+          "truth": "L2",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_mart_plan_current_row-000",
+          "truth": "L2",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-000",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l5_tz_shift_forward-000",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_events' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l2_dbt_plan_latest_loaded_version-000",
+          "truth": "L2",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_plan_latest_loaded_version-000",
+          "truth": "L2",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_reverse_asof_events_to_spine-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_reverse_asof_events_to_spine-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_asof_next_stats_row-001",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l1_asof_next_stats_row-001",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_lapsed_except-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_lapsed_except-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_pit_qualify-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_pit_qualify-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_gaps_within_known_set-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_gaps_within_known_set-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l5_events_list_filter_le-000",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_events_list_filter_le-000",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l7_dbt_incremental_events_filter-000",
+          "truth": "L7",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_l7_dbt_incremental_events_filter-000",
+          "truth": "L7",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_l1_lateral_next_purchase-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown; table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l1_lateral_next_purchase-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown; table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-002",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_dbt_dedup_first_load_surrogate_key-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_dedup_first_load_surrogate_key-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_stats_lag_delta_then_bound-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_stats_lag_delta_then_bound-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_stats_regr_slope_known-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_stats_regr_slope_known-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_event_time_margin_window-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_stats_regr_slope_known-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_stats_regr_slope_known-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_user_stats' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l1_dbt_stats_lookahead-000",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_dbt_stats_lookahead-000",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_semi_anti_dormancy_event_time-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_semi_anti_dormancy_event_time-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_incremental_constant_lower_bound-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_incremental_constant_lower_bound-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_l6_dbt_outcome_refund-000",
+          "truth": "L6",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l6_dbt_outcome_refund-000",
+          "truth": "L6",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_plan_newest_valid_from_eight_days-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-001",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l4_plan_asof_short_offset-001",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_date_cast_previous_day-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_date_cast_previous_day-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l4_dbt_daily_rollup_prior_dates-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_dbt_daily_rollup_prior_dates-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l4_dbt_event_margin_too_short-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_l4_dbt_event_margin_too_short-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 4, Col: 19"
+        },
+        {
+          "case_id": "hv3_l3_dbt_dim_users_lifetime-000",
+          "truth": "L3",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_dbt_dim_users_lifetime-000",
+          "truth": "L3",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_event_margin_layered-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_event_margin_layered-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_snapshot_pit-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_plan_snapshot_pit-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_dbt_stats_lookahead-001",
+          "truth": "L1",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_l1_dbt_stats_lookahead-001",
+          "truth": "L1",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 3, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_plan_asof_eight_days_back-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_clean_dbt_incremental_constant_lower_bound-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_incremental_constant_lower_bound-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 3, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_stats_timeline_spine_first-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_stats_timeline_spine_first-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_spine_lag_prior_predictions-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_clean_spine_lag_prior_predictions-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 1, Col: 14"
+        },
+        {
+          "case_id": "hv3_l6_dbt_plan_target_encoding-000",
+          "truth": "L6",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l6_dbt_plan_target_encoding-000",
+          "truth": "L6",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_distinct_on_known_last_purchase-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_distinct_on_known_last_purchase-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_l6_leave_one_out_young_labels-000",
+          "truth": "L6",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l6_leave_one_out_young_labels-000",
+          "truth": "L6",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'stg_entities' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_l4_timeline_event_time_order-002",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 0.4,
+          "reason": "a static hint (L4) can only be settled by replay"
+        },
+        {
+          "case_id": "hv3_l5_dbt_stats_same_day-000",
+          "truth": "L5",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l5_dbt_stats_same_day-000",
+          "truth": "L5",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_dbt_window_total_in_staging-000",
+          "truth": "L3",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_l3_dbt_window_total_in_staging-000",
+          "truth": "L3",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_l2_dbt_mart_plan_current_row-001",
+          "truth": "L2",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l2_dbt_mart_plan_current_row-001",
+          "truth": "L2",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_matured_prior_churn_self_join-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_matured_prior_churn_self_join-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; table 'fct_training_spine' is not declared in the spec; its time semantics are unknown; output column 'label_ts' must pass through labels.label_ts so rows can be checked against it"
+        },
+        {
+          "case_id": "hv3_clean_dbt_full_feature_mart-001",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_full_feature_mart-001",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_percent_rank_lifetime-000",
+          "truth": "L3",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_l3_percent_rank_lifetime-000",
+          "truth": "L3",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_full_feature_mart-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_full_feature_mart-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 2, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_lapsed_except-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_lapsed_except-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'stg_events' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_validity_intervals-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_dbt_stats_validity_intervals-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'user_id' could not be resolved. Line: 4, Col: 18"
+        },
+        {
+          "case_id": "hv3_clean_plan_ever_paid_bool_or-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_plan_ever_paid_bool_or-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 0.0,
+          "reason": "table 'plan_history_snapshot' is not declared in the spec; its time semantics are unknown"
+        },
+        {
+          "case_id": "hv3_clean_dbt_load_batches_cumulative_asof-000",
+          "truth": "clean",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_clean_dbt_load_batches_cumulative_asof-000",
+          "truth": "clean",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_l4_dbt_running_total_event_order-000",
+          "truth": "L4",
+          "detector": "v2v1_static",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        },
+        {
+          "case_id": "hv3_l4_dbt_running_total_event_order-000",
+          "truth": "L4",
+          "detector": "v2v1_combined",
+          "score": 1.0,
+          "reason": "cannot analyze query: Cannot qualify statement against schema: Column 'event_id' could not be resolved. Line: 2, Col: 19"
+        }
+      ]
+    }
+  },
+  "in_sample_splits": [
+    "holdout_v3"
+  ],
+  "specs": {
+    "holdout_v3": "spec_holdout_v3.yaml"
+  },
+  "optimism_gap": {
+    "clean": {
+      "offline_auc": 0.7763,
+      "real_auc": 0.7763,
+      "gap": 0.0
+    },
+    "leaky": {
+      "offline_auc": 0.9988,
+      "real_auc": 0.8257,
+      "gap": 0.1731
+    }
+  },
+  "real_data": null,
+  "fixes": null,
+  "runtime_seconds": 83.6
+}

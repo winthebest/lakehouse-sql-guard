@@ -1,0 +1,6 @@
+project,group,training_model,verdict,score,leak_types,findings,info_non_feature,unchecked,seconds,controller,reviewer,final,reason
+DobleL2/dbt_churn_prediction,new,fct_churn_features,leaky,1.0,L2 L7,12,0,1,2.581,,,,
+novarz/dbt-feature-store,new,ft_customers_transactions,clean,0.0,,0,0,0,0.459,,,,
+ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline,new,go_predictive_model_features,leaky,0.9975,L6,2,0,1,0.548,,,,
+mponsclo/music-streaming-churn-prediction,seen,ml_churn_features,leaky,0.9995,L1 L2,3,0,2,0.789,,,,
+SarrangTech/fraud-detection-feature-store,seen,silver_transaction_features,leaky,0.995,L1 L2,2,0,0,1.341,,,,

@@ -1,0 +1,5774 @@
+{
+  "meta": {
+    "stem": "20261107-f8f7119-v4dev-variant",
+    "git_sha": "f8f7119",
+    "git_dirty": true,
+    "prereg_commit": "93f0876",
+    "created_at": "2026-11-07T15:41:46+00:00",
+    "checker": {
+      "release_tag": "v0.2.0",
+      "src_tree": "5e260ebc75d0a885697a1e46d9d81bd8d1efdebd",
+      "frozen_check": "git diff --quiet rules-frozen-v3 HEAD -- src/sqlguard/leakage src/sqlguard/core src/sqlguard/dbt",
+      "interface": "sqlguard leakage check FILE --spec SPEC --schema SCHEMA [--replay --warehouse DIR] --json",
+      "verdict_threshold": 0.5
+    },
+    "cases_digest": "447490465518759c383f870e887a6f998de882b2a0d787f425cf25e16db30ef0",
+    "dev": true,
+    "rules_tag": null,
+    "specs_dir": "bench/kaggle/variants/v4",
+    "prereg": "bench/kaggle/eval-prereg.yaml",
+    "thresholds": {
+      "static": 0.425,
+      "replay": 0.003968253968253968,
+      "combined": 0.475
+    },
+    "verdict_threshold": 0.5,
+    "seed": 42,
+    "resamples": 2000,
+    "level": 0.95,
+    "disputed": [
+      "kl05",
+      "kl09",
+      "kl14"
+    ],
+    "environment": {
+      "python": "3.12.13",
+      "sqlglot": "30.29.0",
+      "duckdb": "2.0.0",
+      "pyiceberg": "0.12.0",
+      "uv_lock_sha256": "855a0df3e9761aece2223885ce609ee4c345b157c5f73a1e9d9351b7e267381a"
+    }
+  },
+  "build": {
+    "kl03": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "training": 1560
+      },
+      "commits": {
+        "training": 1
+      }
+    },
+    "kl04": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1193
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl05": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1737
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl06": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2364
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl07": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2762
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl08": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1770
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl09": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 4736
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl10": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_users": 900
+      },
+      "commits": {
+        "train_users": 1
+      }
+    },
+    "kl11": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "accepted_2007_to_2018q4": 1000
+      },
+      "commits": {
+        "accepted_2007_to_2018q4": 1
+      }
+    },
+    "kl12": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "flights": 4470
+      },
+      "commits": {
+        "flights": 1
+      }
+    },
+    "kl14": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_transaction": 1492
+      },
+      "commits": {
+        "train_transaction": 1
+      }
+    },
+    "kl15": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "people": 259,
+        "act_train": 1673
+      },
+      "commits": {
+        "people": 1,
+        "act_train": 1
+      }
+    },
+    "kl16": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "data": 1660
+      },
+      "commits": {
+        "data": 1
+      }
+    },
+    "kl17": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "page_views": 2297
+      },
+      "commits": {
+        "page_views": 1
+      }
+    }
+  },
+  "all": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl05",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl09",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl14",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 80,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 40,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 1,
+          "clean": 39,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 40,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 1,
+          "clean": 39,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_strict": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_decided": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 40,
+          "primary_type": 34,
+          "primary_or_also_matches": 38
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_strict": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_decided": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 40,
+          "primary_type": 34,
+          "primary_or_also_matches": 38
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_strict": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_decided": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 40,
+          "primary_type": 34,
+          "primary_or_also_matches": 38
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 24,
+          "n": 40,
+          "rate": 0.6
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.359,
+          0.825
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 24,
+          "n": 40,
+          "rate": 0.6
+        },
+        "block_rate_clean": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_strict_ci95": [
+          0.359,
+          0.825
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_decided": {
+          "k": 24,
+          "n": 40,
+          "rate": 0.6
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 9,
+              "n": 20,
+              "rate": 0.45
+            },
+            "strict": {
+              "k": 9,
+              "n": 20,
+              "rate": 0.45
+            }
+          }
+        },
+        "attribution": {
+          "detected": 24,
+          "primary_type": 21,
+          "primary_or_also_matches": 22
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_strict": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0769
+        ],
+        "recall_decided": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 40,
+          "rate": 0.025
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 10,
+              "n": 10,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 20,
+              "n": 20,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 40,
+          "primary_type": 34,
+          "primary_or_also_matches": 38
+        }
+      }
+    }
+  },
+  "without_disputed": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 62,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 31,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 1,
+          "clean": 30,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 31,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 1,
+          "clean": 30,
+          "unverifiable": 0,
+          "error": 0,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_strict": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_decided": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 31,
+          "primary_type": 27,
+          "primary_or_also_matches": 31
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_strict": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_decided": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 31,
+          "primary_type": 27,
+          "primary_or_also_matches": 31
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_strict": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_decided": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 31,
+          "primary_type": 27,
+          "primary_or_also_matches": 31
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 15,
+          "n": 31,
+          "rate": 0.4839
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.2121,
+          0.7576
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 15,
+          "n": 31,
+          "rate": 0.4839
+        },
+        "block_rate_clean": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_strict_ci95": [
+          0.2121,
+          0.7576
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_decided": {
+          "k": 15,
+          "n": 31,
+          "rate": 0.4839
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 8,
+              "n": 19,
+              "rate": 0.4211
+            },
+            "strict": {
+              "k": 8,
+              "n": 19,
+              "rate": 0.4211
+            }
+          }
+        },
+        "attribution": {
+          "detected": 15,
+          "primary_type": 14,
+          "primary_or_also_matches": 15
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_ci95": [
+          1.0,
+          1.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_strict": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "block_rate_clean": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "recall_strict_ci95": [
+          1.0,
+          1.0
+        ],
+        "block_rate_clean_ci95": [
+          0.0,
+          0.1
+        ],
+        "recall_decided": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "fpr_decided": {
+          "k": 1,
+          "n": 31,
+          "rate": 0.0323
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 6,
+              "n": 6,
+              "rate": 1.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 1,
+              "n": 1,
+              "rate": 1.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 5,
+              "n": 5,
+              "rate": 1.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            },
+            "strict": {
+              "k": 19,
+              "n": 19,
+              "rate": 1.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 31,
+          "primary_type": 27,
+          "primary_or_also_matches": 31
+        }
+      }
+    }
+  },
+  "per_case": {
+    "kl03": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl04": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl05": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl06": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl07": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl08": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl09": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl10": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl11": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 1,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 1,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          }
+        }
+      }
+    },
+    "kl12": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl14": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl15": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl16": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 3,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 3,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 1,
+            "n": 3,
+            "rate": 0.3333
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 3,
+            "n": 3,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl17": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 2,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 2,
+            "unverifiable": 0,
+            "error": 0,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 2,
+            "n": 2,
+            "rate": 1.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        }
+      }
+    }
+  },
+  "problems": [],
+  "queries": [
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 24,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 24,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 24,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 17,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 13,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L3",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 17,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 27,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 22,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L3",
+      "replay_status": "mismatch",
+      "rows_compared": 30,
+      "rows_mismatched": 22,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 30,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 63,
+      "rows_mismatched": 62,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 63,
+      "rows_mismatched": 62,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 63,
+      "rows_mismatched": 62,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9996",
+      "leak_types": "L5,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9996",
+      "leak_types": "L5,L6",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 63,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L6",
+      "replay_status": "mismatch",
+      "rows_compared": 71,
+      "rows_mismatched": 65,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 71,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L6",
+      "replay_status": "mismatch",
+      "rows_compared": 71,
+      "rows_mismatched": 68,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 71,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L6",
+      "replay_status": "mismatch",
+      "rows_compared": 71,
+      "rows_mismatched": 65,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 71,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L1",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9950",
+      "leak_types": "L1",
+      "replay_status": "mismatch",
+      "rows_compared": 956,
+      "rows_mismatched": 916,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 956,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L2",
+      "replay_status": "mismatch",
+      "rows_compared": 956,
+      "rows_mismatched": 862,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 956,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L3",
+      "replay_status": "mismatch",
+      "rows_compared": 956,
+      "rows_mismatched": 915,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 956,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 68,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "pass",
+      "rows_compared": 441,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 51,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L3",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 20,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L2,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L2,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 19,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L2",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L2",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 20,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 185,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 185,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9999",
+      "leak_types": "L1,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L1,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 185,
+      "rows_mismatched": 184,
+      "detail": "",
+      "replay_reason": "label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 185,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9998",
+      "leak_types": "L3,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "1.0000",
+      "leak_types": "L3,L6",
+      "replay_status": "mismatch",
+      "rows_compared": 24,
+      "rows_mismatched": 23,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 4,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9975",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9996",
+      "leak_types": "L5,L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9996",
+      "leak_types": "L5,L6",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 3,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 24,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9500",
+      "leak_types": "L6",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible)",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "leaky",
+      "score": "0.9000",
+      "leak_types": "L3",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 1,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "leaky",
+      "score": "0.9900",
+      "leak_types": "L3",
+      "replay_status": "mismatch",
+      "rows_compared": 25,
+      "rows_mismatched": 19,
+      "detail": "",
+      "replay_reason": "label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible)",
+      "findings": 2,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "",
+      "findings": 0,
+      "info_non_feature": 0
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "clean",
+      "score": "0.0000",
+      "leak_types": "",
+      "replay_status": "pass",
+      "rows_compared": 25,
+      "rows_mismatched": 0,
+      "detail": "",
+      "replay_reason": "label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible)",
+      "findings": 0,
+      "info_non_feature": 0
+    }
+  ]
+}

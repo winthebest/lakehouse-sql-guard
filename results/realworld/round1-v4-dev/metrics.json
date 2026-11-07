@@ -1,0 +1,30 @@
+{
+  "dev": true,
+  "judges": "Claude models only; no human raters",
+  "findings": 19,
+  "true": 16,
+  "false": 3,
+  "unsure": 0,
+  "true_not_actionable": 0,
+  "unlabelled": 0,
+  "precision_strict": 0.8421,
+  "precision_loose": 0.8421,
+  "effective_false_positive": 0.1579,
+  "models": 5,
+  "models_with_verdict": 5,
+  "verdict_coverage": 1.0,
+  "findings_per_model": 3.8,
+  "agreement_all_pairs": {
+    "n": 19,
+    "observed": 1.0,
+    "kappa": 1.0,
+    "gwet_ac1": 1.0
+  },
+  "agreement_this_round": {
+    "n": 0,
+    "observed": null,
+    "kappa": null,
+    "gwet_ac1": null
+  },
+  "labelled": 19
+}

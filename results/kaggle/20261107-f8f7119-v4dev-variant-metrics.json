@@ -1,0 +1,48 @@
+{
+  "dev": true,
+  "source": "20261107-f8f7119-v4dev-variant.csv",
+  "static": {
+    "tp": 40,
+    "fp": 1,
+    "tn": 39,
+    "fn": 0,
+    "recall": 1.0,
+    "fpr": 0.025,
+    "mcc": 0.9753,
+    "youden_j": 0.975,
+    "precision_at_prevalence": {
+      "1%": 0.2878,
+      "5%": 0.678,
+      "10%": 0.8163,
+      "20%": 0.9091
+    },
+    "fpr_upper_95_one_sided": 0.1132,
+    "recall_lower_95_one_sided": 0.9278
+  },
+  "replay": {
+    "tp": 40,
+    "fp": 1,
+    "tn": 39,
+    "fn": 0,
+    "recall": 1.0,
+    "fpr": 0.025,
+    "mcc": 0.9753,
+    "youden_j": 0.975,
+    "precision_at_prevalence": {
+      "1%": 0.2878,
+      "5%": 0.678,
+      "10%": 0.8163,
+      "20%": 0.9091
+    },
+    "fpr_upper_95_one_sided": 0.1132,
+    "recall_lower_95_one_sided": 0.9278,
+    "auprc_replay_score": 0.8
+  },
+  "pairs": {
+    "told_apart": 39,
+    "pairs": 40,
+    "not_told_apart": [
+      "kl11/3"
+    ]
+  }
+}

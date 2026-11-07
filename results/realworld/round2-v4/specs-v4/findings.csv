@@ -1,0 +1,598 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#1,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L2,high,stg_promotions is joined without bounding promotion_start_ts before churn_ts,stg_promotions,models/intermediate/int_promotions_resolved.sql,model,1.0,leaky,"{""bounds"":[],""table"":""stg_promotions""}","-- models/intermediate/int_promotions_resolved.sql
+with source as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key
+    from ""memory"".""silver"".""stg_promotions""
+),
+
+ranked as (
+    select
+        *,
+        row_number() over (
+            partition by customer_id, promotion_identity_key
+            order by ingested_at_utc desc, promotion_id desc
+        ) as row_rank
+    from source
+),
+
+resolved as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key,
+        md5(concat_ws('||', customer_id, promotion_identity_key)) as promotion_surrogate_key
+    from ranked
+    where row_rank = 1
+)
+
+select *
+from resolved",true,false,unsure,"disagreement: A=true, B=false"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#2,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L2,high,stg_customers is joined without bounding churn_ts before churn_ts,stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_customers""}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",true,false,unsure,"disagreement: A=true, B=false"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#3,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L1,high,window over stg_promotions looks at later rows,stg_promotions,models/intermediate/int_promotions_resolved.sql,model,1.0,leaky,"{""table"":""stg_promotions"",""window"":""ROW_NUMBER() OVER (PARTITION BY \""source\"".\""customer_id\"", \""source\"".\""promotion_identity_key\"" ORDER BY \""source\"".\""ingested_at_utc\"" DESC, \""source\"".\""promotion_id\"" DESC)""}","-- models/intermediate/int_promotions_resolved.sql
+with source as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key
+    from ""memory"".""silver"".""stg_promotions""
+),
+
+ranked as (
+    select
+        *,
+        row_number() over (
+            partition by customer_id, promotion_identity_key
+            order by ingested_at_utc desc, promotion_id desc
+        ) as row_rank
+    from source
+),
+
+resolved as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key,
+        md5(concat_ws('||', customer_id, promotion_identity_key)) as promotion_surrogate_key
+    from ranked
+    where row_rank = 1
+)
+
+select *
+from resolved",false,false,false,"ROW_NUMBER over ingested_at_utc desc (int_promotions_resolved.sql:17-20) dedups re-ingested copies of the same promotion identity (customer, type, start date). The generator emits exact duplicate rows (synthetic.py:93-94), so the kept row reveals nothing that comes after the prediction time."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#4,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L3,high,aggregate over stg_billing has no upper bound at churn_ts; it sums the whole history,stg_billing,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_billing""}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",true,unsure,unsure,"disagreement: A=true, B=unsure"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#5,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L3,high,aggregate over stg_billing has no upper bound at churn_ts; it sums the whole history,stg_billing,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_billing""}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",true,unsure,unsure,"disagreement: A=true, B=unsure"
+clementlemon02/crypto-macd-screener#gold_ml_features#2,clementlemon02/crypto-macd-screener,round2,gold_ml_features,L2,high,candles_macd is joined without bounding open_time before open_time,candles_macd,models/silver/silver_candles_macd.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Equi-join on symbol,interval,open_time (same candle) in gold_ml_features.sql:~35-39; no later candle read; labels live in gold_ml_labels, not joined."
+clementlemon02/crypto-macd-screener#gold_ml_features#3,clementlemon02/crypto-macd-screener,round2,gold_ml_features,L2,high,candles AS b is joined without bounding open_time before open_time,candles AS b,models/gold/gold_ml_features.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Equi-join on symbol,interval,open_time (same candle) in gold_ml_features.sql:~35-39; no later candle read; labels live in gold_ml_labels, not joined."
+clementlemon02/crypto-macd-screener#gold_ml_features#4,clementlemon02/crypto-macd-screener,round2,gold_ml_features,L1,high,window over candles AS b looks at later rows,candles AS b,models/gold/gold_ml_features.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Window is rows between N preceding and current row (gold_ml_features.sql:~108-125, header lines 3-9); reads only earlier candles; labels are in separate gold_ml_labels."
+clementlemon02/crypto-macd-screener#gold_ml_features#5,clementlemon02/crypto-macd-screener,round2,gold_ml_features,L1,high,window over candles AS b looks at later rows,candles AS b,models/gold/gold_ml_features.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Window is rows between N preceding and current row (gold_ml_features.sql:~108-125, header lines 3-9); reads only earlier candles; labels are in separate gold_ml_labels."
+clementlemon02/crypto-macd-screener#gold_ml_features#6,clementlemon02/crypto-macd-screener,round2,gold_ml_features,L1,high,window over candles AS b looks at later rows,candles AS b,models/gold/gold_ml_features.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Window is rows between N preceding and current row (gold_ml_features.sql:~108-125, header lines 3-9); reads only earlier candles; labels are in separate gold_ml_labels."
+LNshuti/soma#demand_forecasting_features#1,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_ma_7' is derived from the target or post-outcome data,quantity_ma_7,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (",true,true,true,"The window frame ends at CURRENT ROW (demand_forecasting_features.sql:36-40), so quantity_ma_7 averages in the same-day daily_quantity target. It is a documented feature (demand-forecasting.md:32; config/model_config.yml:12). Caveat: the in-repo trainer reads sales_performance_daily rather than this table, but it has the same current-row rolling leak (demand_model.py:91-96)."
+LNshuti/soma#demand_forecasting_features#2,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_ma_30' is derived from the target or post-outcome data,quantity_ma_30,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,",true,true,true,"As row 14: the ROWS 29 PRECEDING AND CURRENT ROW frame includes the same-day target (demand_forecasting_features.sql:42-46). It is not in the documented feature list, but it is a numeric column of the training table."
+LNshuti/soma#demand_forecasting_features#3,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_std_7' is derived from the target or post-outcome data,quantity_std_7,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"As row 14: the stddev frame ends at CURRENT ROW, so the same-day target is included (demand_forecasting_features.sql:49-53). It is a documented feature (demand-forecasting.md:33)."
+LNshuti/soma#demand_forecasting_features#4,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_growth_rate_1d' is derived from the target or post-outcome data,quantity_growth_rate_1d,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"quantity_growth_rate_1d is computed from the current daily_quantity, which is the target (demand_forecasting_features.sql:56-59). Combined with quantity_lag_1 it reconstructs the label exactly."
+LNshuti/soma#demand_forecasting_features#5,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_growth_rate_7d' is derived from the target or post-outcome data,quantity_growth_rate_7d,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"quantity_growth_rate_7d uses the current daily_quantity target (demand_forecasting_features.sql:61-64), so the label can be recovered from it and quantity_lag_7. Near-duplicate of row 17."
+LNshuti/soma#demand_forecasting_features#6,LNshuti/soma,round2,demand_forecasting_features,L6,high,label column 'quantity' is used to compute or select feature rows,sales,models/staging/stg_sales.sql,model,1.0,leaky,"{""expression"":""SUM(\""fact_sales\"".\""quantity\"")"",""outputs"":[""quantity_growth_rate_1d"",""quantity_growth_rate_7d"",""quantity_lag_1"",""quantity_lag_30"",""quantity_lag_7"",""quantity_ma_30"",""quantity_ma_7"",""quantity_std_7""]}","-- models/ml_features/demand_forecasting_features.sql
+WITH daily_demand AS (
+    SELECT
+        book_id,
+        sale_date,
+        SUM(quantity) AS daily_quantity,
+        SUM(total_amount) AS daily_revenue,
+        COUNT(*) AS daily_transactions
+    FROM ""memory"".""main"".""fact_sales""
+    GROUP BY book_id, sale_date
+),
+
+time_series_features AS (
+    SELECT
+        book_id,
+        sale_date,
+        daily_quantity,
+        daily_revenue,
+        daily_transactions,
+        
+        -- Date features
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (",false,false,false,SUM(quantity) per book and sale_date is the label's own definition (demand_forecasting_features.sql:3-12). This aggregation is not a leak. The leaks come from the specific current-row windows flagged in rows 14-18.
+LNshuti/soma#demand_forecasting_features#7,LNshuti/soma,round2,demand_forecasting_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,"{""outputs"":[""feature_created_at""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",false,false,false,"This CURRENT_TIMESTAMP is metadata: feature_created_at (demand_forecasting_features.sql:79) or dbt_updated_at (stg_sales.sql:23). It is not a numeric feature, the dbt_updated_at columns never reach the training table (daily_demand only sums quantities, lines 3-12), and no business feature uses the run clock. Near-duplicate of rows 21-23."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#1,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L2,high,stg_khmer24_cars is joined without bounding scrape_date before scrape_date,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,int_cars_cleaned joins int_listing_history on listing_id and equal scrape_date (same observation); history columns not selected into fct_cars_ml_features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#2,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L1,high,window over stg_khmer24_cars looks at later rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Latest-snapshot dedup per listing_id (fct_cars_ml_features.sql:~25): label-free rule, features come from the same chosen row."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#3,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L1,high,window over stg_khmer24_cars looks at later rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,Vehicle-cluster dedup rank (fct_cars_ml_features.sql:~44) only picks one row; _vehicle_rank is not a column and no price value leaks into features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#4,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L1,high,window over stg_khmer24_cars looks at later rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"initial_price = earliest observed price; unbounded frame returns first row, not later data; int_listing_history column not selected (header lines 2-3 exclude it)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#5,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L1,high,window over stg_khmer24_cars looks at later rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,"latest_price reads the final snapshot price (future/label); int_listing_history column carried to int_cars_cleaned but not selected, and model_metadata.json features exclude it."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#6,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L3,high,"window aggregate over stg_khmer24_cars spans the whole partition, including rows after prediction time",stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"PERCENT_RANK builds split_group (train/val/test), metadata not a feature (fct_cars_ml_features.sql section 1; model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#7,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L3,high,"window aggregate over stg_khmer24_cars spans the whole partition, including rows after prediction time",stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"PERCENT_RANK builds split_group (train/val/test), metadata not a feature (fct_cars_ml_features.sql section 1; model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#8,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L3,high,"window aggregate over stg_khmer24_cars spans the whole partition, including rows after prediction time",stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,first_seen_date = earliest scrape of the listing (past); not selected into the ML table or model features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#9,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L3,high,"window aggregate over stg_khmer24_cars spans the whole partition, including rows after prediction time",stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,"last_seen_date = max scrape_date over whole lifecycle (future); in int_cars_cleaned only, not selected into fct_cars_ml_features nor model features."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#10,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L3,high,"window aggregate over stg_khmer24_cars spans the whole partition, including rows after prediction time",stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"_earliest_seen_at feeds days_on_market (past-looking), which header lines 3-4 and assert_no_ml_feature_leakage.sql exclude from the ML table."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#11,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,feature 'log_price' is derived from the target or post-outcome data,log_price,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"log_price is the documented target (""TARGET VARIABLES"", fct_cars_ml_features.sql); not in model_metadata.json features."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#12,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,feature 'repost_count' is derived from the target or post-outcome data,repost_count,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,"repost_count = COUNT over partition incl. price (sql:~40): label-derived, but EDA marks it DROPPED (03_eda.ipynb:2910) and model_metadata.json features omit it."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#13,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,LN(price) is the log-target itself (fct_cars_ml_features.sql section 2); not a feature.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#14,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,COUNT(*) OVER (... price) builds repost_count: label-equality derived; in the ML table but dropped from training (03_eda.ipynb:2910; model_metadata.json features).
+PHALMenghak/car-price-prediction#fct_cars_ml_features#15,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Dedup ROW_NUMBER partitioned incl. price only keeps one identical-price repost; _vehicle_rank not selected, no price value reaches features."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#16,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LAG(price) = previous earlier price of same listing (previous_price); past data, not selected into fct_cars_ml_features (assert_no_ml_feature_leakage.sql)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#17,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,price_drop_amount = initial_price - price uses the label price; excluded by header (fct_cars_ml_features.sql:2-3) and assert_no_ml_feature_leakage.sql; not a model feature.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#18,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,false,unsure,disagreement: A=true_not_actionable (price IS NULL guard inside price_drop_amount; that column is excluded from the ML table (assert_no_ml_feature_leakage.sql).); B=false (price IS NULL guard inside price_drop_amount CASE (int_listing_history.sql); column excluded from fct_cars_ml_features; no feature uses it.)
+PHALMenghak/car-price-prediction#fct_cars_ml_features#19,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#20,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#21,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#22,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#23,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,price_drop_amount = initial_price - price uses the label price; excluded by header (fct_cars_ml_features.sql:2-3) and assert_no_ml_feature_leakage.sql; not a model feature.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#24,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#25,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#26,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#27,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,false,unsure,"disagreement: A=true_not_actionable (FIRST_VALUE(price) builds initial_price/latest_price (int_listing_history.sql); label-derived but excluded from ML table (header; assert_no_ml_feature_leakage.sql).); B=false (FIRST_VALUE(price) ASC = initial_price, an earlier snapshot (past); excluded from fct_cars_ml_features (header line 3), not a feature.)"
+PHALMenghak/car-price-prediction#fct_cars_ml_features#28,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),true_not_actionable,true_not_actionable,true_not_actionable,FIRST_VALUE(price) builds initial_price/latest_price (int_listing_history.sql); label-derived but excluded from ML table (header; assert_no_ml_feature_leakage.sql).
+PHALMenghak/car-price-prediction#fct_cars_ml_features#29,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#30,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#31,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#32,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#33,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#34,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#35,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#36,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#37,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#38,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#39,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#40,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#41,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#42,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#43,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#44,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#45,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#46,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#47,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#48,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#49,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#50,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#51,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#52,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#53,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#54,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#55,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#56,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#57,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#58,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#59,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#60,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#61,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#62,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L6,high,label column 'price' is used to compute or select feature rows,stg_khmer24_cars,"models/intermediate/int_cars_normalized.sql, models/intermediate/int_listing_history.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"price used only for row validity/outlier filtering (quality status, fences, thresholds, WHERE in ml_features); no price value flows into feature columns (model_metadata.json features)."
+PHALMenghak/car-price-prediction#fct_cars_ml_features#63,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/intermediate/int_cars__year_healed.sql, models/intermediate/int_cars_cleaned.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,CURRENT_DATE only caps plausible raw year (<= year+1) in year_healed/cleaned (status filter); vehicle_age uses scrape_date. No clock value enters a feature; model_metadata.json features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#64,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/intermediate/int_cars__year_healed.sql, models/intermediate/int_cars_cleaned.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,CURRENT_DATE only caps plausible raw year (<= year+1) in year_healed/cleaned (status filter); vehicle_age uses scrape_date. No clock value enters a feature; model_metadata.json features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#65,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/intermediate/int_cars__year_healed.sql, models/intermediate/int_cars_cleaned.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,CURRENT_DATE only caps plausible raw year (<= year+1) in year_healed/cleaned (status filter); vehicle_age uses scrape_date. No clock value enters a feature; model_metadata.json features.
+PHALMenghak/car-price-prediction#fct_cars_ml_features#66,PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,L7,high,"CURRENT_DATE depends on when the query runs, not on the prediction time of the row",CURRENT_DATE,"models/intermediate/int_cars__year_healed.sql, models/intermediate/int_cars_cleaned.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,CURRENT_DATE only caps plausible raw year (<= year+1) in year_healed/cleaned (status filter); vehicle_age uses scrape_date. No clock value enters a feature; model_metadata.json features.
+sumanoj/hoteliq-analytics#mart_ml_features#3,sumanoj/hoteliq-analytics,round2,mart_ml_features,L6,high,label column 'is_canceled' is used to compute or select feature rows,raw_hotel_bookings,models/staging/stg_hotel_bookings.sql,model,0.95,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"'is_canceled IS NOT NULL' (stg_hotel_bookings.sql:118) only drops unlabelled rows from the training set, which is standard. No label information enters any feature value."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#2,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"This ROW_NUMBER over extraction_timestamp desc dedups repeated extractions of the same closed daily bar (stg_asx_stock_prices.sql:52-57; extract.py:136). The kept row holds the final OHLCV of that trading day, which is known at the close. The only effect is a minor yfinance adjustment-revision caveat."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#3,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LEAD(close_price,1) defines the label next_day_return (mart_ml_training_dataset.sql:36-39). train.py uses it only for the target (train.py:114-122), and the target is absent from the feature list (train.py:64-106). Near-duplicate of rows 29-30."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#4,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LEAD(close_price,5) defines the label next_week_return (mart_ml_training_dataset.sql:41-44). It is not in train.py's feature list (train.py:64-106). Near-duplicate of row 28."
+gusdiaso/lh_nautical_athena#ml_features_produto_loja_mes#1,gusdiaso/lh_nautical_athena,round2,ml_features_produto_loja_mes,L3,high,aggregate over ml_complete_monthly_demand has no upper bound at cutoff; it sums the whole history,ml_complete_monthly_demand,src/dbt/models/ml/ml_seasonal_trend.sql,model,0.9,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"totals groups by month (ml_seasonal_trend.sql:40-46), not over all history. Every per-cutoff value is bounded at the cutoff: the running avg runs to the current row with anchor_date <= cutoff (lines 48-95), and the trend windows end at the current row (lines 141-157). The model is joined on cutoff equality (ml_features_produto_loja_mes.sql:116-117), and the cutoff month is included by design (ml_seasonal_trend.yml:5-10)."
+KenImade/fpl-data-platform#feat_training_set#2,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,stg_fpl_players is joined without bounding captured_at before deadline_utc,stg_fpl_players,models/marts/fct_deadline_snapshot.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,fct_deadline_snapshot.sql:44 joins captures with captured_at < deadline_utc; the bound exists (checker missed it).
+KenImade/fpl-data-platform#feat_training_set#3,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_player_snapshot is joined without bounding snapshot_at before deadline_utc,fct_player_snapshot,models/features/feat_player_fixture_spine_historical.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,fct_player_snapshot only feeds a season-exclusion subquery in feat_player_fixture_spine_historical.sql; no feature value; live spine keyed by snapshot_id (pre-deadline).
+KenImade/fpl-data-platform#feat_training_set#4,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_team_fixture is joined without bounding kickoff_utc before deadline_utc,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,fct_team_fixture bounded by kickoff_utc < deadline_utc in feat_player_load.sql club_ranked and historical spine prior join; dim_gameweek/dim_team columns not features.
+KenImade/fpl-data-platform#feat_training_set#5,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_player_gw is joined without bounding kickoff_utc before deadline_utc,fct_player_gw,"models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"fct_player_gw bounded by kickoff_utc < deadline_utc in feat_player_form.sql ranked, feat_player_load, gameweek spine prior; outcome joins feed label columns only."
+KenImade/fpl-data-platform#feat_training_set#6,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_player_gw is joined without bounding kickoff_utc before deadline_utc,fct_player_gw,"models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"fct_player_gw bounded by kickoff_utc < deadline_utc in feat_player_form.sql ranked, feat_player_load, gameweek spine prior; outcome joins feed label columns only."
+KenImade/fpl-data-platform#feat_training_set#7,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_team_fixture is joined without bounding kickoff_utc before deadline_utc,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,fct_team_fixture bounded by kickoff_utc < deadline_utc in feat_player_load.sql club_ranked and historical spine prior join; dim_gameweek/dim_team columns not features.
+KenImade/fpl-data-platform#feat_training_set#8,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_player_gw is joined without bounding kickoff_utc before deadline_utc,fct_player_gw,"models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"fct_player_gw bounded by kickoff_utc < deadline_utc in feat_player_form.sql ranked, feat_player_load, gameweek spine prior; outcome joins feed label columns only."
+KenImade/fpl-data-platform#feat_training_set#9,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_team_fixture is joined without bounding kickoff_utc before deadline_utc,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,fct_team_fixture bounded by kickoff_utc < deadline_utc in feat_player_load.sql club_ranked and historical spine prior join; dim_gameweek/dim_team columns not features.
+KenImade/fpl-data-platform#feat_training_set#10,KenImade/fpl-data-platform,round2,feat_training_set,L2,high,fct_team_fixture AS tf is joined without bounding kickoff_utc before deadline_utc,fct_team_fixture AS tf,models/features/feat_team_strength.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,feat_team_strength.sql ranked CTE joins fixtures with kickoff_utc < deadline_utc; windows use that bounded set.
+KenImade/fpl-data-platform#feat_training_set#11,KenImade/fpl-data-platform,round2,feat_training_set,L1,high,window over fct_player_gw looks at later rows,fct_player_gw,"models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,Not a rows-preceding frame: row_number ranks only fixtures joined with kickoff_utc < deadline_utc (feat_player_form/load/team_strength); model docs state boundary is the deadline.
+KenImade/fpl-data-platform#feat_training_set#12,KenImade/fpl-data-platform,round2,feat_training_set,L1,high,window over fct_team_fixture looks at later rows,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,Not a rows-preceding frame: row_number ranks only fixtures joined with kickoff_utc < deadline_utc (feat_player_form/load/team_strength); model docs state boundary is the deadline.
+KenImade/fpl-data-platform#feat_training_set#13,KenImade/fpl-data-platform,round2,feat_training_set,L1,high,window over fct_team_fixture AS tf looks at later rows,fct_team_fixture AS tf,models/features/feat_team_strength.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,Not a rows-preceding frame: row_number ranks only fixtures joined with kickoff_utc < deadline_utc (feat_player_form/load/team_strength); model docs state boundary is the deadline.
+KenImade/fpl-data-platform#feat_training_set#14,KenImade/fpl-data-platform,round2,feat_training_set,L3,high,aggregate over fct_team_fixture has no upper bound at deadline_utc; it sums the whole history,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,dim_gameweek/dim_team aggregates over fct_team_fixture are not selected into feat_training_set (only static team columns); feature windows are deadline-bounded.
+KenImade/fpl-data-platform#feat_training_set#15,KenImade/fpl-data-platform,round2,feat_training_set,L3,high,aggregate over fct_player_gw AS o has no upper bound at deadline_utc; it sums the whole history,fct_player_gw AS o,models/features/feat_player_gameweek_spine.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,feat_player_gameweek_spine.sql prior CTE joins fct_player_gw with o.kickoff_utc < c.deadline_utc; bound present.
+KenImade/fpl-data-platform#feat_training_set#16,KenImade/fpl-data-platform,round2,feat_training_set,L3,high,aggregate over fct_team_fixture has no upper bound at deadline_utc; it sums the whole history,fct_team_fixture,"models/marts/dim_gameweek.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_load.sql, models/marts/dim_team.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,dim_gameweek/dim_team aggregates over fct_team_fixture are not selected into feat_training_set (only static team columns); feature windows are deadline-bounded.
+KenImade/fpl-data-platform#feat_training_set#17,KenImade/fpl-data-platform,round2,feat_training_set,L3,high,aggregate over fct_player_gw has no upper bound at deadline_utc; it sums the whole history,fct_player_gw,"models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"Aggregates over fct_player_gw run after kickoff_utc < deadline_utc joins (form, load, team_xg per match then ranked-bounded); no unbounded history reaches features."
+KenImade/fpl-data-platform#feat_training_set#18,KenImade/fpl-data-platform,round2,feat_training_set,L6,high,feature 'did_appear' is derived from the target or post-outcome data,did_appear,"models/features/feat_player_gameweek_spine.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"did_appear is a label: listed in PLAYER_MATRIX.labels (fpl-modelling data.py:~155-170) and feat_training_set.sql ""LABELS"" block; excluded from features."
+KenImade/fpl-data-platform#feat_training_set#19,KenImade/fpl-data-platform,round2,feat_training_set,L6,high,feature 'gw_points' is derived from the target or post-outcome data,gw_points,"models/features/feat_player_gameweek_spine.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"gw_points is a label: listed in PLAYER_MATRIX.labels (fpl-modelling data.py:~155-170) and feat_training_set.sql ""LABELS"" block; excluded from features."
+KenImade/fpl-data-platform#feat_training_set#20,KenImade/fpl-data-platform,round2,feat_training_set,L6,high,feature 'gw_bonus' is derived from the target or post-outcome data,gw_bonus,"models/features/feat_player_gameweek_spine.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"gw_bonus is a label: listed in PLAYER_MATRIX.labels (fpl-modelling data.py:~155-170) and feat_training_set.sql ""LABELS"" block; excluded from features."
+KenImade/fpl-data-platform#feat_training_set#21,KenImade/fpl-data-platform,round2,feat_training_set,L6,high,feature 'gw_bps' is derived from the target or post-outcome data,gw_bps,"models/features/feat_player_gameweek_spine.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"gw_bps is a label: listed in PLAYER_MATRIX.labels (fpl-modelling data.py:~155-170) and feat_training_set.sql ""LABELS"" block; excluded from features."
+KenImade/fpl-data-platform#feat_training_set#22,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#23,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#24,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#25,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#26,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#27,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#28,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#29,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,,(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."
+KenImade/fpl-data-platform#feat_training_set#30,KenImade/fpl-data-platform,round2,feat_training_set,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/marts/dim_gameweek.sql, models/marts/dim_team.sql, models/marts/fct_deadline_snapshot.sql, models/features/feat_player_fixture_spine_historical.sql, models/features/feat_player_form.sql, models/features/feat_player_gameweek_spine.sql, models/features/feat_player_load.sql, models/features/feat_team_strength.sql, models/features/feat_training_set.sql",candidates,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"current_timestamp only populates built_at, listed as identity in PLAYER_MATRIX (data.py:149) and excluded via star() except lists; never a feature."

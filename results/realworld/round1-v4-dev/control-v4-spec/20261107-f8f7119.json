@@ -1,0 +1,82 @@
+{
+  "run_date": "20261107",
+  "code_sha": "f8f7119",
+  "dev": true,
+  "rules_tag": null,
+  "specs_dir": "bench/realworld/round1-specs-v4",
+  "mode": "static (no replay: no snapshot history)",
+  "summary": {
+    "new": {
+      "projects": 0,
+      "checked": 0,
+      "not_applicable": 0,
+      "models_in_projects": 0,
+      "training_models": 0,
+      "findings": 0,
+      "info_non_feature": 0,
+      "leaky_models": 0,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 0,
+      "error_models": 0,
+      "seconds": 0
+    },
+    "seen": {
+      "projects": 1,
+      "checked": 1,
+      "not_applicable": 0,
+      "models_in_projects": 6,
+      "training_models": 1,
+      "findings": 1,
+      "info_non_feature": 0,
+      "leaky_models": 1,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 0,
+      "error_models": 0,
+      "seconds": 1.356
+    }
+  },
+  "projects": [
+    {
+      "repo": "SarrangTech/fraud-detection-feature-store",
+      "group": "seen",
+      "sha": "f7d8a259af379a3c39bacd36235e53fb65eb271c",
+      "license": "MIT",
+      "publish": "code",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 6,
+      "training_models": 1,
+      "models_inlined": 5,
+      "seconds": 1.356,
+      "models": [
+        {
+          "model": "silver_transaction_features",
+          "exit_code": 1,
+          "seconds": 1.356,
+          "warnings": [
+            "warning: silver_transaction_features: --spec sets label_table = bronze_transactions (the dbt meta does not); this can relax a rule",
+            "warning: silver_transaction_features: --spec sets availability_columns[bronze_transactions] = _ingested_at (the dbt meta does not); this can relax a rule",
+            "warning: silver_transaction_features: --spec sets unique_keys[bronze_transactions] = ['transaction_id'] (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 0.9,
+          "leak_types": [
+            "L2"
+          ],
+          "findings": 1,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": []
+        }
+      ],
+      "findings": 1,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    }
+  ]
+}

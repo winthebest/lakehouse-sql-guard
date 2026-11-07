@@ -1,0 +1,610 @@
+{
+  "run_date": "20261107",
+  "code_sha": "f8f7119",
+  "dev": true,
+  "rules_tag": null,
+  "specs_dir": "bench/realworld/round2/specs",
+  "mode": "static (no replay: no snapshot history)",
+  "summary": {
+    "new": {
+      "projects": 0,
+      "checked": 0,
+      "not_applicable": 0,
+      "models_in_projects": 0,
+      "training_models": 0,
+      "findings": 0,
+      "info_non_feature": 0,
+      "leaky_models": 0,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 0,
+      "error_models": 0,
+      "seconds": 0
+    },
+    "seen": {
+      "projects": 0,
+      "checked": 0,
+      "not_applicable": 0,
+      "models_in_projects": 0,
+      "training_models": 0,
+      "findings": 0,
+      "info_non_feature": 0,
+      "leaky_models": 0,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 0,
+      "error_models": 0,
+      "seconds": 0
+    },
+    "round2": {
+      "projects": 18,
+      "checked": 12,
+      "not_applicable": 6,
+      "models_in_projects": 183,
+      "training_models": 12,
+      "findings": 38,
+      "info_non_feature": 0,
+      "leaky_models": 7,
+      "unverifiable_models": 5,
+      "models_with_unchecked_parts": 8,
+      "error_models": 0,
+      "seconds": 10.703
+    }
+  },
+  "projects": [
+    {
+      "repo": "theo-lyd/predictive-ltv-survival-pipeline",
+      "group": "round2",
+      "sha": "da4041b7399bbcc75d6547cc2e70fd0d75f8dbf0",
+      "license": "MIT",
+      "publish": "code",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 14,
+      "training_models": 1,
+      "models_inlined": 3,
+      "seconds": 0.628,
+      "models": [
+        {
+          "model": "fct_gold_customer_features",
+          "exit_code": 1,
+          "seconds": 0.628,
+          "warnings": [],
+          "verdict": "leaky",
+          "score": 1.0,
+          "leak_types": [
+            "L1",
+            "L2",
+            "L3",
+            "L6",
+            "L7"
+          ],
+          "findings": 10,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": [
+            "models/staging/stg_customers.sql",
+            "models/staging/stg_promotions.sql",
+            "models/staging/stg_billing.sql"
+          ]
+        }
+      ],
+      "findings": 10,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "gauthierpiarrette/dbt-features",
+      "group": "round2",
+      "sha": "2fceb0b29d3996713c423850f80fa6540d4f2c19",
+      "license": "Apache-2.0",
+      "publish": "code",
+      "status": "not_applicable",
+      "reason": "feature catalog example: feature tables with a documented feature_date but no label column or label table in the project (the churn and LTV models that use the features are outside it), so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "ritulchitra/customer-conversion-dbt-ml",
+      "group": "round2",
+      "sha": "3b1a4cdee8e31f094cd4599518e87d537877d035",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 3,
+      "training_models": 1,
+      "models_inlined": 2,
+      "seconds": 0.444,
+      "models": [
+        {
+          "model": "fct_customer_features",
+          "exit_code": 1,
+          "seconds": 0.444,
+          "warnings": [],
+          "verdict": "unverifiable",
+          "score": 0.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 3,
+          "trusted_models": [
+            "dbt/supabase_project/models/staging/stg_orders.sql"
+          ]
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 1,
+      "errors": 0
+    },
+    {
+      "repo": "mgrody1/Gamebot",
+      "group": "round2",
+      "sha": "e901ae9d4a86715eb18cfc3a91dfbf178b5c891c",
+      "license": "MIT",
+      "publish": "code",
+      "status": "not_applicable",
+      "reason": "season-level winner-prediction matrices with labels but no event-time or prediction-time column in any documented source table and no documented cutoff (features aggregate whole seasons), so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "clementlemon02/crypto-macd-screener",
+      "group": "round2",
+      "sha": "05ddd8927cba99097b4162c619c89149c59433eb",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 5,
+      "training_models": 1,
+      "models_inlined": 2,
+      "seconds": 0.596,
+      "models": [
+        {
+          "model": "gold_ml_features",
+          "exit_code": 1,
+          "seconds": 0.596,
+          "warnings": [
+            "warning: gold_ml_features: --spec sets label_table = gold_ml_labels (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 1.0,
+          "leak_types": [
+            "L1",
+            "L2"
+          ],
+          "findings": 5,
+          "info_non_feature": 0,
+          "unchecked": 1,
+          "trusted_models": []
+        }
+      ],
+      "findings": 5,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "LNshuti/soma",
+      "group": "round2",
+      "sha": "ad94feacdb9f2856398ea074346938603327d8c3",
+      "license": "Apache-2.0",
+      "publish": "code",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 14,
+      "training_models": 1,
+      "models_inlined": 7,
+      "seconds": 1.017,
+      "models": [
+        {
+          "model": "demand_forecasting_features",
+          "exit_code": 1,
+          "seconds": 1.017,
+          "warnings": [
+            "warning: demand_forecasting_features: --spec sets label_table = sales (the dbt meta does not); this can relax a rule",
+            "warning: demand_forecasting_features: --spec sets static_tables = books (the dbt meta does not); this can relax a rule",
+            "warning: demand_forecasting_features: --spec sets static_tables = publishers (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 1.0,
+          "leak_types": [
+            "L6",
+            "L7"
+          ],
+          "findings": 14,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": []
+        }
+      ],
+      "findings": 14,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "PHALMenghak/car-price-prediction",
+      "group": "round2",
+      "sha": "e4decfc1028808d0ffdc81e7da27e927377654f9",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 14,
+      "training_models": 1,
+      "models_inlined": 7,
+      "seconds": 0.522,
+      "models": [
+        {
+          "model": "fct_cars_ml_features",
+          "exit_code": 1,
+          "seconds": 0.522,
+          "warnings": [
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_brand_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_model_alias (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_location_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_fuel_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_transmission_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_tax_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_color_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_condition_mapping (the dbt meta does not); this can relax a rule",
+            "warning: fct_cars_ml_features: --spec sets static_tables = seed_body_type_mapping (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "unverifiable",
+          "score": 1.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 1,
+          "trusted_models": [
+            "models/staging/stg_khmer24_cars.sql"
+          ]
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 1,
+      "errors": 0
+    },
+    {
+      "repo": "sumanoj/hoteliq-analytics",
+      "group": "round2",
+      "sha": "aad52fb1ac06b1b2ea24aa8cbe0214283166bba6",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 7,
+      "training_models": 1,
+      "models_inlined": 3,
+      "seconds": 1.87,
+      "models": [
+        {
+          "model": "mart_ml_features",
+          "exit_code": 1,
+          "seconds": 1.87,
+          "warnings": [
+            "warning: mart_ml_features: --spec sets label_table = raw_hotel_bookings (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 0.9999,
+          "leak_types": [
+            "L6",
+            "L7"
+          ],
+          "findings": 3,
+          "info_non_feature": 0,
+          "unchecked": 2,
+          "trusted_models": []
+        }
+      ],
+      "findings": 3,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "renekomtsindi237/Stage",
+      "group": "round2",
+      "sha": "7579979727c13d1de7615cbc0f5549aa6ce01274",
+      "license": "none",
+      "publish": "aggregate_only",
+      "status": "not_applicable",
+      "reason": "daily scoring feature store whose default labels are produced outside dbt (training DAG joins ml.features_client with default labels), so no label table or column exists in the dbt project and the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "alwyndsouza/asx_stock_analysis_using_ml",
+      "group": "round2",
+      "sha": "43dcd16986979b3010c510aa9c0cbc78a3bdb260",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 4,
+      "training_models": 1,
+      "models_inlined": 4,
+      "seconds": 2.881,
+      "models": [
+        {
+          "model": "mart_ml_training_dataset",
+          "exit_code": 1,
+          "seconds": 2.881,
+          "warnings": [
+            "warning: mart_ml_training_dataset: --spec sets label_table = asx_stock_prices (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 1.0,
+          "leak_types": [
+            "L1"
+          ],
+          "findings": 4,
+          "info_non_feature": 0,
+          "unchecked": 4,
+          "trusted_models": []
+        }
+      ],
+      "findings": 4,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "smshde/NexusFlow-DataOps-Pipeline",
+      "group": "round2",
+      "sha": "5823029a7c8c4296466107943bb572208d66ab9c",
+      "license": "MIT",
+      "publish": "code",
+      "status": "not_applicable",
+      "reason": "daily customer feature snapshot (snapshot_date) for RFM and churn-risk scoring with no label column or label table in the project, so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "KZDNguyenThanh/africa-energy-lakehouse",
+      "group": "round2",
+      "sha": "2f685d456524cb05eb07ca13c3f3e0959b40283c",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 7,
+      "training_models": 1,
+      "models_inlined": 1,
+      "seconds": 0.458,
+      "models": [
+        {
+          "model": "gold_ml_features",
+          "exit_code": 1,
+          "seconds": 0.458,
+          "warnings": [],
+          "verdict": "leaky",
+          "score": 0.95,
+          "leak_types": [
+            "L6"
+          ],
+          "findings": 1,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": [
+            "models/silver/silver_households.sql"
+          ]
+        }
+      ],
+      "findings": 1,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "gusdiaso/lh_nautical_athena",
+      "group": "round2",
+      "sha": "a411a72e7b1b6bc8b722cb66164ac03d2728ab4b",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 72,
+      "training_models": 1,
+      "models_inlined": 2,
+      "seconds": 0.925,
+      "models": [
+        {
+          "model": "ml_features_produto_loja_mes",
+          "exit_code": 1,
+          "seconds": 0.925,
+          "warnings": [],
+          "verdict": "leaky",
+          "score": 0.9,
+          "leak_types": [
+            "L3"
+          ],
+          "findings": 1,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": [
+            "src/dbt/models/ml/ml_cutoff_panel.sql",
+            "src/dbt/models/marts/dim_products.sql",
+            "src/dbt/models/marts/dim_locations.sql",
+            "src/dbt/models/ml/ml_complete_monthly_demand.sql"
+          ]
+        }
+      ],
+      "findings": 1,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "sadelcarpio/steam_games_recommender",
+      "group": "round2",
+      "sha": "5767ec60247501f25de5f317382f8ac55400f41a",
+      "license": "none",
+      "publish": "aggregate_only",
+      "status": "not_applicable",
+      "reason": "recommender training tables with a documented cutoff for the game scores but no documented label column or label table (training_features and user_features have no yml), so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "KenImade/fpl-data-platform",
+      "group": "round2",
+      "sha": "21916d10313bb5a001ca8400cf3decf289d2dc3f",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 27,
+      "training_models": 1,
+      "models_inlined": 9,
+      "seconds": 0.508,
+      "models": [
+        {
+          "model": "feat_training_set",
+          "exit_code": 1,
+          "seconds": 0.508,
+          "warnings": [],
+          "verdict": "unverifiable",
+          "score": 1.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 2,
+          "trusted_models": [
+            "models/features/feat_player_fixture_spine.sql",
+            "models/staging/stg_gameweeks.sql",
+            "models/marts/fct_team_fixture.sql",
+            "models/staging/stg_fpl_players.sql",
+            "models/staging/stg_players.sql",
+            "models/marts/fct_player_gw.sql",
+            "models/marts/fct_player_snapshot.sql",
+            "models/staging/stg_teams.sql"
+          ]
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 1,
+      "errors": 0
+    },
+    {
+      "repo": "Helooeverybody/AI-thuc-chien",
+      "group": "round2",
+      "sha": "578938ba3b910a3363f822096f3cd91340cefe3e",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 7,
+      "training_models": 1,
+      "models_inlined": 1,
+      "seconds": 0.429,
+      "models": [
+        {
+          "model": "gold_training_set",
+          "exit_code": 1,
+          "seconds": 0.429,
+          "warnings": [],
+          "verdict": "unverifiable",
+          "score": 0.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 3,
+          "trusted_models": [
+            "models/silver/silver_tickets.sql"
+          ]
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 1,
+      "errors": 0
+    },
+    {
+      "repo": "justinlawee/instacart-reorder-prediction",
+      "group": "round2",
+      "sha": "2817efb6be725470147ea3e8b63077623075e8ad",
+      "license": "none",
+      "publish": "aggregate_only",
+      "status": "not_applicable",
+      "reason": "documented label and train/prior order split, but no event-time or prediction-time column in any documented source table (orders are sequenced by order number), so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "nathandxn/dbt_credit_risk_model",
+      "group": "round2",
+      "sha": "bbc8b9a8f4eaa6f6a9df3039b55bff70b5c7971b",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 9,
+      "training_models": 1,
+      "models_inlined": 1,
+      "seconds": 0.425,
+      "models": [
+        {
+          "model": "modeling_case_default_prediction",
+          "exit_code": 1,
+          "seconds": 0.425,
+          "warnings": [],
+          "verdict": "unverifiable",
+          "score": 1.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 1,
+          "trusted_models": [
+            "models/1_sources/base/source_base__cases.sql",
+            "models/1_sources/static/source_static__0.sql"
+          ]
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 1,
+      "errors": 0
+    }
+  ]
+}
