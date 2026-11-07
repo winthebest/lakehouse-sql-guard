@@ -89,6 +89,11 @@ _TIME_ARITHMETIC = (
     exp.DateDiff,
     exp.TsOrDsDiff,
     exp.TimeToUnix,
+    # the same cutoff in the spine's unit: epoch_ms(now()), epoch(now()) * 1000
+    exp.UnixToTime,
+    exp.Mul,
+    exp.Div,
+    exp.IntDiv,
     *_DATE_ADD,
     *_DATE_SUB,
 )
@@ -785,6 +790,110 @@ def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     )
 
 
+@dataclass(frozen=True)
+class _Number:
+    """A time column that holds a number, scaled, shifted or turned into a timestamp:
+    `to_timestamp(col / 1000 - 5)`, `col * 1000`, `epoch_ms(col)`.
+
+    `mult`: the expression equals the column times `mult`, plus `pending`, a bare number in the
+    column's own unit. `to_time` is the seconds per unit the number had when a function turned it
+    into a timestamp (1 for to_timestamp, 0.001 for epoch_ms, 0.000001 for make_timestamp) and 0
+    when it stays a number; `offset`, `up` and `down` are the interval shifts of that timestamp.
+    `divided`: a division may have dropped a fraction of a unit.
+    """
+
+    column: exp.Column
+    mult: float = 1.0
+    pending: float = 0.0
+    to_time: float = 0.0
+    divided: bool = False
+    offset: float = 0.0
+    up: float = 0.0
+    down: float = 0.0
+
+
+# DuckDB's to_timestamp, epoch_ms and make_timestamp are one sqlglot node told apart by the scale
+_UNIX_SCALE = {None: 1.0, 0: 1.0, 3: 1e-3, 6: 1e-6}
+_NUMBER_TYPES = {
+    exp.DataType.Type.BIGINT,
+    exp.DataType.Type.INT,
+    exp.DataType.Type.SMALLINT,
+    exp.DataType.Type.TINYINT,
+    exp.DataType.Type.DOUBLE,
+    exp.DataType.Type.FLOAT,
+    exp.DataType.Type.DECIMAL,
+}
+
+
+def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, float] | None:
+    """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`."""
+    k = _constant(node.expression)
+    if k is not None and k != 0 and math.isfinite(k):
+        return node.this, k
+    if isinstance(node, exp.Mul):
+        k = _constant(node.this)
+        if k is not None and k != 0 and math.isfinite(k):
+            return node.expression, k
+    return None
+
+
+def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | None:
+    """Read `node` as a number in a time column's unit that is scaled, shifted or converted to a
+    timestamp (see `_Number`), or None when it has none of those forms or any other shape.
+
+    A product or quotient with a constant, and DuckDB's `to_timestamp(x)`, `epoch_ms(x)` and
+    `make_timestamp(x)`, are the forms taken. Whether the column holds a number or a timestamp
+    is for the caller to decide: `epoch_ms(ts)` of a timestamp column means something else.
+    """
+    mult, pending, to_time = 1.0, 0.0, 0.0
+    offset = up = down = 0.0
+    divided = new = False
+    while True:
+        if isinstance(node, exp.Paren):
+            node = node.this
+        elif isinstance(node, exp.UnixToTime) and dialect == "duckdb":
+            scale = node.args.get("scale")
+            if scale is None:
+                key = None
+            elif isinstance(scale, exp.Literal) and scale.name.isdigit():
+                key = int(scale.name)
+            else:
+                return None
+            if to_time or pending or mult != 1.0 or node.args.get("zone") or key not in _UNIX_SCALE:
+                return None  # a number added to or multiplied into a timestamp, or an unknown scale
+            to_time, new, node = _UNIX_SCALE[key], True, node.this
+        elif isinstance(node, exp.Add | exp.Sub) and isinstance(node.expression, exp.Interval):
+            if to_time or pending or mult != 1.0:
+                return None  # a shift of a timestamp comes outside the conversion
+            got = _amount_seconds(node.expression, None)
+            if got is None:
+                return None
+            sign = 1 if isinstance(node, exp.Add) else -1
+            offset, up, down = _shift(offset, up, down, sign * got[0], got[1])
+            node = node.this
+        elif isinstance(node, exp.Add | exp.Sub) and _constant(node.expression) is not None:
+            amount = _constant(node.expression)
+            pending += amount if isinstance(node, exp.Add) else -amount
+            node = node.this
+        elif isinstance(node, exp.Mul | exp.Div | exp.IntDiv) and (got := _factor(node)):
+            operand, k = got
+            if isinstance(node, exp.Mul):
+                mult, pending = mult * k, pending / k
+            else:
+                mult, pending, divided = mult / k, pending * k, True
+            new, node = True, operand
+        elif isinstance(node, exp.Cast | exp.TryCast) and node.to and node.to.this in _NUMBER_TYPES:
+            divided = divided or isinstance(node.this, exp.Div)
+            node = node.this
+        else:
+            break
+    if not new or not isinstance(node, exp.Column):
+        return None
+    if not to_time and (offset or up or down):
+        return None  # an interval added to a number
+    return _Number(node, mult, pending, to_time, divided, offset, up, down)
+
+
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
     """Add a signed shift of `seconds` whose real size may be `slack` smaller in magnitude."""
     if seconds <= 0:
@@ -813,11 +922,17 @@ class Resolved:
     zoned: bool = False
     aware: bool | None = None
     retyped: bool = False  # a cast to a timestamp type was peeled on the path
+    # An integer column in a declared unit that was scaled (`ts_s * 1000`): the seconds one unit of
+    # the expression stands for, 0.0 when the expression is not such a number
+    scale: float = 0.0
+    # An integer column turned into a timestamp by to_timestamp / epoch_ms / make_timestamp:
+    # "tz" (to_timestamp, a timestamptz) or "naive". Two kinds are only comparable with themselves.
+    converted: str = ""
 
     @property
     def exact(self) -> bool:
         """The expression equals the column (at most a lossless timestamp cast)."""
-        return self.offset == 0 and self.trunc == 0
+        return self.offset == 0 and self.trunc == 0 and not self.scale and not self.converted
 
 
 class _Resolver:
@@ -892,9 +1007,10 @@ class _Resolver:
         resolves to the prediction_ts it contains: the key stands for the prediction.
         """
         peeled = _peel(node, self.spec.dialect)
-        if peeled is None or scope is None or depth > _MAX_DEPTH:
+        number = _peel_number(node, self.spec.dialect)
+        if (peeled is None and number is None) or scope is None or depth > _MAX_DEPTH:
             return None
-        column = peeled.column
+        column = (peeled or number).column
         if not column.table:
             return None
         found = self._source(scope, column.table, local)
@@ -905,6 +1021,12 @@ class _Resolver:
         if isinstance(source, exp.Table):
             ref = self.refs.get(id(source))
             if ref is None:
+                return None
+            native = self._native_scale(ref, column.name)
+            if number is not None and native is not None:
+                made = self._from_number(number, native, None, ref, column, id(owner), ())
+                return [made] if made else None
+            if peeled is None:
                 return None
             if keyed and raw and self._unique_key(ref, column.name):
                 # a column that never repeats names one row of the label table: it stands for the
@@ -974,7 +1096,32 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
-                shift = self.pending_seconds(peeled.pending, g.ref, g.column)
+                base = self._numeric_base(g)
+                if number is not None and base is not None:
+                    made = self._from_number(
+                        number,
+                        base,
+                        g,
+                        g.ref,
+                        column,
+                        id(owner),
+                        ((id(owner), column.table), *g.chain),
+                    )
+                    if made is None:
+                        return None
+                    resolved.append(made)
+                    continue
+                if peeled is None:
+                    return None
+                if g.converted or g.scale:
+                    # a number scaled or turned into a timestamp: only an interval may follow
+                    if peeled.epoch or peeled.zones or peeled.retyped or peeled.stamp_only:
+                        return None
+                    if g.converted and peeled.pending:
+                        return None
+                    shift = peeled.pending * g.scale
+                else:
+                    shift = self.pending_seconds(peeled.pending, g.ref, g.column)
                 if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
                 offset, up, down = (
@@ -1009,9 +1156,80 @@ class _Resolver:
                         zoned,
                         aware,
                         peeled.retyped or g.retyped,
+                        g.scale,
+                        g.converted,
                     )
                 )
         return resolved
+
+    def _native_scale(self, ref: TableRef, column: str) -> float | None:
+        """Seconds per unit of an integer time column of `ref` whose unit the spec declares, else
+        None (a timestamp or DATE column, a column that is not a time of the table, no unit)."""
+        factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
+        times = {ref.time_column, ref.availability_column, ref.validity_end_column}
+        if factor is None or column.lower() not in times:
+            return None
+        if self.is_timestamp(ref, column) or self.is_date(ref, column):
+            return None
+        return factor
+
+    def _numeric_base(self, got: Resolved) -> float | None:
+        """Seconds per unit of a traced value that is still a number in a declared unit."""
+        if got.converted or got.epoch or got.zoned or got.retyped:
+            return None
+        return got.scale or self._native_scale(got.ref, got.column)
+
+    def _from_number(
+        self,
+        number: _Number,
+        base: float,
+        inner: Resolved | None,
+        ref: TableRef,
+        column: exp.Column,
+        owner: int,
+        chain: Chain,
+    ) -> Resolved | None:
+        """`number` applied to a value of `base` seconds per unit (the column itself, or `inner`,
+        what a CTE column traced to), or None when the units do not fit.
+
+        A conversion to a timestamp is accepted only when the number is in the unit the function
+        expects: the scale of `col / 1000` over a millisecond column is seconds, which is what
+        `to_timestamp` reads.
+        """
+        effective = base / number.mult
+        seconds = number.pending * base
+        earlier = (inner.offset, inner.up, inner.down, inner.trunc) if inner else (0.0,) * 4
+        if number.to_time:
+            if not math.isclose(effective, number.to_time, rel_tol=1e-9):
+                return None
+            cut = number.to_time if number.divided else 0.0
+            return Resolved(
+                ref,
+                column.name.lower() if inner is None else inner.column,
+                chain,
+                number.offset + seconds + earlier[0],
+                max(cut, earlier[3]),
+                False,
+                column.table,
+                owner,
+                number.up + earlier[1],
+                number.down + earlier[2],
+                converted="tz" if number.to_time == 1.0 else "naive",
+            )
+        cut = effective if number.divided else 0.0
+        return Resolved(
+            ref,
+            column.name.lower() if inner is None else inner.column,
+            chain,
+            seconds + earlier[0],
+            max(cut, earlier[3]),
+            False,
+            column.table,
+            owner,
+            earlier[1],
+            earlier[2],
+            scale=effective,
+        )
 
     def pending_seconds(self, amount: float, ref: TableRef, column: str) -> float | None:
         """Seconds in a bare number added to a time column of `ref`'s table: days for a DATE
@@ -1952,6 +2170,20 @@ def _comparison_terms(node: exp.Expression) -> list:
     return terms
 
 
+def _scaled_kind(got: Resolved, resolver: _Resolver) -> float | str | None:
+    """What a traced time is, for comparing it with another: the seconds per unit of a number
+    (a float), `conv:tz` / `conv:naive` for a timestamp made from a number, `plain` for a timestamp
+    column, None when it is none of these (a DATE, an integer without a unit)."""
+    if got.converted:
+        return f"conv:{got.converted}"
+    if got.scale:
+        return round(got.scale, 12)
+    native = resolver._native_scale(got.ref, got.column)
+    if native is not None:
+        return round(native, 12)
+    return "plain" if resolver.is_timestamp(got.ref, got.column) else None
+
+
 def _record(
     left,
     op,
@@ -1981,16 +2213,29 @@ def _record(
             continue
         scale = 1.0
         resolved = features + labels
-        if any(r.zoned for r in resolved):
+        scaled = any(r.scale or r.converted for r in resolved)
+        if scaled:
+            # numbers scaled to a common unit, or timestamps made from numbers the same way, bound
+            # each other; a number against a timestamp, or two units, says nothing
+            kinds = {_scaled_kind(r, resolver) for r in resolved}
+            if len(kinds) != 1 or None in kinds or any(r.epoch or r.zoned for r in resolved):
+                continue
+            (kind,) = kinds
+            if needs_epoch and not isinstance(kind, float):
+                continue
+            scale = kind if needs_epoch else 1.0
+        elif any(r.zoned for r in resolved):
             # a converted time is only comparable with a column of the same kind (a plain
             # timestamp against an instant is read in the session's zone, which we do not know)
             kinds = {r.aware if r.zoned else resolver.is_aware(r.ref, r.column) for r in resolved}
             if len(kinds) != 1 or None in kinds:
                 continue
         scales = {r.epoch_scale for r in resolved if r.epoch}
-        if len(scales) > 1 or 0.0 in scales:
+        if scaled:
+            pass
+        elif len(scales) > 1 or 0.0 in scales:
             continue  # numbers in different or unknown units (seconds, milliseconds) say nothing
-        if needs_epoch and all(r.epoch for r in resolved):
+        elif needs_epoch and all(r.epoch for r in resolved):
             scale = scales.pop()  # both sides are epoch numbers: the constant is in their unit
         elif not any(r.epoch for r in resolved) or needs_epoch:
             # integer columns are compared in their own unit: columns of different units do not
