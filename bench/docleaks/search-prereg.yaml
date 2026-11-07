@@ -1,0 +1,135 @@
+# Pre-registration of the search for documented temporal leaks written by people, from which the
+# third held-out set (H3) is rebuilt as SQL cases. It fills the gap the Kaggle cases leave: the
+# leak types L2 (latest row without a bound), L4 (late-arriving data) and L7 (the wall clock).
+#
+# Committed before any search below is run. Nothing here changes after the first source is read; a
+# source that fails a criterion is listed with the reason, never re-admitted by a looser rule.
+# Nothing in this file has been run, and no catalog entry or case exists yet.
+#
+# Everyone who works on this set is a Claude model: agent A (web access) reads sources and writes
+# the catalog; agent B (no web access, no access to the checker's source) rebuilds each kept source
+# as a case. Every result is reported as "AI rebuilt from human-written sources", and the human
+# source is cited for each case. No person judges a case and no model of another family does.
+
+registered_at: "2026-11-07"
+group: docleaks
+rules: rules-frozen-v4         # the checker the cases are run with (not run in this stage)
+
+# Source kinds. A source has exactly one. These are the only kinds that are searched.
+source_kinds:
+  postmortem: >-
+    a write-up by the team that had the problem: an incident review or post-mortem of a model whose
+    offline numbers did not survive production because of information from the future
+  feature_store_docs: >-
+    the documentation of a feature store or training-set tool that explains a point-in-time join,
+    an event-time versus ingestion-time (late data) problem, a time-to-live, or a "latest value"
+    pitfall, with a worked example
+  warehouse_blog: >-
+    a blog post, forum thread or discourse answer from the dbt or data-warehouse community about
+    snapshots, slowly changing dimensions, late-arriving data or incremental models feeding a
+    training table
+  leakage_article: >-
+    an article or paper section that describes a concrete temporal leak in a named data set or
+    pipeline (not a general taxonomy)
+
+# Never read. The whole Kaggle leak catalog (all 32 rows, kl01..kl32, including the rows no case
+# was built from) was read during development, and Kaggle is not a source kind of this set.
+excluded:
+  catalog: bench/kaggle/leak-catalog.csv
+  rows: 32
+  sha256: b812a3db540bdea18fa3982464be914687989039ba8aa69bbbc54f1df545d659
+  rule: >-
+    a source is excluded if its URL is any URL the catalog lists (host page or source), if it is on
+    kaggle.com, or if its title is a catalog competition. Checked with
+    `python -m bench.docleaks.exclusions URL_OR_TITLE ...` before a source is read. A source that
+    describes the same incident as a catalog row is excluded even when its URL differs, judged by
+    agent A and recorded with the reason
+
+# Run in this order by agent A with a web search tool; the first 10 results of each query are read
+# in the order returned. Every source read is recorded in docleaks/catalog.csv, kept or rejected.
+searches:
+  - {id: S1,  kind: postmortem,         query: 'post-mortem machine learning model offline online gap future information leaked into training'}
+  - {id: S2,  kind: feature_store_docs, query: 'feature store point-in-time correct join documentation event timestamp'}
+  - {id: S3,  kind: postmortem,         query: 'postmortem training data included data that arrived late backfill model degraded'}
+  - {id: S4,  kind: feature_store_docs, query: 'feature store late arriving data ingestion time versus event time training set'}
+  - {id: S5,  kind: warehouse_blog,     query: 'dbt snapshot late arriving data feature table machine learning leakage'}
+  - {id: S6,  kind: leakage_article,    query: 'temporal data leakage SQL feature engineering example join latest row'}
+  - {id: S7,  kind: postmortem,         query: 'incident review model features computed with current_date training set changed every day'}
+  - {id: S8,  kind: feature_store_docs, query: 'feature store time to live latest value lookup offline training leak'}
+  - {id: S9,  kind: warehouse_blog,     query: 'slowly changing dimension as-of join training dataset leakage'}
+  - {id: S10, kind: leakage_article,    query: 'lessons learned production model leakage timestamp ingestion delay case study'}
+  - {id: S11, kind: postmortem,         query: 'we leaked the label through an aggregate over all history what we changed'}
+  - {id: S12, kind: warehouse_blog,     query: 'incremental model training table backfill rewrote history point in time'}
+# A query that fails is retried once with the same text; a query that still fails is recorded as
+# failed and not replaced. Agent A may follow a link from a source it is reading to one more source
+# of an allowed kind (the link is recorded); it may not run unregistered queries.
+
+keep_criteria:                 # all must hold
+  - written by a person or a team (not generated text, not a vendor's marketing page without an example)
+  - describes ONE concrete leak with its mechanism: what information, from when, reached which feature
+  - can be expressed in SQL over time-stamped tables, with a prediction time and a time column the
+    leak depends on
+  - names or lets the reader name the leak type among L1 to L7 (reads the future; latest row without
+    a bound; aggregate without an upper bound; late-arriving data; boundary error; use of the label
+    or an outcome; the wall clock); the catalog row records which one and why
+  - >-
+    quotable, meaning a passage of at most 120 words can be copied verbatim into the catalog with
+    its URL, so agent B and the reader can see what the case is built from
+reject_criteria:               # any one rejects; the reason is recorded
+  - not expressible as a temporal SQL query (a leak in the split, in the model fit, in a leaderboard)
+  - only a general taxonomy or advice, with no concrete incident or example
+  - on the excluded list, or the same incident as an excluded row
+  - behind a login or paywall that agent A cannot read, or no longer available
+  - the leak type is none of L1 to L7
+
+catalog:
+  file: docleaks/catalog.csv
+  columns: [id, source_kind, url, title, author_or_org, date, quote, leak_type, mechanism, sql_expressible, tables_and_time_columns, status, reason]
+  ids: "dl01, dl02, ... in the order sources are read; every source read gets a row"
+  status: kept | rejected
+  committed_before: agent B starts a case
+
+stop:
+  keep: >-
+    10 kept sources, each rebuilt as a case with at least 3 leaky queries and at least 3 clean twins
+    (so at least 30 leaky and 30 clean queries in all), with at least 2 cases for each of L2, L4
+    and L7 preferred
+  limit: >-
+    or 80 sources read, whichever comes first. Searching stops at the first of the two; the
+    queries above are not extended
+  shortfall: >-
+    if fewer cases or queries are reached, the round reports the numbers it got and says "not
+    enough to judge the goals" for any goal whose size is not reached; it does not add cases the
+    sources do not support, and no case is made up by a model to fill a gap
+
+cases:
+  builder: agent B, from one catalog row at a time; brief bench/briefs/docleaks-cases.md
+  format: >-
+    one directory per case with case.yaml, spec.yaml, schema.yaml, generate.py, leaky_N.sql,
+    clean_N.sql (the format of the Kaggle cases)
+  self_check: >-
+    `uv run python bench/kaggle/check_cases.py --cases-dir bench/docleaks/cases` passes for every
+    case before the checker is run: deterministic data, one row per spine row, a leaky query differs
+    from its clean twin, a clean query is unchanged by cutting the data to what was knowable.
+    Labels are never changed after a checker result has been seen
+  fidelity: >-
+    each case records `faithful`, `adapted` or `thin` with a note on what was assumed. The goals are
+    reported on all cases and again without the `thin` ones
+
+goals:
+  # Judged on one-sided 95% exact (Clopper-Pearson) bounds, per query. The classes are the leaky
+  # queries (recall) and the clean twins (false positive rate), static checker.
+  recall_static: {metric: recall, bound: lower, at_least: 0.75, n: 30, misses_allowed: 3}
+  fpr_static: {metric: fpr, bound: upper, at_most: 0.20, n: 30, false_positives_allowed: 2}
+  size_note: >-
+    the n values are the planned sizes; the verdict uses the real number of queries and the same
+    bound (bench.leakage.freeze.target_met). Fewer than 30 in a class: "not enough to judge"
+  reported_only:
+    - combined (static plus replay) recall and false positive rate
+    - MCC, Youden J, precision at 1, 5, 10 and 20 percent prevalence
+    - cluster bootstrap interval by case (seed 42)
+    - results by leak type, by source kind and by fidelity
+    - how many sources were read, kept and rejected, and the reasons
+
+# Amendments are appended here and committed on their own, each before the work it changes.
+amendments: []

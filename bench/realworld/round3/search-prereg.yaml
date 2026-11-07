@@ -148,7 +148,9 @@ blind_read:
     model: the training model (dbt model name) the line is about
     feature: the output column of that model, or empty when the leak is in a table rather than a column
     source: the upstream table or model the leaked information comes from, or empty
-    leak_type: one of L1..L7, as the leakage types are defined in docs/spec.md
+    leak_type: >-
+      one of L1..L7 (reads the future; latest row without a bound; aggregate without an upper bound;
+      late-arriving data; boundary error; use of the label or an outcome; the wall clock)
     evidence: path:line in the project that shows it
     note: free text
   groups:                      # leak types that are one mistake read differently (same group = may match)
