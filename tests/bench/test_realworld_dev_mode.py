@@ -221,3 +221,24 @@ def test_rows_with_one_key_take_the_verdicts_in_turn():
     old = [row(number=1, final="false"), row(number=2, final="false")]
     carried, fresh = agreement.carry_verdicts([row(number=7), row(number=8), row(number=9)], old)
     assert len(carried) == 2 and len(fresh) == 1
+
+
+def test_two_judges_that_agree_give_the_final_label_and_a_split_gives_unsure():
+    rows = [row(number=1), row(number=2), row(number=3)]
+    a = {
+        "o/p#m#1": {"label": "false", "reason": "bounded"},
+        "o/p#m#2": {"label": "true", "reason": "later rows"},
+    }
+    b = {
+        "o/p#m#1": {"label": "false", "reason": "bounded too"},
+        "o/p#m#2": {"label": "true_not_actionable", "reason": "not a feature"},
+    }
+    got = agreement.merge_judgements(rows, a, b)
+    assert (got[0]["controller"], got[0]["reviewer"], got[0]["final"]) == (
+        "false",
+        "false",
+        "false",
+    )
+    assert got[0]["reason"] == "bounded"
+    assert got[1]["final"] == "unsure" and "A=true" in got[1]["reason"]
+    assert got[2] == rows[2]

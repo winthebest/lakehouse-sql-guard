@@ -158,3 +158,32 @@ def carry_verdicts(
             row | {c: source.get(c, "") for c in ("controller", "reviewer", "final", "reason")}
         )
     return carried, fresh
+
+
+def merge_judgements(
+    rows: Sequence[dict[str, Any]],
+    first: dict[str, dict[str, str]],
+    second: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    """`rows` with the verdicts of two independent judges (`id -> {label, reason}`).
+
+    `controller` holds the first judge's label and `reviewer` the second's. They agree: that is
+    `final`. They disagree: `final` is `unsure` and the reason says what each said. A row neither
+    judge saw is returned untouched.
+    """
+    merged = []
+    for row in rows:
+        a, b = first.get(row["id"]), second.get(row["id"])
+        if a is None or b is None:
+            merged.append(row)
+            continue
+        if a["label"] == b["label"]:
+            final, reason = a["label"], a["reason"]
+        else:
+            final = "unsure"
+            reason = f"disagreement: A={a['label']} ({a['reason']}); B={b['label']} ({b['reason']})"
+        merged.append(
+            row
+            | {"controller": a["label"], "reviewer": b["label"], "final": final, "reason": reason}
+        )
+    return merged
