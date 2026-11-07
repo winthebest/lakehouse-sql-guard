@@ -35,6 +35,7 @@ is never used is ignored; a UNION in a CTE or derived table is traced branch by 
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
@@ -3064,21 +3065,45 @@ def _validity_interval(window, scope, ref, analysis, resolver) -> bool:
 
     The next version's timestamp is compared with prediction_ts (or tested for NULL, or
     defaulted with a constant first) and never reaches an output, and the table's rows are also
-    bounded strictly before prediction time.
+    bounded strictly before prediction time. The window orders the versions by their own time,
+    ascending.
+
+    The same test written straight into a QUALIFY (no `valid_to` column) is accepted when the
+    window runs per prediction (it partitions by the prediction time, so it never reads another
+    prediction's rows) and the test cannot drop the last version, which has no next one (the
+    window has a constant default, sits in `COALESCE(window, constant)`, or is one side of an OR
+    with its own NULL test). The bound may then be written in that QUALIFY too, when the table's
+    time is also when it became known: the window only decides which version rows stay.
     """
     func, alias = window.this, window.parent
     if not isinstance(func, exp.Lead | exp.Lag):
         return False
-    if not isinstance(alias, exp.Alias) or not isinstance(alias.parent, exp.Select):
-        return False
+    projected = isinstance(alias, exp.Alias) and isinstance(alias.parent, exp.Select)
     arg = resolver.resolve_time(func.this, scope, local=True)
     if not arg or arg.ref is not ref or not arg.exact or arg.column not in ref.time_columns:
         return False
+    if not _ordered_by_time(_window_parts(window).order, scope, ref, resolver):
+        return False  # the next version in some other order can be a later one
+    inline = not projected
+    after_window = inline and ref.availability_column is None
     if not all(
-        any(b.is_strict_past and not b.post_window and b.earned_by is None for b in g)
+        any(
+            b.is_strict_past and (after_window or not b.post_window) and b.earned_by is None
+            for b in g
+        )
         for g in ref.bound_groups()
     ):
         return False
+    if inline:
+        return (
+            window.find_ancestor(exp.Qualify) is not None
+            and any(
+                resolver.is_spine_time(item, scope, keyed=True)
+                for item in _window_parts(window).partition_by
+            )
+            and _null_safe(window)
+            and _validity_use(window, resolver)
+        )
     owner = resolver.by_expression.get(id(alias.parent))
     uses = [
         column
@@ -3086,6 +3111,56 @@ def _validity_interval(window, scope, ref, analysis, resolver) -> bool:
         if column.name.lower() == alias.alias.lower() and _reads_scope(column, owner, resolver)
     ]
     return bool(uses) and all(_validity_use(c, resolver) for c in uses)
+
+
+_FAR_FUTURE_YEAR = 2100
+
+
+def _far_future(node: exp.Expression) -> bool:
+    """Is this constant a date or timestamp at or after every prediction time (year 2100 or
+    later), so that a test against it is true for the row that has no next version?"""
+    node = _unparen(node)
+    while isinstance(node, exp.Cast | exp.TryCast):
+        node = _unparen(node.this)
+    if not isinstance(node, exp.Literal) or not node.is_string:
+        return False
+    match = re.match(r"\s*(\d{4})-\d{2}-\d{2}", node.name)
+    return bool(match) and int(match.group(1)) >= _FAR_FUTURE_YEAR
+
+
+def _plain_null_test(test: exp.Is) -> bool:
+    """Is `x IS NULL` a plain condition? Not negated through NOT, `= FALSE`, IS FALSE, or a CASE
+    or IF that swaps the answer."""
+    parent = test.parent
+    while isinstance(parent, exp.Paren):
+        parent = parent.parent
+    return isinstance(parent, exp.Or | exp.And | exp.Qualify | exp.Where | exp.Having)
+
+
+def _null_safe(window: exp.Window) -> bool:
+    """Does a test on this LEAD/LAG keep the row that has no next version (the last one)?
+
+    The window has a default, or sits in COALESCE, that stands for a time after every prediction
+    (a sentinel in the past would drop the last version), or one side of an OR is its own
+    plain IS NULL test."""
+    default = window.this.args.get("default")
+    if default is not None:
+        return _far_future(default)
+    node = window
+    while isinstance(node.parent, exp.Paren):
+        node = node.parent
+    parent = node.parent
+    if isinstance(parent, exp.Coalesce) and parent.this is node:
+        return all(_far_future(e) for e in parent.expressions)
+    term = window
+    while term.parent is not None and not isinstance(term.parent, exp.And | exp.Qualify):
+        term = term.parent
+    term = _unparen(term)
+    sql = window.sql()
+    return isinstance(term, exp.Or) and any(
+        isinstance(test.expression, exp.Null) and _plain_null_test(test) and test.this.sql() == sql
+        for test in term.find_all(exp.Is)
+    )
 
 
 def _reads_scope(column: exp.Column, target: Scope | None, resolver: _Resolver) -> bool:
@@ -3108,8 +3183,8 @@ def _validity_use(column: exp.Column, resolver: _Resolver) -> bool:
         node, parent = parent, parent.parent
     if not _in_filter(column):
         return False
-    if isinstance(parent, exp.Is):
-        return isinstance(parent.expression, exp.Null)
+    if isinstance(parent, exp.Is):  # IS NULL, not IS NOT NULL (which needs a later version)
+        return isinstance(parent.expression, exp.Null) and _plain_null_test(parent)
     if not isinstance(parent, _COMPARISONS):
         return False
     other = parent.right if parent.left is node else parent.left

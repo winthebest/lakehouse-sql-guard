@@ -600,3 +600,64 @@ def test_the_guard_must_read_the_same_window_as_the_label():
        THEN LAG(churned) OVER (ORDER BY label_ts) END AS previous_label
 FROM labels"""
     assert "L6" in rules(query, **FINAL)
+
+
+# --- the validity interval of a version computed inside the filter that uses it ------------------
+
+
+def as_of(
+    qualify: str,
+    extra: str = "",
+    partition: str = "s.user_id, l.label_ts",
+    arg: str = "s.updated_at",
+    join_bound: str = "",
+) -> str:
+    lead = f"LEAD({arg}) OVER (PARTITION BY {partition} ORDER BY s.updated_at)"
+    return f"""SELECT {KEYS}, s.total_spend{extra}
+FROM labels l JOIN user_stats s ON s.user_id = l.user_id{join_bound}
+QUALIFY {qualify.format(lead=lead)}"""
+
+
+VALID_AT = "l.label_ts > s.updated_at AND l.label_ts <= COALESCE({lead}, TIMESTAMP '9999-12-31')"
+
+
+def test_the_version_valid_at_the_prediction_time_chosen_in_qualify():
+    clean = as_of(VALID_AT)
+    assert rules(clean) == set()
+    assert rules(
+        as_of("l.label_ts > s.updated_at AND ({lead} IS NULL OR {lead} >= l.label_ts)")
+    ) == (set())
+    # the bound may also be written in the join
+    assert (
+        rules(
+            as_of(
+                "({lead} IS NULL OR {lead} >= l.label_ts)",
+                join_bound=" AND s.updated_at < l.label_ts",
+            )
+        )
+        == set()
+    )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        # the window mixes the rows of several predictions
+        {"partition": "s.user_id"},
+        # the next version is not the next time of the version rows
+        {"arg": "s.total_spend"},
+        # the next version reaches the output
+        {
+            "extra": ", LEAD(s.updated_at) OVER (PARTITION BY s.user_id, l.label_ts "
+            "ORDER BY s.updated_at) AS next_version"
+        },
+        # tested against something other than the prediction time
+        {"qualify": "l.label_ts > s.updated_at AND {lead} > l.label_ts + INTERVAL 30 DAY"},
+        {"qualify": "l.label_ts > s.updated_at AND {lead} > s.updated_at"},
+        # the version is not bounded before the prediction time at all
+        {"qualify": "{lead} IS NULL OR {lead} >= l.label_ts"},
+        {"qualify": "l.label_ts >= s.updated_at AND ({lead} IS NULL OR {lead} >= l.label_ts)"},
+    ],
+)
+def test_the_same_filter_with_one_thing_wrong_is_still_flagged(variant):
+    assert rules(as_of(**{"qualify": VALID_AT, **variant})), variant
