@@ -1,7 +1,10 @@
 """What is registered before the held-out sets exist: the sample sizes the targets need, the
 quotas an author's set is held to, and the files the freeze covers."""
 
+from pathlib import Path
+
 import pytest
+import yaml
 
 from bench.leakage import duplicates, freeze
 from bench.leakage.cases import Template
@@ -169,3 +172,145 @@ def test_the_command_line_takes_fixture_files_and_a_spec_for_the_relations(tmp_p
     )
     out = capsys.readouterr().out
     assert code == 1 and "fixtures" in out
+
+
+# --- the registration of the second held-out round ---------------------------------------------
+
+PREREG_PATH = Path("bench/heldout-v4-prereg.yaml")
+
+
+@pytest.fixture(scope="module")
+def prereg():
+    return yaml.safe_load(PREREG_PATH.read_text(encoding="utf-8"))
+
+
+def test_the_freeze_fields_are_left_empty_for_the_freeze_to_fill(prereg):
+    assert set(prereg["freeze"]) >= {"tag", "commit", "thresholds", "files_sha256", "seed"}
+    assert [k for k, v in prereg["freeze"].items() if v is None] == [
+        "tag",
+        "commit",
+        "checker_src_tree",
+        "thresholds",
+        "files_sha256",
+    ]
+    assert prereg["freeze"]["seed"] == 42
+
+
+def test_the_sample_sizes_registered_are_the_ones_the_bound_gives(prereg):
+    for name, entry in prereg["sample_sizes"].items():
+        if "max_errors" in entry:
+            assert (
+                freeze.max_errors_allowed(entry["kind"], entry["n"], entry["threshold"])
+                == entry["max_errors"]
+            ), name
+    five = prereg["sample_sizes"]["fpr_at_most_0_05"]
+    assert five["min_n_by_errors"] == freeze.describe_target("fpr", 124, 0.05)["min_n_by_errors"]
+    h2 = prereg["sample_sizes"]["H2_precision"]
+    assert freeze.target_met("precision", 16, h2["n"], h2["threshold"])
+    assert not freeze.target_met("precision", 17, h2["n"], h2["threshold"])
+
+
+def goals_of(prereg, name):
+    return {(g["metric"], g.get("detector")): g for g in prereg["sets"][name]["goals"]}
+
+
+def test_every_goal_is_a_bound_in_the_right_direction_and_has_a_sample_that_can_meet_it(prereg):
+    for name in ("H1a", "H1b", "H3"):
+        for goal in prereg["sets"][name]["goals"]:
+            expected = "upper" if goal["metric"] == "fpr" else "lower"
+            assert goal["bound"] == expected, (name, goal)
+    sizes = prereg["sample_sizes"]
+    pairs = {
+        ("H1a", "fpr"): "H1a_fpr",
+        ("H1a", "recall"): "H1a_recall",
+        ("H1b", "fpr"): "H1b_fpr",
+        ("H1b", "recall"): "H1b_recall",
+        ("H3", "recall"): "H3_recall",
+        ("H3", "fpr"): "H3_fpr",
+    }
+    for (name, metric), size in pairs.items():
+        goal = next(g for g in prereg["sets"][name]["goals"] if g["metric"] == metric)
+        level = goal.get("at_most", goal.get("at_least"))
+        assert sizes[size]["threshold"] == level, (name, metric)
+        assert freeze.max_errors_allowed(metric, sizes[size]["n"], level) >= 0, (name, metric)
+
+
+def test_the_quotas_of_the_registration_are_the_ones_the_check_and_the_brief_use(prereg):
+    quotas = duplicates.V4_QUOTAS
+    for name in ("H1a", "H1b"):
+        q = prereg["sets"][name]["quota"]
+        assert q["clean"] == quotas.clean
+        assert q["leaky_per_type"] == quotas.leaky_per_type
+        assert q["leaky_total"] == 7 * quotas.leaky_per_type
+        assert q["dbt_style_share"] == quotas.dbt_share
+        assert prereg["sets"][name]["authors"] == 2
+    sizes = prereg["sample_sizes"]
+    assert sizes["H1a_fpr"]["n"] == quotas.clean and sizes["H1a_recall"]["n"] == 70
+
+
+def test_every_file_the_registration_names_exists(prereg):
+    for name in ("H1a", "H1b"):
+        entry = prereg["sets"][name]
+        assert Path(entry["spec"]).is_file() and Path(entry["brief"]).is_file()
+    assert Path(prereg["sets"]["H2"]["protocol"]).is_file()
+    assert Path(prereg["sets"]["H3"]["protocol"]).is_file()
+    assert Path(prereg["sets"]["H3"]["brief"]).is_file()
+
+
+def test_the_registration_agrees_with_the_protocols_it_points_at(prereg):
+    docleaks = yaml.safe_load(Path("bench/docleaks/search-prereg.yaml").read_text(encoding="utf-8"))
+    h3 = {g["metric"]: g for g in prereg["sets"]["H3"]["goals"]}
+    assert h3["recall"]["at_least"] == docleaks["goals"]["recall_static"]["at_least"]
+    assert h3["fpr"]["at_most"] == docleaks["goals"]["fpr_static"]["at_most"]
+    round3 = yaml.safe_load(
+        Path("bench/realworld/round3/search-prereg.yaml").read_text(encoding="utf-8")
+    )
+    assert "0.30" in " ".join(round3["metrics"]["goal"][0].split())
+    h2 = next(g for g in prereg["sets"]["H2"]["goals"] if g["metric"] == "precision")
+    assert h2["at_least"] == 0.30
+
+
+def test_the_provenance_and_the_all_claude_limit_are_stated(prereg):
+    text = PREREG_PATH.read_text(encoding="utf-8")
+    assert "Everyone who wrote, read or judged" in text and "Claude model" in text
+    assert prereg["reporting_labels"]["provenance"] == {
+        "H1": "AI-written",
+        "H2": "judged by Claude models, not people",
+        "H3": "AI rebuilt from human-written sources",
+    }
+    assert set(prereg["reporting_labels"]) >= {"dev", "seen", "held_out"}
+
+
+def test_a_set_is_run_once_and_the_dev_and_seen_checks_are_not_goals(prereg):
+    assert "run once" in prereg["rerun_policy"] and "rules-frozen-v4.1" in prereg["rerun_policy"]
+    assert set(prereg["dev_and_seen_checks"]) == {"D10", "D11", "D12", "D13", "R1"}
+    assert "goal" not in prereg["sets"]
+    assert prereg["ci_method"]["judged_on"].startswith("one-sided 95% Clopper-Pearson")
+
+
+def test_the_seen_sets_are_not_among_the_held_out_sets(prereg):
+    held_out = {prereg["sets"][n]["split"] for n in ("H1a", "H1b")}
+    seen = set(load_splits_for_seen())
+    assert not held_out & seen
+
+
+def load_splits_for_seen():
+    from bench.leakage.splits import seen_splits
+
+    return seen_splits()
+
+
+def test_the_freeze_covers_the_new_briefs_specs_and_searches_but_not_the_file_it_fills():
+    names = set(freeze.frozen_hashes())
+    assert {
+        "bench/briefs/leakage-v4.md",
+        "bench/briefs/docleaks-cases.md",
+        "bench/leakage/spec_holdout_v4_w1.yaml",
+        "bench/leakage/spec_holdout_v4_w2.yaml",
+        "bench/realworld/round3/search-prereg.yaml",
+        "bench/docleaks/search-prereg.yaml",
+        "bench/leakage/world.py",
+        "bench/leakage/metrics.py",
+    } <= names
+    assert "bench/heldout-v4-prereg.yaml" not in names  # it holds the digest of the others
+    assert not [n for n in names if n.startswith("bench/leakage/templates/holdout_v4")]
