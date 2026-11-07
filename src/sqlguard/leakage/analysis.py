@@ -19,6 +19,12 @@ treated as temporal rows (time column prediction_ts) that must be bounded agains
 A bound reached through a CTE or derived table covers only the chain of uses it was written
 for, so a CTE (or a CTE nested in another) consumed twice must be bounded at both uses.
 
+A label table listed in `time_columns` is also event history: where it is not the spine its own
+time and availability columns bound it like any temporal table. A bare number added to an integer
+time column is read in the table's declared `time_units`; columns in different units bound nothing.
+A window over the labels of strictly earlier rows is history, not a use of the label (see
+`_PastWindows`).
+
 Predicates are read in their common spellings: `ts < p`, `p - ts > INTERVAL 0`, `epoch(ts) <
 epoch(p)`, `date_diff('day', ts, p) > 0`, a bound in QUALIFY, and `agg(x) FILTER (WHERE ts < p)`
 when every aggregate that reads the table carries one. `HAVING MAX(ts) < p` is not a bound: it
@@ -118,6 +124,8 @@ _CLOCK_FUNCTIONS = {
     "statement_timestamp",
     "clock_timestamp",
 }
+# seconds in one unit of an integer time column (`time_units` of the spec)
+_UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
 MATURED_LABELS = "__matured_labels"
 # the only aggregates a time-split cutoff may be made of
 _CUTOFF_AGGREGATES = (
@@ -128,6 +136,18 @@ _CUTOFF_AGGREGATES = (
     exp.PercentileDisc,
     exp.Median,
     exp.ApproxQuantile,
+)
+# expressions that turn one row into several: the previous row of a copy is the row itself
+_ROW_MULTIPLIERS = (
+    exp.Unnest,
+    exp.Explode,
+    exp.ExplodeOuter,
+    exp.Posexplode,
+    exp.PosexplodeOuter,
+    exp.Inline,
+    exp.GenerateSeries,
+    exp.GenerateDateArray,
+    exp.Lateral,
 )
 _MAX_PATHS = 256
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
@@ -242,12 +262,19 @@ class TableRef:
         prediction time? A path on which the reference is the spine never does: the spine's own
         label is the target."""
         return (
-            bool(known_after)
+            known_after is not None
             and self.kind == "label"
             and bool(paths)
             and all(
                 path not in self.spine_paths
-                and any(b.covers(known_after) and path in b.instances for b in self.bounds)
+                and any(
+                    b.covers(known_after)
+                    # the prediction's own row is stamped at its time: never an earlier label,
+                    # whatever the boundary says about facts stamped at that time
+                    and _strict_past(b.op, b.offset_seconds + b.slack_up, False)
+                    and path in b.instances
+                    for b in self.bounds
+                )
                 for path in paths
             )
         )
@@ -323,8 +350,13 @@ class QueryAnalysis:
     # ids of the scopes whose rows are the output rows: the output scope(s) and every scope on the
     # chain from the output prediction_ts down to the spine label table
     seed_scopes: set[int] = field(default_factory=set)
+    # ids of the SELECT scopes whose rows are the query result (one per UNION branch)
+    output_scopes: set[int] = field(default_factory=set)
     # name resolution over the qualified tree, for callers that rewrite the query
     resolver: _Resolver | None = field(default=None, repr=False)
+    # label columns (nodes of `qualified`) read only through a window over earlier rows, whose
+    # labels were final; column lineage leaves them out (see `_past_label_columns`)
+    past_label_args: list[exp.Column] = field(default_factory=list)
 
     @property
     def temporal_refs(self) -> list[TableRef]:
@@ -348,14 +380,18 @@ class QueryAnalysis:
             for p in r.temporal_paths
             if p and r.matured_on([p], after)
         ]
-        if not matured and not shared:
+        if not matured and not shared and not self.past_label_args:
             return self.qualified, self.schema
         tree = self.qualified.copy()
+        twin = dict(zip(map(id, self.qualified.walk()), tree.walk(), strict=True))
         tables = list(tree.find_all(exp.Table))
         for ref in matured:
             tables[ref.index].set("this", exp.to_identifier(MATURED_LABELS))
         if shared and self.resolver is not None:
             _split_shared(tree, self.qualified, self.resolver, shared)
+        for column in self.past_label_args:
+            # a value read from earlier rows is not the target: leave it without a source
+            twin[id(column)].replace(exp.Literal.number(0))
         known = self.schema.get(self.spec.label_table, {})
         return tree, {**self.schema, MATURED_LABELS: known}
 
@@ -568,6 +604,8 @@ class _Peeled:
     up: float = 0.0  # the true offset is at most offset + up
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False  # went through epoch(): seconds since 1970
+    # a bare number added to the column, in the column's own unit (see `time_units`)
+    pending: float = 0.0
 
 
 def _peel(node: exp.Expression) -> _Peeled | None:
@@ -623,9 +661,9 @@ def _peel(node: exp.Expression) -> _Peeled | None:
             node = node.this
         else:
             break
-    if not isinstance(node, exp.Column) or (pending and not epoch):
+    if not isinstance(node, exp.Column):
         return None
-    return _Peeled(node, offset, trunc, up, down, epoch)
+    return _Peeled(node, offset, trunc, up, down, epoch, 0.0 if epoch else pending)
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -741,12 +779,15 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
+            shift = self.pending_seconds(peeled.pending, ref)
+            if shift is None:
+                return None
             return [
                 Resolved(
                     ref,
                     column.name.lower(),
                     (),
-                    peeled.offset,
+                    peeled.offset + shift,
                     peeled.trunc,
                     raw,
                     column.table,
@@ -786,12 +827,15 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
+                shift = self.pending_seconds(peeled.pending, g.ref)
+                if shift is None:
+                    return None
                 resolved.append(
                     Resolved(
                         g.ref,
                         g.column,
                         ((id(owner), column.table), *g.chain),
-                        peeled.offset + g.offset,
+                        peeled.offset + shift + g.offset,
                         max(peeled.trunc, g.trunc),
                         raw and g.raw,
                         column.table,
@@ -802,6 +846,17 @@ class _Resolver:
                     )
                 )
         return resolved
+
+    def pending_seconds(self, amount: float, ref: TableRef) -> float | None:
+        """Seconds in a bare number added to a time column of `ref`'s table, or None when the
+        table declares no unit for it (then the number means nothing we can use)."""
+        if not amount:
+            return 0.0
+        factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
+        return None if factor is None else amount * factor
+
+    def unit_of(self, ref: TableRef) -> str | None:
+        return self.spec.time_units.get(ref.table)
 
     def _row_key(self, expression: exp.Expression, scope: Scope) -> exp.Column | None:
         """The prediction_ts column of a surrogate key of one label row, or None.
@@ -1339,12 +1394,15 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
     _check_spec(analysis)
     root = scopes[-1] if scopes else None
     _spine(analysis, root, resolver)
+    analysis.output_scopes = {id(s) for s in _output_scopes(root, resolver)} if root else set()
     for ref in analysis.refs:
         if ref.kind == "temporal":
             ref.time_column = spec.time_columns[ref.table]
             ref.availability_column = spec.availability_columns.get(ref.table)
         elif ref.kind == "label":
-            ref.time_column = spec.prediction_ts
+            # a label table that doubles as event history is bounded by its own time column
+            ref.time_column = spec.time_columns.get(ref.table, spec.prediction_ts)
+            ref.availability_column = spec.availability_columns.get(ref.table)
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
@@ -1384,6 +1442,10 @@ def _check_spec(analysis: QueryAnalysis) -> None:
                 needed.append(spec.availability_columns[ref.table])
         elif ref.kind == "label":
             needed = [spec.prediction_ts, *spec.label_columns]
+            if ref.table in spec.time_columns:
+                needed.append(spec.time_columns[ref.table])
+            if ref.table in spec.availability_columns:
+                needed.append(spec.availability_columns[ref.table])
         for column in needed:
             if column not in columns:
                 analysis.spec_errors.append(f"spec column {ref.table}.{column} not in schema")
@@ -1566,8 +1628,18 @@ def _record(
             continue
         if any(lab.ref.kind != "label" or lab.column != spec.prediction_ts for lab in labels):
             continue
-        if needs_epoch and not all(f.epoch for f in features + labels):
-            continue
+        scale = 1.0
+        resolved = features + labels
+        if needs_epoch and all(r.epoch for r in resolved):
+            pass  # both sides went through epoch(): the constant is in seconds
+        elif not any(r.epoch for r in resolved) or needs_epoch:
+            # integer columns are compared in their own unit: columns of different units do not
+            # bound each other, and a bare constant means that unit
+            units = {resolver.unit_of(r.ref) for r in resolved}
+            factor = _UNIT_FACTOR.get(next(iter(units)) or "") if len(units) == 1 else None
+            if len(units) > 1 or (needs_epoch and factor is None):
+                continue
+            scale = factor if needs_epoch else 1.0
         upper = normalized in ("<", "<=")
         recorded = False
         for feature in features:
@@ -1594,7 +1666,7 @@ def _record(
             # feature + f_offset OP label + l_offset + signed  ->  feature OP label + offset;
             # across several labels (UNION branches) the loosest reading counts
             pick = max if upper else min
-            offset = pick(lab.offset for lab in labels) + signed - feature.offset
+            offset = pick(lab.offset for lab in labels) + signed * scale - feature.offset
             label_trunc = min(lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts
@@ -2080,6 +2152,8 @@ def _label_uses(analysis: QueryAnalysis, resolver: _Resolver):
     """
     spec = analysis.spec
     uses = []
+    past = _PastWindows(analysis, resolver)
+    analysis.past_label_args = past.columns()
     for column in analysis.qualified.find_all(exp.Column):
         scope = resolver.scope_of(column)
         got = resolver.resolve(column, scope)
@@ -2087,6 +2161,8 @@ def _label_uses(analysis: QueryAnalysis, resolver: _Resolver):
             continue
         if _matured_use(got, scope, resolver, spec.label_known_after):
             continue  # labels that were final at prediction time are history, not the outcome
+        if past.holds(column) or (scope is not None and past.only_read_through(column, scope)):
+            continue  # the labels of earlier rows, which were final: history, not the outcome
         node, parent = column, column.parent
         while isinstance(parent, exp.Paren | exp.Cast | exp.TryCast) or (
             isinstance(parent, exp.Coalesce)
@@ -2104,6 +2180,268 @@ def _label_uses(analysis: QueryAnalysis, resolver: _Resolver):
             LabelUse(got.ref, got.column, (column.parent or column).sql(spec.dialect), column)
         )
     return uses
+
+
+class _PastWindows:
+    """Windows that read only the labels of earlier prediction rows, once those were final.
+
+    `AVG(label) OVER (PARTITION BY user ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND 1
+    PRECEDING)` and `LAG(label, 7) OVER (...)` are history, not the outcome, when all of these hold:
+
+    * the rows are the label table read directly, or the output of one SELECT over it that groups
+      by every entity key and the prediction time, with nothing else in its FROM: so a
+      (key, time) pair is one row and the rows before the current one are stamped earlier;
+    * the window orders by the prediction time ascending (and by nothing else when it counts rows:
+      a tie-breaker admits that rows of one key share a time), and partitions by every entity key
+      (all of them, as the series has none);
+    * its frame ends before the current row: `LAG` with a constant offset of at least 1, or a ROWS
+      frame whose end is `n PRECEDING` with n >= 1, both only when the labels are final the moment
+      they are stamped (`label_known_after: 0`); or a RANGE frame ending an offset before the row
+      that is longer than `label_known_after` (as long, with an inclusive boundary).
+
+    A label column that is summed per row first (`daily AS (SELECT key, ts, SUM(label) AS total
+    ... GROUP BY key, ts)`) is not a use of the target when every read of `total` is in such a
+    window.
+    """
+
+    def __init__(self, analysis: QueryAnalysis, resolver: _Resolver) -> None:
+        self.analysis, self.resolver, self.spec = analysis, resolver, analysis.spec
+        self._cache: dict[int, list[exp.Column]] = {}
+        self._rows: dict[int, TableRef | None] = {}
+
+    def columns(self) -> list[exp.Column]:
+        """The label-carrying columns of every accepted window, in the order they appear."""
+        found = []
+        for window in self.analysis.qualified.find_all(exp.Window):
+            found += self.of(window)
+        return found
+
+    def holds(self, column: exp.Column) -> bool:
+        window = column.find_ancestor(exp.Window)
+        return window is not None and any(c is column for c in self.of(window))
+
+    def of(self, window: exp.Window) -> list[exp.Column]:
+        if id(window) not in self._cache:
+            self._cache[id(window)] = self._accepted(window)
+        return self._cache[id(window)]
+
+    def _readers(self, scope: Scope, name: str) -> list[exp.Column] | None:
+        """The columns that read output `name` of `scope`; None when a whole row of the scope is
+        read (`to_json(d)`, `d AS row`), which carries every column."""
+        found = []
+        for node in self.analysis.qualified.find_all(exp.Column, exp.TableColumn):
+            reader_scope = self.resolver.scope_of(node)
+            alias = node.table if isinstance(node, exp.Column) else node.name
+            if reader_scope is None or not alias:
+                continue
+            source = self.resolver._source(reader_scope, alias, local=False)
+            if source is None or source[0] is not scope:
+                continue
+            if isinstance(node, exp.TableColumn):
+                return None
+            if node.name.lower() == name.lower():
+                found.append(node)
+        return found
+
+    def _row_wise(self, node: exp.Expression, depth: int = 0) -> bool:
+        """Is the value of `node` used only row by row from here to the query result?
+
+        An aggregate or window over it, further down, would carry the value of later rows onto
+        earlier ones (the previous label of the next row is this row's label)."""
+        scope = self.resolver.scope_of(node)
+        select = scope.expression if scope is not None else None
+        if not isinstance(select, exp.Select) or depth > 8:
+            return False
+        projection = node
+        while projection.parent is not None and projection.parent is not select:
+            projection = projection.parent
+            if projection is not node and isinstance(projection, exp.AggFunc | exp.Window):
+                return False
+        if projection.parent is not select or projection not in select.expressions:
+            return True  # a filter or ordering decides which rows stay, it computes nothing
+        if id(scope) in self.analysis.output_scopes:
+            return True
+        if not (scope.is_cte or scope.is_derived_table) or isinstance(
+            select.parent, exp.SetOperation
+        ):
+            return False
+        name = projection.alias_or_name
+        if not name:
+            return True
+        readers = self._readers(scope, name)
+        return readers is not None and all(self._row_wise(r, depth + 1) for r in readers)
+
+    def only_read_through(self, column: exp.Column, scope: Scope) -> bool:
+        """Is this label column summed per (key, time) row into an output that nothing reads
+        except through an accepted window?"""
+        select = scope.expression
+        if not isinstance(select, exp.Select) or self.rows_of(scope) is None:
+            return False
+        projection = column
+        while projection.parent is not None and projection.parent is not select:
+            projection = projection.parent
+        if projection.parent is not select or not isinstance(projection, exp.Alias):
+            return False
+        if not any(isinstance(a, exp.AggFunc) for a in _ancestors(column, projection)):
+            return False
+        readers = self._readers(scope, projection.alias)
+        return bool(readers) and all(self.holds(c) for c in readers)
+
+    def rows_of(self, scope: Scope) -> TableRef | None:
+        """The label reference when `scope` is one row per (entity keys, prediction time) of it."""
+        if id(scope) not in self._rows:
+            self._rows[id(scope)] = self._one_row_per_key(scope)
+        return self._rows[id(scope)]
+
+    def _one_row_per_key(self, scope: Scope) -> TableRef | None:
+        select = scope.expression
+        group = select.args.get("group") if isinstance(select, exp.Select) else None
+        if group is None or any(v for k, v in group.args.items() if k != "expressions"):
+            return None
+        if len(scope.selected_sources) != 1 or select.find(exp.Window, *_ROW_MULTIPLIERS):
+            return None
+        ((_, source),) = scope.selected_sources.values()
+        ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+        if ref is None or not self._spine_only(ref):
+            return None
+        wanted = {self.spec.prediction_ts, *self.spec.entity_keys}
+        grouped = set()
+        for item in group.expressions:
+            got = self.resolver.resolve_all(item, scope, local=True)
+            if not got or any(g.ref is not ref or not g.exact for g in got):
+                return None
+            grouped |= {g.column for g in got}
+        return ref if grouped == wanted else None
+
+    def _plain_rows(self, scope: Scope) -> TableRef | None:
+        """The label reference when `scope` selects (and filters) rows of it without regrouping."""
+        select = scope.expression
+        if not isinstance(select, exp.Select) or len(scope.selected_sources) != 1:
+            return None
+        if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
+            return None
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
+            return None
+        ((_, source),) = scope.selected_sources.values()
+        ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+        return ref if ref is not None and self._spine_only(ref) else None
+
+    def _spine_only(self, ref: TableRef) -> bool:
+        return ref.kind == "label" and ref.on_spine and not ref.temporal_paths
+
+    def _accepted(self, window: exp.Window) -> list[exp.Column]:
+        spec, resolver = self.spec, self.resolver
+        parts = _window_parts(window)
+        scope = resolver.scope_of(window)
+        if scope is None or not self._earlier_rows_only(parts):
+            return []
+        select = scope.expression
+        if (
+            not isinstance(select, exp.Select)
+            or len(scope.selected_sources) != 1
+            or any(select.args.get(k) for k in ("group", "having", "distinct"))
+            or select.find(*_ROW_MULTIPLIERS) is not None
+        ):
+            return []
+        ((_, source),) = scope.selected_sources.values()
+        if isinstance(source, exp.Table):
+            ref = resolver.refs.get(id(source))
+            if ref is None or not self._spine_only(ref):
+                return []
+            holds_label = self._table_label
+        elif isinstance(source, Scope) and (ref := self.rows_of(source)) is not None:
+            holds_label = self._grouped_label
+        elif isinstance(source, Scope) and (ref := self._plain_rows(source)) is not None:
+            holds_label = self._table_label  # a CTE that only selects and filters the label rows
+        else:
+            return []
+
+        def same_row_column(node: exp.Expression, name: str | None) -> bool:
+            got = resolver.resolve_all(node, scope)
+            return bool(got) and all(
+                g.ref is ref and g.exact and (name is None or g.column == name) for g in got
+            )
+
+        first = parts.order[0].this
+        if parts.order[0].args.get("desc") or not same_row_column(first, spec.prediction_ts):
+            return []
+        for key in spec.entity_keys:
+            if not any(same_row_column(p, key) for p in parts.partition_by):
+                return []
+        if parts.func.find(exp.Select, exp.Window) is not None:
+            return []
+        found = [c for c in parts.func.find_all(exp.Column) if holds_label(c, scope, ref, source)]
+        return found if found and self._row_wise(window) else []
+
+    def _table_label(self, column: exp.Column, scope: Scope, ref: TableRef, source) -> bool:
+        got = self.resolver.resolve(column, scope)
+        return got is not None and got.ref is ref and got.column in self.spec.label_columns
+
+    def _grouped_label(self, column: exp.Column, scope: Scope, ref: TableRef, source: Scope):
+        """Does `column` name an output of the grouping SELECT that aggregates a label column?"""
+        found = self.resolver._source(scope, column.table, local=True) if column.table else None
+        if found is None or found[0] is not source:
+            return False
+        position = _position(source, column.name)
+        if position is None:
+            return False
+        projection = source.expression.selects[position]
+        return any(
+            (got := self.resolver.resolve(inner, source)) is not None
+            and got.ref is ref
+            and got.column in self.spec.label_columns
+            for inner in projection.find_all(exp.Column)
+        )
+
+    def _earlier_rows_only(self, parts: _WindowParts) -> bool:
+        """Do the function, ordering and frame keep the window to rows stamped strictly before
+        the current one, whose labels are final?"""
+        spec = self.spec
+        delay, func, frame, order = spec.label_known_after, parts.func, parts.spec, parts.order
+        if delay is None or not order:
+            return False
+        if isinstance(func, exp.Lag):
+            offset = func.args.get("offset")
+            steps = 1.0 if offset is None else _constant(offset)
+            default = func.args.get("default")
+            return (
+                delay == 0
+                and len(order) == 1
+                and _whole_at_least_one(steps)
+                and (default is None or _is_constant(default))
+            )
+        if (
+            not isinstance(func, exp.AggFunc | exp.FirstValue | exp.LastValue | exp.NthValue)
+            or frame is None
+            or frame.args.get("exclude") is not None
+            or str(frame.args.get("start_side") or "").upper() != "PRECEDING"
+            or str(frame.args.get("end_side") or "").upper() != "PRECEDING"
+        ):
+            return False
+        end, kind = frame.args.get("end"), str(frame.args.get("kind") or "").upper()
+        if not isinstance(end, exp.Expression):
+            return False
+        if kind == "ROWS":
+            return delay == 0 and len(order) == 1 and _whole_at_least_one(_constant(end))
+        if kind != "RANGE":
+            return False
+        if isinstance(end, exp.Interval):
+            got = _amount_seconds(end, None)
+            seconds = None if got is None else got[0] - got[1]  # the shortest it can really be
+        else:
+            amount = _constant(end)
+            factor = _UNIT_FACTOR.get(spec.time_units.get(spec.label_table, ""))
+            # without a unit a positive offset is still positive, which is all a zero delay asks
+            seconds = None
+            if amount is not None and (delay == 0 or factor is not None):
+                seconds = amount if delay == 0 else amount * factor
+        if seconds is None or seconds <= 0:
+            return False
+        return seconds >= delay if spec.boundary == "inclusive" else seconds > delay
+
+
+def _whole_at_least_one(value: float | None) -> bool:
+    return value is not None and math.isfinite(value) and value >= 1 and value == int(value)
 
 
 def _matured_use(got: Resolved, scope: Scope | None, resolver: _Resolver, after) -> bool:
