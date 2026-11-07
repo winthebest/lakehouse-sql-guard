@@ -488,3 +488,221 @@ def synthetic_world(root: Path, seed: int) -> LakehouseCatalog:
             catalog = LakehouseCatalog.local(path)
         build_world(catalog, WorldConfig(seed=seed))
     return catalog
+
+
+# --- W2: an event-log world ------------------------------------------------------------------
+# A learning app. `interactions` is one table that is the prediction spine (one row per answer, the
+# label `correct` is final the moment the row is stamped), the event history of every user, and the
+# holder of an outcome column (`answer_shown_at`, known only after the answer). Its times are
+# BIGINT epoch milliseconds. `market_prices` is a single series (no entity key) in epoch seconds.
+# `item_stats` is recomputed nightly and loaded with a delay. Everything is loaded in nightly
+# batches, one Iceberg commit per night with the night as its logical time.
+
+EPOCH = datetime(1970, 1, 1)
+
+EVENT_LOG_SCHEMAS = {
+    "items": pa.schema([("item_id", pa.int64()), ("topic", pa.string()), ("level", pa.int64())]),
+    "interactions": pa.schema(
+        [
+            ("interaction_id", pa.int64()),
+            ("user_id", pa.int64()),
+            ("item_id", pa.int64()),
+            ("ts_ms", pa.int64()),
+            ("correct", pa.int64()),
+            ("answer_shown_at", pa.int64()),
+            ("loaded_ms", pa.int64()),
+        ]
+    ),
+    "item_stats": pa.schema(
+        [
+            ("item_id", pa.int64()),
+            ("updated_ms", pa.int64()),
+            ("loaded_ms", pa.int64()),
+            ("difficulty", pa.float64()),
+            ("n_attempts", pa.int64()),
+        ]
+    ),
+    "market_prices": pa.schema([("ts_s", pa.int64()), ("price", pa.float64())]),
+}
+TOPICS = ["algebra", "geometry", "fractions", "reading", "grammar", "logic"]
+
+
+@dataclass(frozen=True)
+class EventLogConfig:
+    seed: int = 42
+    n_users: int = 120
+    n_items: int = 30
+    n_days: int = 30
+    late_rate: float = 0.10
+    late_max_days: int = 2  # a late row is loaded 1..late_max_days nights after the usual night
+    price_step_seconds: int = 900
+    answer_shown_min_ms: int = 30_000
+    answer_shown_max_ms: int = 600_000
+
+
+def event_log_ingest_bound(config: EventLogConfig | None = None) -> str:
+    """The delay bound the generator guarantees for `interactions` and `item_stats` (a row is
+    loaded strictly less than this long after the time it is stamped with)."""
+    cfg = config or EventLogConfig()
+    return f"{cfg.late_max_days + 1} days"
+
+
+def event_log_price_bound(config: EventLogConfig | None = None) -> str:
+    """The same for `market_prices`: a day's prices are loaded at the next midnight."""
+    return "2 days"
+
+
+def epoch_ms(moment: datetime) -> int:
+    return round((moment - EPOCH).total_seconds() * 1000)
+
+
+def epoch_s(moment: datetime) -> int:
+    return round((moment - EPOCH).total_seconds())
+
+
+def from_epoch_ms(value: int) -> datetime:
+    return EPOCH + timedelta(milliseconds=value)
+
+
+def _commit_event_log(
+    catalog: LakehouseCatalog, table: str, rows: list[dict], logical: datetime
+) -> None:
+    if not rows:
+        return
+    data = pa.Table.from_pylist(rows, schema=EVENT_LOG_SCHEMAS[table])
+    catalog.table(table).append(
+        data, snapshot_properties={LOGICAL_TS_PROPERTY: logical.isoformat()}
+    )
+
+
+def _event_log_interactions(cfg: EventLogConfig) -> dict[int, list[dict]]:
+    """Interaction rows by the night they are loaded (rows still in flight at the end dropped)."""
+    rng = random.Random(f"event_log/interactions/{cfg.seed}")
+    skill = {u: rng.gauss(0.0, 1.0) for u in range(1, cfg.n_users + 1)}
+    rate = {u: rng.uniform(0.3, 1.2) for u in skill}
+    difficulty = {i: rng.gauss(0.0, 1.0) for i in range(1, cfg.n_items + 1)}
+    drafts = []
+    for user in skill:
+        for day in range(cfg.n_days):
+            for _ in range(_poisson(rng, rate[user])):
+                ts_ms = epoch_ms(_midnight(day)) + rng.randint(0, 86_399_999)
+                drafts.append((ts_ms, user, rng.randint(1, cfg.n_items), day))
+    drafts.sort()
+    seen: dict[int, int] = defaultdict(int)
+    by_night: dict[int, list[dict]] = defaultdict(list)
+    for interaction_id, (ts_ms, user, item, day) in enumerate(drafts, start=1):
+        logit = skill[user] + 0.04 * seen[user] - difficulty[item]
+        correct = int(rng.random() < 1 / (1 + math.exp(-logit)))
+        seen[user] += 1
+        shown = ts_ms + rng.randint(cfg.answer_shown_min_ms, cfg.answer_shown_max_ms)
+        late = rng.random() < cfg.late_rate
+        night = day + 1 + (rng.randint(1, cfg.late_max_days) if late else 0)
+        if night > cfg.n_days:
+            continue  # still in flight when the world ends
+        by_night[night].append(
+            {
+                "interaction_id": interaction_id,
+                "user_id": user,
+                "item_id": item,
+                "ts_ms": ts_ms,
+                "correct": correct,
+                "answer_shown_at": shown,
+                "loaded_ms": epoch_ms(_midnight(night)),
+            }
+        )
+    return by_night
+
+
+def _event_log_item_stats(
+    cfg: EventLogConfig, interactions: dict[int, list[dict]]
+) -> dict[int, list[dict]]:
+    """Nightly per-item recompute over the interactions loaded so far, by the night it is loaded."""
+    rng = random.Random(f"event_log/item_stats/{cfg.seed}")
+    attempts: dict[int, int] = defaultdict(int)
+    right: dict[int, int] = defaultdict(int)
+    by_night: dict[int, list[dict]] = defaultdict(list)
+    for night in range(1, cfg.n_days + 1):
+        for row in interactions.get(night, []):
+            attempts[row["item_id"]] += 1
+            right[row["item_id"]] += row["correct"]
+        for item in sorted(attempts):
+            late = rng.random() < cfg.late_rate
+            loaded = night + (rng.randint(1, cfg.late_max_days) if late else 0)
+            if loaded > cfg.n_days:
+                continue
+            by_night[loaded].append(
+                {
+                    "item_id": item,
+                    "updated_ms": epoch_ms(_midnight(night)),
+                    "loaded_ms": epoch_ms(_midnight(loaded)),
+                    "difficulty": round(1 - (right[item] + 1) / (attempts[item] + 2), 6),
+                    "n_attempts": attempts[item],
+                }
+            )
+    return by_night
+
+
+def _event_log_prices(cfg: EventLogConfig) -> dict[int, list[dict]]:
+    """A random walk sampled every `price_step_seconds`; a day's prices are loaded at midnight."""
+    rng = random.Random(f"event_log/market_prices/{cfg.seed}")
+    price = 100.0
+    by_night: dict[int, list[dict]] = defaultdict(list)
+    step = cfg.price_step_seconds
+    for day in range(cfg.n_days):
+        start = epoch_s(_midnight(day))
+        for second in range(0, 86_400, step):
+            price *= math.exp(rng.gauss(0.0, 0.002))
+            by_night[day + 1].append({"ts_s": start + second, "price": round(price, 4)})
+    return by_night
+
+
+@dataclass(frozen=True)
+class EventLogSummary:
+    n_interactions: int
+    n_late: int  # loaded more than a day after the stamp
+    correct_rate: float
+    snapshots: dict[str, int]
+
+
+def build_event_log_world(
+    catalog: LakehouseCatalog, config: EventLogConfig | None = None
+) -> EventLogSummary:
+    """Generate the event-log world deterministically from `config.seed` and write it."""
+    cfg = config or EventLogConfig()
+    for name, schema in EVENT_LOG_SCHEMAS.items():
+        catalog.create_empty(name, schema)
+    rng = random.Random(f"event_log/items/{cfg.seed}")
+    items = [
+        {"item_id": i, "topic": rng.choice(TOPICS), "level": rng.randint(1, 5)}
+        for i in range(1, cfg.n_items + 1)
+    ]
+    _commit_event_log(catalog, "items", items, START)
+
+    interactions = _event_log_interactions(cfg)
+    stats = _event_log_item_stats(cfg, interactions)
+    prices = _event_log_prices(cfg)
+    for night in range(1, cfg.n_days + 1):
+        logical = _midnight(night)
+        _commit_event_log(catalog, "interactions", interactions.get(night, []), logical)
+        _commit_event_log(catalog, "item_stats", stats.get(night, []), logical)
+        _commit_event_log(catalog, "market_prices", prices.get(night, []), logical)
+
+    rows = [r for night in interactions.values() for r in night]
+    return EventLogSummary(
+        n_interactions=len(rows),
+        n_late=sum(r["loaded_ms"] - r["ts_ms"] > 86_400_000 for r in rows),
+        correct_rate=sum(r["correct"] for r in rows) / len(rows) if rows else 0.0,
+        snapshots={name: len(catalog.snapshots(name)) for name in EVENT_LOG_SCHEMAS},
+    )
+
+
+def event_log_world(root: Path, seed: int) -> LakehouseCatalog:
+    """The event-log world for `seed` under `root`, generated on first use."""
+    path = root / f"eventlog-{seed}"
+    catalog = LakehouseCatalog.local(path)
+    if set(catalog.table_names()) != set(EVENT_LOG_SCHEMAS):
+        if catalog.table_names():
+            shutil.rmtree(path)
+            catalog = LakehouseCatalog.local(path)
+        build_event_log_world(catalog, EventLogConfig(seed=seed))
+    return catalog

@@ -1,0 +1,46 @@
+# Spec for the synthetic learning-app world of the second held-out set: the table of answers is
+# both the prediction spine and the event history of every user, its times are integer epoch
+# milliseconds, and one table is a single series without an entity key. Qualified relation names
+# (dbt-style `database.schema.model`) are mapped to the warehouse tables by `relations`.
+label_table: interactions
+entity_keys: [user_id]
+prediction_ts: ts_ms
+label_columns: [correct]
+time_columns:
+  interactions: ts_ms
+  item_stats: updated_ms
+  market_prices: ts_s
+# Integer time columns count epoch time in these units.
+time_units:
+  interactions: milliseconds
+  item_stats: milliseconds
+  market_prices: seconds
+availability_columns:
+  interactions: loaded_ms
+  item_stats: loaded_ms
+boundary: strict
+# A row is loaded less than this long after the time it is stamped with (a guarantee of the data
+# generator). A day of market prices is loaded at the midnight that ends the day.
+max_ingest_delay:
+  interactions: 3 days
+  item_stats: 3 days
+  market_prices: 2 days
+# A label (`correct`) is final the moment its row is stamped.
+label_known_after: 0
+static_tables: [items]
+# Known only after the answer was given, from the same row's table.
+outcome_columns:
+  - interactions.answer_shown_at
+# A query may name a table by its bare catalog name (`interactions`) or by any name listed here.
+relations:
+  analytics.staging.stg_interactions: interactions
+  analytics.staging.stg_item_stats: item_stats
+  analytics.staging.stg_market_prices: market_prices
+  analytics.staging.stg_items: items
+  analytics.marts.fct_training_spine: interactions
+  staging.stg_interactions: interactions
+  staging.stg_item_stats: item_stats
+  staging.stg_market_prices: market_prices
+  staging.stg_items: items
+  marts.fct_training_spine: interactions
+dialect: duckdb
