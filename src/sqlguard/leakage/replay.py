@@ -71,6 +71,15 @@ MIN_POINTS = 3
 # outweigh a single old one. A row of half the longest delay weighs 0.06, one at 90% weighs 0.66.
 TAIL_EXPONENT = 4.0
 _ROW = "<row>"  # pseudo-column for rows present in only one of the two runs
+# Two float results are the same when they agree to this relative tolerance, or to an absolute one
+# of `_ABS_FLOOR`. The absolute part is what makes the difference of two nearly equal sums, whose
+# rounding noise is far smaller than the sums and whose sign depends on the order they were added
+# in, compare equal to itself; it is a constant, because any tolerance that grows with the size of
+# a column excuses a real difference in the column's small values (a jump from 0.5 to 0.9 beside
+# values of 1e9). Noise above it, in sums larger than about 1e3, is reported as a difference.
+_REL_TOL = 1e-9
+_ABS_FLOOR = 1e-12
+_MAX_UNORDERED = 64  # rows per key that are matched one by one when sorting did not line them up
 _EPOCH = datetime(1970, 1, 1)
 # microseconds in one unit of an integer time column (`time_units` of the spec)
 _UNIT_MICROS = {"seconds": 1_000_000, "milliseconds": 1_000, "microseconds": 1}
@@ -156,10 +165,60 @@ def _quote(name: str) -> str:
 
 
 def _normalize(value: object) -> object:
-    """Compare floats to 9 significant digits (relative), and NaN equal to NaN."""
-    if isinstance(value, float):
-        return "nan" if math.isnan(value) else float(f"{value:.9g}")
+    """NaN compares equal to NaN; every other value is kept as it is."""
+    if isinstance(value, float) and math.isnan(value):
+        return "nan"
     return value
+
+
+def _order_key(row: tuple) -> tuple:
+    """Sort key blind to float noise: floats are keyed to 6 significant digits."""
+    return tuple(f"{v:.6g}" if isinstance(v, float) else repr(v) for v in row)
+
+
+def _close(a: object, b: object, tolerance: float) -> bool:
+    if a == b:
+        return True
+    numbers = (float, int)
+    if (
+        isinstance(a, numbers)
+        and isinstance(b, numbers)
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+    ):
+        return math.isclose(a, b, rel_tol=_REL_TOL, abs_tol=tolerance)
+    return False
+
+
+def _same_row(a: tuple, b: tuple, tolerances: list[float]) -> bool:
+    return all(_close(x, y, t) for x, y, t in zip(a, b, tolerances, strict=True))
+
+
+def _same_rows(a: list[tuple], b: list[tuple], tolerances: list[float]) -> bool:
+    """Are the rows of one key the same in both runs, whatever order float noise left them in?"""
+    if len(a) != len(b):
+        return False
+    if all(_same_row(x, y, tolerances) for x, y in zip(a, b, strict=True)):
+        return True
+    if len(a) > _MAX_UNORDERED:
+        return False
+    unmatched = list(b)
+    for row in a:
+        for i, other in enumerate(unmatched):
+            if _same_row(row, other, tolerances):
+                del unmatched[i]
+                break
+        else:
+            return False
+    return True
+
+
+def _tolerances(table: pa.Table, columns: list[str]) -> list[float]:
+    """The absolute tolerance for each column: floats get `_ABS_FLOOR`, anything else is compared
+    exactly."""
+    return [
+        _ABS_FLOOR if pa.types.is_floating(table.column(name).type) else 0.0 for name in columns
+    ]
 
 
 def sample_points(
@@ -628,7 +687,7 @@ class Replayer:
             key = tuple(row[c] for c in key_cols)
             grouped[key].append(tuple(_normalize(row[c]) for c in value_cols))
         for rows in grouped.values():
-            rows.sort(key=repr)
+            rows.sort(key=_order_key)
         return grouped
 
     def _relation_target(self, parts: tuple[str, ...]) -> str:
@@ -745,6 +804,7 @@ class Replayer:
         # Every non-key column is compared, labels included: a "label" that changes between
         # runs is not the label.
         value_cols = [c for c in full.column_names if c not in key_cols]
+        tolerances = _tolerances(full, value_cols)
         full_by_ts: dict[datetime, dict[tuple, list[tuple]]] = defaultdict(dict)
         # rows keep their own key (the value as the query printed it); only the choice of the
         # snapshot and the cutoff go by the instant that value stands for
@@ -816,14 +876,17 @@ class Replayer:
             for key in keys:
                 compared += 1
                 now, past = now_rows.get(key), past_rows.get(key)
-                if now == past:
+                if now is not None and past is not None and _same_rows(now, past, tolerances):
                     continue
                 mismatched += 1
                 if now is None or past is None or len(now) != len(past):
                     columns[_ROW] += 1
                     continue
                 for i, col in enumerate(value_cols):
-                    if any(a[i] != b[i] for a, b in zip(now, past, strict=True)):
+                    if any(
+                        not _close(a[i], b[i], tolerances[i])
+                        for a, b in zip(now, past, strict=True)
+                    ):
                         columns[col] += 1
 
         if len(skipped) == len(points):
