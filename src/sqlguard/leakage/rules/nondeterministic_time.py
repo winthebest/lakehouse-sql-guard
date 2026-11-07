@@ -10,15 +10,20 @@ from __future__ import annotations
 
 from sqlguard.core.findings import Finding, Severity
 from sqlguard.leakage.analysis import QueryAnalysis
+from sqlguard.leakage.roles import attribute
 
 
 def check(analysis: QueryAnalysis) -> list[Finding]:
     return [
-        Finding(
-            "L7",
-            Severity.HIGH,
-            f"{use.sql} depends on when the query runs, not on the prediction time of the row",
-            use.sql,
+        attribute(
+            analysis,
+            Finding(
+                "L7",
+                Severity.HIGH,
+                f"{use.sql} depends on when the query runs, not on the prediction time of the row",
+                use.sql,
+            ),
+            use.node,
         )
         for use in analysis.clock_uses
     ]

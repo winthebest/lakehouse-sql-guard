@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlguard.core.findings import Finding, Severity
 from sqlguard.leakage.analysis import QueryAnalysis, TimeBound
+from sqlguard.leakage.roles import attribute
 
 DAY = 86_400
 
@@ -46,13 +47,12 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                 break
     for issue in analysis.windows:
         if issue.kind == "lookahead":
-            findings.append(
-                Finding(
-                    "L1",
-                    Severity.HIGH,
-                    f"window over {issue.ref.describe()} looks at later rows",
-                    issue.ref.describe(),
-                    {"window": issue.sql, "table": issue.ref.table},
-                )
+            finding = Finding(
+                "L1",
+                Severity.HIGH,
+                f"window over {issue.ref.describe()} looks at later rows",
+                issue.ref.describe(),
+                {"window": issue.sql, "table": issue.ref.table},
             )
+            findings.append(attribute(analysis, finding, issue.node))
     return findings

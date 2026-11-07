@@ -6,6 +6,10 @@ lineage failure, expired snapshot history, or too little replay evidence for a q
 static ingestion-time hint), otherwise `clean`.
 Never `clean` by default.
 
+A static finding that provably feeds only output columns the spec declares as label or metadata
+(and decides no row) is kept in the report as INFO with weight 0 and `evidence.non_feature_only`;
+it is not a leak type and does not move the score (see `roles`).
+
 A replay result never lowers a static score. When replay found no difference, the findings about
 the tables it hid later rows of carry that fact as evidence (`replay_no_mismatch`, with the
 exposure counts), so a reader can weigh it, but the verdict is the static one.
@@ -58,6 +62,8 @@ class Weights:
         )
 
     def weight(self, finding: Finding) -> float:
+        if finding.evidence.get("non_feature_only"):  # shown for information, not scored
+            return 0.0
         if finding.rule_id == "L4" and finding.evidence.get("exceeds_declared_delay"):
             return self.l4_declared_delay
         return self.rules.get(finding.rule_id, 0.0)
@@ -213,7 +219,13 @@ def validate(
 
     findings = annotate(findings, replay_result)
     score = _score([f for f in findings if f.rule_id != "REPLAY"], replay_result, weights)
-    leak_types = sorted({f.rule_id for f in findings if f.rule_id in weights.rules})
+    leak_types = sorted(
+        {
+            f.rule_id
+            for f in findings
+            if f.rule_id in weights.rules and not f.evidence.get("non_feature_only")
+        }
+    )
     needs_replay = any(f.rule_id == "L4" for f in findings)  # only replay can settle the hint
     replay_blocks = (
         replay_result is not None
