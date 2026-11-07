@@ -1,0 +1,38 @@
+version: 2
+
+# dbt-duckdb reads a source with `external_location` straight from the file, so the relation name
+# dbt records is a table function call, not a schema-qualified name.
+sources:
+  - name: lake
+    tables:
+      - name: labels
+        meta:
+          external_location: "read_parquet('{{ env_var('LAKE_DIR', 'data') }}/labels.parquet')"
+          leakage:
+            role: label_spine
+            entity_keys: [user_id]
+            prediction_ts: label_ts
+            label_columns: [churned]
+        columns:
+          - name: user_id
+            data_type: bigint
+          - name: label_ts
+            data_type: timestamp
+          - name: churned
+            data_type: bigint
+
+      - name: events
+        meta:
+          external_location: "read_parquet('{{ env_var('LAKE_DIR', 'data') }}/events/*.parquet', hive_partitioning=false)"
+          leakage:
+            time_column: event_ts
+            availability_column: ingested_at
+        columns:
+          - name: user_id
+            data_type: bigint
+          - name: event_ts
+            data_type: timestamp
+          - name: ingested_at
+            data_type: timestamp
+          - name: amount
+            data_type: double

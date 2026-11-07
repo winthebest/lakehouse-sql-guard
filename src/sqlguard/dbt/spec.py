@@ -22,7 +22,7 @@ from types import MappingProxyType
 from typing import Any
 
 from sqlguard.core.lineage import Schema
-from sqlguard.dbt.inline import Inlined, relation_key
+from sqlguard.dbt.inline import EXTERNAL, Inlined, relation_key
 from sqlguard.dbt.manifest import Node
 from sqlguard.leakage.spec import LeakageSpec, SpecError
 from sqlguard.leakage.spec import relation_key as spec_relation_key
@@ -63,25 +63,40 @@ def physical_table(node: Node, dialect: str, remap: Mapping[str, str]) -> Physic
     It is what the `--spec` file's `relations` says (`remap`), else `iceberg_table` from the
     node's meta (dbt-duckdb's iceberg plugin reads it, defaulting to `<schema>.<identifier>`),
     else `<schema>.<identifier>`.
+
+    A source read from files (`external_location`) has no schema or identifier: the inlined query
+    calls it by its dbt name, which is also the default table, and `relations` and `iceberg_table`
+    can still point that name at another table.
     """
     if not node.relation_name:
         raise SpecError(f"{node.unique_id} has no relation name, so the query cannot read it")
     parts = relation_key(node.relation_name, dialect)
-    schema = parts[-2] if len(parts) > 1 else ""
+    if not parts:
+        raise SpecError(
+            f"{node.unique_id}: the relation name {node.relation_name!r} names no table and is "
+            "not a file read such as read_parquet('path'), so the query cannot be matched to it"
+        )
+    external = parts[0] == EXTERNAL
+    if external:
+        identifier, schema, relation = node.name.lower(), "", node.name.lower()
+    else:
+        identifier, schema = parts[-1], parts[-2] if len(parts) > 1 else ""
+        relation = ".".join(parts) if len(parts) > 1 else None
     template = node.meta.get("iceberg_table")
-    relation = ".".join(parts) if len(parts) > 1 else None
     if relation in remap:
         target = remap[relation]
     elif isinstance(template, str) and template.strip():
         try:
-            target = template.format(schema=schema, identifier=parts[-1]).strip().lower()
+            target = template.format(schema=schema, identifier=identifier).strip().lower()
         except (KeyError, IndexError):
             raise SpecError(
                 f"{node.unique_id}: iceberg_table {template!r} may only use {{schema}} and "
                 f"{{identifier}}"
             ) from None
     else:
-        target = f"{schema}.{parts[-1]}" if schema else parts[-1]
+        target = f"{schema}.{identifier}" if schema else identifier
+    if external and target == relation:
+        relation = None  # the name in the query is already the table
     return PhysicalTable(target.rsplit(".", 1)[-1], target, relation)
 
 
