@@ -274,7 +274,7 @@ Behaviour changes that make the guard stricter (a query that was clean can now b
   inside a subquery no longer hides a real table of the same name in an outer scope.
 
 New optional spec fields (`boundary`, `max_ingest_delay`, `label_known_after`, `relations`)
-are described in the README; a spec without them behaves as before.
+are described in [spec.md](spec.md#optional-fields); a spec without them behaves as before.
 
 ## Leakage: static analysis
 

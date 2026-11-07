@@ -48,7 +48,7 @@ semantics (nothing is inferred from names): the label table and its prediction-t
 column, the event-time column of each temporal table, optional ingestion-time columns,
 static tables, and outcome columns that are only known after the label. Optional fields
 (`boundary`, `max_ingest_delay`, `label_known_after`, `relations`) settle judgment calls the
-SQL cannot; `spec.py` is their schema and the README explains them.
+SQL cannot; `spec.py` is their schema and [spec.md](spec.md) explains them.
 
 **Static analysis** (`analysis.py`). The query is qualified and split into scopes. Every
 physical table use becomes a `TableRef`. Each AND-ed term of a WHERE / ON / HAVING clause
