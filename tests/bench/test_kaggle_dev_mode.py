@@ -1,40 +1,13 @@
-"""The Kaggle harness in development mode: label tables that double as history, INFO counts, the
+"""The Kaggle harness in development mode: INFO counts, the
 registration and cases it follows, and what a dev run refuses or skips."""
 
 import json
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
 
 from bench.kaggle import evaluate as ev
-
-D = datetime(2026, 3, 10)
-
-
-def test_a_label_table_listed_in_time_columns_is_label_history():
-    schema = {"tables": {"Train": {}, "people": {}}, "spine": {"table": "train"}}
-    assert ev.table_roles(schema, {"time_columns": {"Train": "ts"}}) == {
-        "Train": "label_history",
-        "people": "temporal",
-    }
-    assert ev.table_roles(schema, {"time_columns": {"people": "ts"}})["Train"] == "label"
-    assert ev.table_roles(schema, {})["Train"] == "label"
-
-
-def test_label_history_is_committed_by_load_time_and_not_once_after_the_last_event():
-    roles = {"labels": "label_history", "refunds": "outcome"}
-    event = {
-        "labels": [D + timedelta(days=2), D + timedelta(days=1), D + timedelta(days=2)],
-        "refunds": [D + timedelta(days=1)],
-    }
-    plans = ev.plan_commits(roles, event, {"labels": event["labels"]})
-    assert [(p.table, p.logical_ts, p.rows) for p in plans] == [
-        ("labels", D + timedelta(days=1), (1,)),
-        ("labels", D + timedelta(days=2), (0, 2)),
-        ("refunds", D + timedelta(days=2) + ev.DAY, None),
-    ]
 
 
 def cli(findings):

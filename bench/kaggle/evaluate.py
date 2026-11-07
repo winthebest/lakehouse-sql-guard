@@ -70,7 +70,6 @@ MODES = (
 )  # "replay" is the run with --replay: its verdict and score are combined
 
 
-TIMED_ROLES = ("temporal", "label_history")  # committed row by row in load-time order
 PLACEHOLDER_TABLE = "unused_placeholder_events"
 PLACEHOLDER_COLUMN = "occurred_at"
 
@@ -160,20 +159,15 @@ class CommitPlan:
 
 
 def table_roles(schema: dict, spec: dict) -> dict[str, str]:
-    """`label`, `label_history`, `static`, `outcome` or `temporal` for every table of the schema.
-
-    A label table the spec also lists in `time_columns` doubles as event history: it is
-    `label_history` and is committed by load time like a temporal table.
-    """
+    """`label`, `static`, `outcome` or `temporal` for every table of the schema."""
     label = str(schema["spine"]["table"]).lower()
-    history = label in {str(t).strip().lower() for t in spec.get("time_columns") or {}}
     static = {str(t).lower() for t in spec.get("static_tables") or []}
     outcome = {str(ref).split(".", 1)[0].lower() for ref in spec.get("outcome_columns") or []}
     roles = {}
     for name in schema["tables"]:
         key = str(name).lower()
         if key == label:
-            roles[name] = "label_history" if history else "label"
+            roles[name] = "label"
         elif key in static:
             roles[name] = "static"
         elif key in outcome:
@@ -192,9 +186,9 @@ def plan_commits(
 
     Static tables: one commit a day before the earliest event time in the case. Label and outcome
     tables: one commit a day after the latest event time (labels are committed at the end, as in
-    bench/leakage/world.py). Every other table, and a label table that doubles as event history
-    (`label_history`): its rows sorted by load time, one commit per distinct load time, stamped
-    with it. `event_times` covers the non-static tables, `load_times` the ones committed by time.
+    bench/leakage/world.py). Every other table: its rows sorted by load time, one commit per
+    distinct load time, stamped with it. `event_times` covers the non-static tables, `load_times`
+    the temporal ones.
     """
     every = [t for times in event_times.values() for t in times]
     if not every:
@@ -205,7 +199,7 @@ def plan_commits(
     ]
     timed = []
     for table, role in roles.items():
-        if role not in TIMED_ROLES:
+        if role != "temporal":
             continue
         groups: dict[datetime, list[int]] = {}
         for index, moment in enumerate(load_times[table]):
@@ -315,7 +309,7 @@ def build_warehouse(schema: dict, spec: dict, data_dir: Path, warehouse: Path) -
             if not event:
                 raise BuildError(f"{name}: no event_time")
             event_times[name] = column_times(name, table, event, data[name])
-            if roles[name] in TIMED_ROLES:
+            if roles[name] == "temporal":
                 load = table.get("availability_time") or event
                 load_times[name] = (
                     event_times[name]

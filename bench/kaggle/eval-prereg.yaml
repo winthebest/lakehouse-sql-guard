@@ -258,16 +258,16 @@ amendments:
   - id: dev-label-history-commits
     date: "2026-11-07"
     dev: true
-    changes: commit_rules
+    changes: none
     text: >
-      A label table that the spec also lists in `time_columns` is event history (it is the case's
-      only event table in most of these cases). It is committed like a temporal table: rows sorted
-      by load time (schema.yaml availability_time when it has one, otherwise event_time), one commit
-      per distinct load time, logical time equal to that value. It gets no extra commit a day after
-      the last event. Reason: with one commit after the last event every pinned read of the label
-      table before a prediction time is empty, so replay cannot read earlier labels at all. A label
-      table not listed in `time_columns` keeps the original rule. Outcome and static tables keep
-      theirs.
+      Considered and not adopted. The idea was to commit a label table that the spec also lists in
+      `time_columns` row by row in load-time order (as temporal tables are) instead of once after
+      the last event. It does not scale: the Iceberg writer is quadratic in the number of commits
+      (400 one-row commits take 25 s and 70 MB, 1500 commits more than six minutes and 800 MB), and
+      these cases need 60 to 4074 commits each (about 22000 in all; kl12 alone 4074). The rule of
+      `commit_rules` above stands unchanged for every table. Replay of an earlier label of the same
+      table therefore falls back to reading rows by prediction time (the reason string of the
+      result says so), and a late row in the label table cannot be caught by replay.
   - id: dev-v4-primary
     date: "2026-11-07"
     dev: true
