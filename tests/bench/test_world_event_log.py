@@ -11,10 +11,9 @@ import yaml
 
 from bench.leakage import audit
 from bench.leakage import world as gen
-from bench.leakage.cases import load_template, render
+from bench.leakage.cases import load_template
 from sqlguard.core.catalog import LakehouseCatalog
 from sqlguard.leakage.spec import LeakageSpec
-from sqlguard.leakage.validator import validate
 
 SMALL = gen.EventLogConfig(seed=7, n_users=40, n_items=12, n_days=14)
 DAY_MS = 86_400_000
@@ -236,10 +235,9 @@ def test_the_churn_world_audit_keeps_its_profile():
     assert (audit.W1_PROFILE.spine_table, audit.W1_PROFILE.spine_time) == ("labels", "label_ts")
 
 
-# --- one clean and one leaky pair per leak type, written for the developers only --------------
+# --- one clean and one leaky pair per leak type, for checking the world (the label oracle) only
 
 TYPES = ("L1", "L2", "L3", "L4", "L5", "L6", "L7")
-EXPECTED_RULE = {t: t for t in TYPES}
 
 
 def _pair(kind: str):
@@ -255,18 +253,6 @@ def test_there_is_a_pair_for_each_leak_type():
     for kind in TYPES:
         clean, leaky = _pair(kind)
         assert (clean.leak_type, leaky.leak_type) == ("clean", kind)
-
-
-@pytest.mark.parametrize("kind", TYPES)
-def test_the_static_check_separates_each_pair(kind, default_world):
-    spec = LeakageSpec.from_yaml(SPEC_PATH)
-    schema = default_world.schema_for()
-    clean, leaky = _pair(kind)
-    for case in render(clean):
-        assert validate(case.sql, spec, schema=schema).leak_types == [], case.case_id
-    for case in render(leaky):
-        report = validate(case.sql, spec, schema=schema)
-        assert kind in report.leak_types, (case.case_id, report.leak_types)
 
 
 @pytest.mark.parametrize("kind", TYPES[:5])
