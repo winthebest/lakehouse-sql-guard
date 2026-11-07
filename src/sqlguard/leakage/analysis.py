@@ -242,7 +242,7 @@ class TableRef:
         prediction time? A path on which the reference is the spine never does: the spine's own
         label is the target."""
         return (
-            bool(known_after)
+            known_after is not None
             and self.kind == "label"
             and bool(paths)
             and all(

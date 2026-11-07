@@ -115,3 +115,64 @@ def test_a_derived_label_declared_in_output_roles_need_not_be_a_schema_column():
     assert not [f for f in report.findings if f.rule_id == "SPEC"]
 
 
+# --- labels that are final the moment their row is stamped ------------------------------------
+
+PLAYS_SPEC = {
+    "label_table": "plays",
+    "entity_keys": ["user_id"],
+    "prediction_ts": "ts",
+    "label_columns": ["correct"],
+    "time_columns": {"plays": "ts"},
+    "static_tables": [],
+}
+PLAYS_SCHEMA = {
+    "plays": {
+        "user_id": "BIGINT",
+        "ts": "TIMESTAMP",
+        "task": "BIGINT",
+        "correct": "BIGINT",
+    }
+}
+PRIOR_RATE = """SELECT l.user_id, l.ts, l.correct,
+  (SELECT AVG(h.correct) FROM plays h WHERE h.user_id = l.user_id AND {bound}) AS prior_rate
+FROM plays l"""
+
+
+def with_delay(value, spec=PLAYS_SPEC):
+    return {**spec, "label_known_after": value}
+
+
+def test_labels_of_strictly_earlier_rows_are_known_when_the_delay_is_zero():
+    sql = PRIOR_RATE.format(bound="h.ts < l.ts")
+    assert check(sql, with_delay("0 seconds"), PLAYS_SCHEMA) == ("clean", set())
+    assert check(sql, with_delay(0), PLAYS_SCHEMA) == ("clean", set())
+
+
+def test_zero_delay_written_as_a_number_equals_the_zero_duration():
+    sql = PRIOR_RATE.format(bound="h.ts < l.ts")
+    assert check(sql, with_delay(0), PLAYS_SCHEMA) == check(
+        sql, with_delay("0 seconds"), PLAYS_SCHEMA
+    )
+
+
+def test_no_declared_delay_leaves_the_earlier_labels_a_use_of_the_target():
+    sql = PRIOR_RATE.format(bound="h.ts < l.ts")
+    assert check(sql, PLAYS_SPEC, PLAYS_SCHEMA) == ("leaky", {"L6"})
+
+
+def test_a_row_stamped_at_the_prediction_time_has_no_final_label_yet():
+    sql = PRIOR_RATE.format(bound="h.ts <= l.ts")
+    verdict, rules = check(sql, with_delay(0), PLAYS_SCHEMA)
+    assert verdict == "leaky"
+    assert {"L5", "L6"} <= rules
+
+
+def test_a_positive_delay_keeps_recent_labels_unknown():
+    strict = PRIOR_RATE.format(bound="h.ts < l.ts")
+    assert check(strict, with_delay("1 hour"), PLAYS_SCHEMA)[1] == {"L6"}
+    old_enough = PRIOR_RATE.format(bound="h.ts < l.ts - INTERVAL 2 HOUR")
+    assert check(old_enough, with_delay("1 hour"), PLAYS_SCHEMA) == ("clean", set())
+    too_recent = PRIOR_RATE.format(bound="h.ts < l.ts - INTERVAL 30 MINUTE")
+    assert check(too_recent, with_delay("1 hour"), PLAYS_SCHEMA)[1] == {"L6"}
+
+
