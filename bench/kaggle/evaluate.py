@@ -14,6 +14,9 @@ Nothing in a case is edited. The only conversions are mechanical:
 - `arrow_type`, `to_datetime` and `plan_commits`: the rows of a case as Iceberg commits in time
   order.
 
+With `--variant` the specs are rewritten by `variant_spec` (the placeholder temporal table of
+docs/limitations.md) and the results are written under a `-variant` name next to the primary ones.
+
 What the checker cannot express (a spec it rejects, a time column it cannot replay) is recorded as
 the outcome it produced: error, unverifiable, or a verdict.
 """
@@ -42,6 +45,7 @@ import yaml
 
 from bench.leakage.metrics import bootstrap_ci
 from sqlguard.core.catalog import LOGICAL_TS_PROPERTY, LakehouseCatalog
+from sqlguard.leakage.spec import LeakageSpec, SpecError
 from sqlguard.leakage.validator import UNCHECKED
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +68,10 @@ MODES = (
     "static",
     "replay",
 )  # "replay" is the run with --replay: its verdict and score are combined
+
+
+PLACEHOLDER_TABLE = "unused_placeholder_events"
+PLACEHOLDER_COLUMN = "occurred_at"
 
 
 class BuildError(Exception):
@@ -204,6 +212,37 @@ def plan_commits(
         if role in ("label", "outcome")
     ]
     return plans
+
+
+def variant_spec(spec: dict) -> dict:
+    """The spec of the secondary run: the label table is removed from `time_columns`, and the
+    placeholder temporal table that no query reads is declared if nothing else is left there.
+    Every other field is kept; the input is not modified."""
+    label = str(spec.get("label_table", "")).strip().lower()
+    times = {
+        table: column
+        for table, column in (spec.get("time_columns") or {}).items()
+        if str(table).strip().lower() != label
+    }
+    return {**spec, "time_columns": times or {PLACEHOLDER_TABLE: PLACEHOLDER_COLUMN}}
+
+
+def primary_stem(out_dir: Path) -> str:
+    """The newest primary result next to the variant (the one it is secondary to)."""
+    found = sorted(p.stem for p in out_dir.glob("*.json") if not p.stem.endswith("-variant"))
+    return found[-1] if found else "(none found)"
+
+
+def loadable_cases(specs: dict[str, dict]) -> list[str]:
+    """The cases whose spec the checker's own loader accepts."""
+    accepted = []
+    for case, spec in specs.items():
+        try:
+            LeakageSpec.from_dict(spec)
+        except SpecError:
+            continue
+        accepted.append(case)
+    return accepted
 
 
 # --- warehouse -----------------------------------------------------------------------------------
@@ -809,11 +848,33 @@ def _letters(entry: dict, mode: str) -> str:
     return " ".join(f"{k[0].upper()}{counts[k]}" for k in CLASSES if counts[k])
 
 
+def _variant_intro(variant: dict, meta: dict) -> list[str]:
+    return [
+        f"**Secondary run, not an evaluation of the cases as authored.** The primary result"
+        f" (`{variant['primary_stem']}`) stands unchanged: every spec was rejected. Here each spec"
+        f" is rewritten the way the real-world dbt specs are: the label table is removed from"
+        f" `time_columns` and a placeholder temporal table that no query reads"
+        f" (`{PLACEHOLDER_TABLE}: {PLACEHOLDER_COLUMN}`) is declared instead. Nothing else changes."
+        f" Registered in commit {meta['variant_prereg_commit']}.",
+        "",
+        f"Specs the checker still rejects: {', '.join(variant['rejected']) or 'none'}. Registered"
+        " limitation: the checker no longer knows the label table holds history, so same-table"
+        " windows and aggregates may be invisible to it; a miss may come from the workaround as"
+        " much as from the rules.",
+        "",
+    ]
+
+
 def render_markdown(result: dict) -> str:
     meta, thr = result["meta"], result["meta"]["thresholds"]
+    variant = result.get("variant")
+    title = f"# Kaggle leak cases: frozen checker {meta['checker']['release_tag']}"
+    if variant:
+        title += ", secondary variant (placeholder temporal table)"
     out = [
-        f"# Kaggle leak cases: frozen checker {meta['checker']['release_tag']}",
+        title,
         "",
+        *(_variant_intro(variant, meta) if variant else []),
         f"Run `{meta['stem']}` of `bench/kaggle/evaluate.py` at {meta['git_sha']}"
         f"{' (dirty tree)' if meta['git_dirty'] else ''}. Registration:"
         f" `bench/kaggle/eval-prereg.yaml` (commit {meta['prereg_commit']}). Cases digest"
@@ -843,7 +904,13 @@ def render_markdown(result: dict) -> str:
             out.append(
                 f"| {mode} | {label} | " + " | ".join(str(counts[c]) for c in CLASSES) + " |"
             )
-    for key, title in (("all", "All 14 cases"), ("without_disputed", "Without kl05, kl09, kl14")):
+    sections = [("all", "All 14 cases"), ("without_disputed", "Without kl05, kl09, kl14")]
+    if variant:
+        sections += [
+            ("loadable", f"The {len(variant['loadable'])} cases whose spec loads"),
+            ("loadable_without_disputed", "Those cases without kl05, kl09, kl14"),
+        ]
+    for key, title in sections:
         summary = result[key]
         out += [
             "",
@@ -926,6 +993,9 @@ def run(args: argparse.Namespace) -> int:
     if problems := preflight(prereg):
         print("refusing to run:\n" + "\n".join(f"- {p}" for p in problems), file=sys.stderr)
         return 2
+    if args.variant and "variant_spec_workaround" not in prereg:
+        print("refusing to run: the variant is not registered", file=sys.stderr)
+        return 2
     thresholds = {k: float(prereg["thresholds"][k]) for k in ("static", "replay", "combined")}
     interval = prereg["intervals"]
     disputed = prereg["disputed_labels"]["cases"]
@@ -939,12 +1009,21 @@ def run(args: argparse.Namespace) -> int:
         work = Path(tmp)
         build: dict[str, BuildResult] = {}
         schema_files: dict[str, Path] = {}
+        spec_files: dict[str, Path] = {cid: CASES_DIR / cid / "spec.yaml" for cid in case_ids}
+        specs: dict[str, dict] = {}
         for cid in case_ids:
             case_dir = CASES_DIR / cid
             schema = yaml.safe_load((case_dir / "schema.yaml").read_text(encoding="utf-8"))
             spec = yaml.safe_load((case_dir / "spec.yaml").read_text(encoding="utf-8"))
+            if args.variant:
+                specs[cid] = variant_spec(spec)
+                spec_files[cid] = work / cid / "spec-variant.yaml"
+                spec_files[cid].parent.mkdir(parents=True, exist_ok=True)
+                spec_files[cid].write_text(
+                    yaml.safe_dump(specs[cid], sort_keys=False), encoding="utf-8"
+                )
             schema_files[cid] = work / cid / "schema-checker.yaml"
-            schema_files[cid].parent.mkdir(parents=True)
+            schema_files[cid].parent.mkdir(parents=True, exist_ok=True)
             schema_files[cid].write_text(
                 yaml.safe_dump(convert_schema(schema), sort_keys=False), encoding="utf-8"
             )
@@ -967,7 +1046,7 @@ def run(args: argparse.Namespace) -> int:
             warehouse = work / query.case / "warehouse" if mode == "replay" else None
             return run_check(
                 case_dir / query.file,
-                case_dir / "spec.yaml",
+                spec_files[query.case],
                 schema_files[query.case],
                 warehouse,
                 int(prereg["runs"]["timeout_seconds"]),
@@ -983,7 +1062,7 @@ def run(args: argparse.Namespace) -> int:
         ]
 
     sha = git("rev-parse", "--short=7", "HEAD")
-    stem = f"{datetime.now(UTC):%Y%m%d}-{sha}"
+    stem = f"{datetime.now(UTC):%Y%m%d}-{sha}" + ("-variant" if args.variant else "")
     seed, resamples, level = (
         int(interval["seed"]),
         int(interval["resamples"]),
@@ -1017,6 +1096,28 @@ def run(args: argparse.Namespace) -> int:
         "problems": problem_groups(records),
         "queries": csv_rows(records),
     }
+    if args.variant:
+        loadable = loadable_cases(specs)
+        kept = [r for r in records if r.query.case in loadable]
+        result["meta"]["variant_prereg_commit"] = git(
+            "log",
+            "-S",
+            "variant_spec_workaround",
+            "--format=%h",
+            "--",
+            "bench/kaggle/eval-prereg.yaml",
+        ).splitlines()[-1]
+        result["variant"] = {
+            "primary_stem": primary_stem(Path(args.out_dir)),
+            "placeholder": {PLACEHOLDER_TABLE: PLACEHOLDER_COLUMN},
+            "time_columns": {cid: specs[cid]["time_columns"] for cid in case_ids},
+            "loadable": loadable,
+            "rejected": [cid for cid in case_ids if cid not in loadable],
+        }
+        result["loadable"] = summarize(kept, thresholds, seed, resamples, level)
+        result["loadable_without_disputed"] = summarize(
+            [r for r in kept if not r.query.disputed], thresholds, seed, resamples, level
+        )
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{stem}.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -1035,6 +1136,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out-dir", default=str(RESULTS_DIR))
     parser.add_argument(
         "--work-dir", help="parent of the temporary warehouses (default: system temp)"
+    )
+    parser.add_argument(
+        "--variant",
+        action="store_true",
+        help="secondary run: the placeholder temporal table replaces the label table in each spec",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="build the warehouses only; the checker is not run"
