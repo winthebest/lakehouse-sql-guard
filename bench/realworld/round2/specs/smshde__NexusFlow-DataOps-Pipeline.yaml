@@ -1,0 +1,17 @@
+# Spec for smshde/NexusFlow-DataOps-Pipeline, dbt_project/ subdirectory (group: round2, MIT) at the
+# pinned commit of ../projects.yaml. Written from the README and the header comment of
+# models/gold/ml_features/customer_ml_features.sql, before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (grain: one row per customer per snapshot_date).
+#
+# Not applicable: customer_ml_features is a daily customer feature snapshot (README: exposed by an API
+# from Redshift) for RFM segmentation, behavioural signals, "churn risk indicators" and LLM profile
+# text. Its churn_risk_tier and churn_risk_score are computed from the features, and the project
+# documents no label column or label table. The checker needs a label table with label columns, so a
+# spec cannot be written (same reading as manthanshah94/dbt-churn-feature-store in round 1).
+
+realworld:
+  applicable: false
+  reason: >
+    daily customer feature snapshot (snapshot_date) for RFM and churn-risk scoring with no label
+    column or label table in the project, so the leakage spec cannot be written

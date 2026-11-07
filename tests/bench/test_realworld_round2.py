@@ -11,6 +11,7 @@ import yaml
 
 from bench.realworld import checkout
 from bench.realworld.checkout import ROOT, Project, load_projects
+from sqlguard.leakage.spec import LeakageSpec
 
 REALWORLD = ROOT / "bench" / "realworld"
 ROUND2 = REALWORLD / "round2"
@@ -132,3 +133,36 @@ def test_compile_runs_dbt_deps_when_only_the_lock_file_is_committed(tmp_path, mo
 
     monkeypatch.setattr(checkout, "_dbt", fake_dbt)
     assert checkout.compile_project(project)["deps"] is True and calls == ["deps", "compile"]
+
+
+def _spec(project):
+    path = ROUND2 / "specs" / f"{project.spec_name}.yaml"
+    return path, yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_every_project_has_a_spec_that_is_valid_or_says_why_not_applicable():
+    assert {p.spec_name for p in PROJECTS} == {
+        path.stem for path in (ROUND2 / "specs").glob("*.yaml")
+    }
+    for project in PROJECTS:
+        _, spec = _spec(project)
+        block = spec["realworld"]
+        if block.get("applicable") is False:
+            assert block["reason"].strip(), project.repo
+            continue
+        parsed = LeakageSpec.from_dict(spec)  # the checker's own validation
+        assert parsed.boundary == "strict"  # nothing relaxed without documentation
+        assert not parsed.availability_columns and not parsed.max_ingest_delay
+        assert block["training_sets"] and block["basis"].strip(), project.repo
+        assert block["schema"], project.repo
+
+
+def test_each_spec_states_its_cutoff_documentation_like_the_pin_does():
+    entries = yaml.safe_load((ROUND2 / "projects.yaml").read_text(encoding="utf-8"))["projects"]
+    flags = {e["repo"]: e.get("flags", []) for e in entries}
+    for project in PROJECTS:
+        path, _ = _spec(project)
+        text = path.read_text(encoding="utf-8")
+        flagged = "no_documented_cutoff" in flags[project.repo]
+        assert ("Cutoff documentation: none (flag no_documented_cutoff)" in text) == flagged
+        assert ("Cutoff documentation: documented" in text) == (not flagged), project.repo
