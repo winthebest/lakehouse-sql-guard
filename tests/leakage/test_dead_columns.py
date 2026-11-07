@@ -124,3 +124,14 @@ def test_static_findings_expose_the_same_split():
 def test_a_column_read_by_a_rename_or_a_position_is_not_dead(sql):
     got = scored(sql, **ROLES)
     assert got & {"L1", "L6", "L7", "PARSE"}, sql
+
+
+@pytest.mark.parametrize("tail", ["ORDER BY ALL DESC LIMIT 100", "ORDER BY ALL LIMIT 10 OFFSET 5"])
+def test_rows_picked_by_order_by_all_are_picked_by_every_column(tail):
+    sql = (
+        "WITH st AS (SELECT user_id, label_ts, churned, "
+        "LEAD(churned) OVER (PARTITION BY user_id ORDER BY label_ts) AS nx FROM labels) "
+        "SELECT user_id, label_ts, churned FROM "
+        f"(SELECT nx, user_id, label_ts, churned FROM st {tail}) z"
+    )
+    assert scored(sql, **ROLES) & {"L1", "L6"}, sql

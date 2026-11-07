@@ -125,6 +125,16 @@ class _Trace:
         if select.args.get("distinct") or (group is not None and group.args.get("all")):
             # which rows survive (or how they group) depends on every projected value
             self.row_level = True
+        order = select.args.get("order")
+        if (
+            order is not None
+            and any(
+                isinstance(o.this, exp.Var) and o.this.name.upper() == "ALL"
+                for o in order.expressions
+            )
+            and (_bounded(select) or scope.scope_type is not ScopeType.ROOT)
+        ):
+            self.row_level = True  # ORDER BY ALL orders by every column and a bound keeps the first
         name = item.alias_or_name.lower()
         # a bare name that is not a table column is another projection's alias (the qualifier
         # expands them in most clauses, not in ORDER BY)

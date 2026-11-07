@@ -260,3 +260,25 @@ def test_a_subquery_on_the_key_is_not_the_spine_row_either():
 def test_the_same_key_on_both_sides_still_makes_the_second_read_the_same_row():
     sql = SELF_JOIN.format(join="ON l.row_id = f.row_id")
     assert row_findings(sql, unique_keys={"labels": [["row_id"], ["other_id"]]}) == set()
+
+
+def test_a_label_filter_on_the_nullable_side_of_a_left_join_is_a_feature_not_a_row_choice():
+    sql = (
+        "SELECT l.user_id, l.label_ts, l.churned, f.row_id IS NOT NULL AS v FROM labels l "
+        "LEFT JOIN (SELECT row_id FROM labels WHERE churned = 1) f ON f.row_id = l.row_id"
+    )
+    assert row_findings(sql, unique_keys={"labels": ["row_id"]})
+    cte = (
+        "WITH f AS (SELECT row_id FROM labels WHERE churned = 1) "
+        "SELECT l.user_id, l.label_ts, l.churned, f.row_id IS NOT NULL AS v FROM labels l "
+        "LEFT JOIN f USING (row_id)"
+    )
+    assert row_findings(cte, unique_keys={"labels": ["row_id"]})
+
+
+def test_an_inner_join_on_the_key_still_makes_the_second_read_the_same_row():
+    sql = SELF_JOIN.format(join="ON l.row_id = f.row_id")
+    assert row_findings(sql, unique_keys={"labels": ["row_id"]}) == set()
+    assert row_findings(
+        sql.replace(" JOIN flags", " LEFT JOIN flags"), unique_keys={"labels": ["row_id"]}
+    )

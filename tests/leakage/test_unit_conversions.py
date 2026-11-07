@@ -186,3 +186,60 @@ def test_a_factor_that_underflows_or_overflows_is_not_a_unit_and_does_not_crash(
 )
 def test_a_factor_that_is_nearly_a_unit_or_a_rounding_cast_bounds_nothing(bound):
     assert rules(bound), bound
+
+
+# --- second attack: the size of a truncation, and factors that are only nearly a unit ----------
+
+EV = {
+    "time_columns": {"interactions": "ts_ms", "ev": "ts_ms"},
+    "time_units": {"interactions": "milliseconds", "ev": "milliseconds"},
+}
+EV_SCHEMA = {**SCHEMA, "ev": {"user_id": "BIGINT", "ts_ms": "BIGINT", "price": "DOUBLE"}}
+
+
+def ev_rules(bound: str) -> set[str]:
+    spec = LeakageSpec.from_dict({**SPEC, **EV})
+    sql = (
+        "SELECT s.user_id, s.ts_ms, s.correct, AVG(p.price) AS avg_price FROM interactions s "
+        f"LEFT JOIN ev p ON p.user_id = s.user_id AND {bound} GROUP BY ALL"
+    )
+    return {f.rule_id for f in static_findings(sql, spec, EV_SCHEMA)}
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        # the event time is floored to the hour (or minute, second) and scaled back
+        "p.ts_ms // 3600000 * 3600000 < s.ts_ms - 1000",
+        "p.ts_ms // 1000 * 1000 < s.ts_ms - 1",
+        "p.ts_ms // 60000 * 60000 < s.ts_ms - 1",
+        "epoch_ms(p.ts_ms // 1000 * 1000) < epoch_ms(s.ts_ms) - INTERVAL 1 MILLISECOND",
+        "to_timestamp(p.ts_ms // 60000 * 60) < to_timestamp(s.ts_ms / 1000) - INTERVAL 1 SECOND",
+        # the prediction time is divided exactly (DuckDB `/`), the event time is floored
+        "p.ts_ms // 1000 < s.ts_ms / 1000",
+        "to_timestamp(p.ts_ms // 1000) < to_timestamp(s.ts_ms / 1000)",
+        "p.ts_ms // 60000 < s.ts_ms // 1000 / 60",
+    ],
+)
+def test_a_floor_is_sized_where_it_happens_and_an_exact_division_earns_no_credit(bound):
+    assert ev_rules(bound), bound
+
+
+def test_a_floor_that_leaves_room_for_it_stays_clean():
+    # events floored to the second and required to end two seconds before the prediction
+    assert ev_rules("p.ts_ms // 1000 * 1000 < s.ts_ms - 2000") == set()
+    assert ev_rules("p.ts_ms // 1000 < s.ts_ms // 1000 - 2") == set()
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "p.ts_s * 999.999999999 < s.ts_ms",
+        "p.ts_s * 999.9999999999 < s.ts_ms",
+        "to_timestamp(p.ts_s * 0.9999999999991) < to_timestamp(s.ts_ms / 1000)",
+        "p.ts_s < s.ts_ms / 999.9999999996",
+        "p.ts_s * 1000 < s.ts_ms * 1.0000000000004",
+    ],
+)
+def test_a_factor_must_be_the_unit_exactly(bound):
+    assert rules(bound), bound

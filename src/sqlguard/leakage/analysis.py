@@ -40,6 +40,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -795,39 +796,74 @@ class _Number:
     """A time column that holds a number, scaled, shifted or turned into a timestamp:
     `to_timestamp(col / 1000 - 5)`, `col * 1000`, `epoch_ms(col)`.
 
-    `mult`: the expression equals the column times `mult`, plus `pending`, a bare number in the
-    column's own unit. `to_time` is the seconds per unit the number had when a function turned it
-    into a timestamp (1 for to_timestamp, 0.001 for epoch_ms, 0.000001 for make_timestamp) and 0
-    when it stays a number; `offset`, `up` and `down` are the interval shifts of that timestamp.
-    `divided`: a division may have dropped a fraction of a unit.
+    `mult`: the expression equals the column times `mult`, an exact fraction (a factor that is only
+    nearly a unit is another unit), plus `pending`, a bare number in the column's own unit.
+    `to_time` is the seconds per unit the number had when a function turned it into a timestamp
+    (1 for to_timestamp, 1/1000 for epoch_ms, 1/1000000 for make_timestamp) and 0 when it stays a
+    number; `offset`, `up` and `down` are the interval shifts of that timestamp. `cut`: a division
+    may have dropped a fraction of a unit; the result then moves in steps of `cut` of its own units
+    (what multiplies it further out), 0 without a division.
     """
 
     column: exp.Column
-    mult: float = 1.0
+    mult: Fraction = Fraction(1)
     pending: float = 0.0
-    to_time: float = 0.0
-    divided: bool = False
+    to_time: Fraction = Fraction(0)
+    cut: Fraction = Fraction(0)
     offset: float = 0.0
     up: float = 0.0
     down: float = 0.0
 
 
 # DuckDB's to_timestamp, epoch_ms and make_timestamp are one sqlglot node told apart by the scale
-_UNIX_SCALE = {None: 1.0, 0: 1.0, 3: 1e-3, 6: 1e-6}
+_UNIX_SCALE = {None: Fraction(1), 0: Fraction(1), 3: Fraction(1, 1000), 6: Fraction(1, 10**6)}
+# seconds per unit of an integer time column, exactly
+_NATIVE_SCALE = {
+    "seconds": Fraction(1),
+    "milliseconds": Fraction(1, 1000),
+    "microseconds": Fraction(1, 10**6),
+}
 # a cast to an integer type rounds (DuckDB) or truncates (Spark) and DECIMAL rounds: not read
 _NUMBER_TYPES = {exp.DataType.Type.DOUBLE}
 
 
-def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, float] | None:
+def _as_float(value: Fraction) -> float:
+    """`value` as a float; infinity when it is too large for one (a bound with an infinite
+    truncation admits everything, so it is flagged)."""
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf
+
+
+def _exact(node: exp.Expression) -> Fraction | None:
+    """The exact value of a numeric literal expression (literals, parentheses, * and /), read from
+    the digits as written, so `999.9999999999` is not `1000`."""
+    if isinstance(node, exp.Paren):
+        return _exact(node.this)
+    if isinstance(node, exp.Literal) and not node.is_string:
+        try:
+            return Fraction(node.name)
+        except (ValueError, ZeroDivisionError):
+            return None
+    if isinstance(node, exp.Mul | exp.Div):
+        a, b = _exact(node.this), _exact(node.expression)
+        if a is None or b is None or (isinstance(node, exp.Div) and b == 0):
+            return None
+        return a * b if isinstance(node, exp.Mul) else a / b
+    return None
+
+
+def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, Fraction] | None:
     """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`.
 
-    Only a positive, finite constant: a negative factor turns every comparison round."""
-    k = _constant(node.expression)
-    if k is not None and k > 0 and math.isfinite(k):
+    Only a positive constant: a negative factor turns every comparison round."""
+    k = _exact(node.expression)
+    if k is not None and k > 0:
         return node.this, k
     if isinstance(node, exp.Mul):
-        k = _constant(node.this)
-        if k is not None and k > 0 and math.isfinite(k):
+        k = _exact(node.this)
+        if k is not None and k > 0:
             return node.expression, k
     return None
 
@@ -840,9 +876,10 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
     `make_timestamp(x)`, are the forms taken. Whether the column holds a number or a timestamp
     is for the caller to decide: `epoch_ms(ts)` of a timestamp column means something else.
     """
-    mult, pending, to_time = 1.0, 0.0, 0.0
+    mult, pending, to_time = Fraction(1), 0.0, Fraction(0)
     offset = up = down = 0.0
-    divided = new = False
+    cut = Fraction(0)
+    new = False
     while True:
         if isinstance(node, exp.Paren):
             node = node.this
@@ -854,11 +891,11 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
                 key = int(scale.name)
             else:
                 return None
-            if to_time or pending or mult != 1.0 or node.args.get("zone") or key not in _UNIX_SCALE:
+            if to_time or pending or mult != 1 or node.args.get("zone") or key not in _UNIX_SCALE:
                 return None  # a number added to or multiplied into a timestamp, or an unknown scale
             to_time, new, node = _UNIX_SCALE[key], True, node.this
         elif isinstance(node, exp.Add | exp.Sub) and isinstance(node.expression, exp.Interval):
-            if to_time or pending or mult != 1.0:
+            if to_time or pending or mult != 1:
                 return None  # a shift of a timestamp comes outside the conversion
             got = _amount_seconds(node.expression, None)
             if got is None:
@@ -873,21 +910,21 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
         elif isinstance(node, exp.Mul | exp.Div | exp.IntDiv) and (got := _factor(node)):
             operand, k = got
             if isinstance(node, exp.Mul):
-                mult, pending = mult * k, pending / k
+                mult, pending = mult * k, pending / _as_float(k)
             else:
-                mult, pending, divided = mult / k, pending * k, True
+                # the result moves in steps of `mult`, what multiplies it further out
+                cut = max(cut, mult)
+                mult, pending = mult / k, pending * _as_float(k)
             new, node = True, operand
         elif isinstance(node, exp.Cast | exp.TryCast) and node.to and node.to.this in _NUMBER_TYPES:
             node = node.this
         else:
             break
-    if not new or not isinstance(node, exp.Column):
+    if not new or not isinstance(node, exp.Column) or not math.isfinite(pending):
         return None
-    if not (math.isfinite(mult) and mult > 0 and math.isfinite(pending)):
-        return None  # a factor that under- or overflows is no unit
     if not to_time and (offset or up or down):
         return None  # an interval added to a number
-    return _Number(node, mult, pending, to_time, divided, offset, up, down)
+    return _Number(node, mult, pending, to_time, cut, offset, up, down)
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -920,7 +957,7 @@ class Resolved:
     retyped: bool = False  # a cast to a timestamp type was peeled on the path
     # An integer column in a declared unit that was scaled (`ts_s * 1000`): the seconds one unit of
     # the expression stands for, 0.0 when the expression is not such a number
-    scale: float = 0.0
+    scale: Fraction | float = 0.0
     # An integer column turned into a timestamp by to_timestamp / epoch_ms / make_timestamp:
     # "tz" (to_timestamp, a timestamptz) or "naive". Two kinds are only comparable with themselves.
     converted: str = ""
@@ -1165,10 +1202,10 @@ class _Resolver:
                 )
         return resolved
 
-    def _native_scale(self, ref: TableRef, column: str) -> float | None:
+    def _native_scale(self, ref: TableRef, column: str) -> Fraction | None:
         """Seconds per unit of an integer time column of `ref` whose unit the spec declares, else
         None (a timestamp or DATE column, a column that is not a time of the table, no unit)."""
-        factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
+        factor = _NATIVE_SCALE.get(self.spec.time_units.get(ref.table, ""))
         times = {ref.time_column, ref.availability_column, ref.validity_end_column}
         if factor is None or column.lower() not in times:
             return None
@@ -1176,7 +1213,7 @@ class _Resolver:
             return None
         return factor
 
-    def _numeric_base(self, got: Resolved) -> float | None:
+    def _numeric_base(self, got: Resolved) -> Fraction | None:
         """Seconds per unit of a traced value that is still a number in a declared unit."""
         if got.converted or got.epoch or got.zoned or got.retyped:
             return None
@@ -1185,7 +1222,7 @@ class _Resolver:
     def _from_number(
         self,
         number: _Number,
-        base: float,
+        base: Fraction,
         inner: Resolved | None,
         ref: TableRef,
         column: exp.Column,
@@ -1196,16 +1233,17 @@ class _Resolver:
         what a CTE column traced to), or None when the units do not fit.
 
         A conversion to a timestamp is accepted only when the number is in the unit the function
-        expects: the scale of `col / 1000` over a millisecond column is seconds, which is what
-        `to_timestamp` reads.
+        expects, exactly: the scale of `col / 1000` over a millisecond column is seconds, which is
+        what `to_timestamp` reads. A division is sized where it happens (`ts // 3600000 * 3600000`
+        floors to the hour).
         """
         effective = base / number.mult
-        seconds = number.pending * base
+        seconds = number.pending * _as_float(base)
         earlier = (inner.offset, inner.up, inner.down, inner.trunc) if inner else (0.0,) * 4
+        cut = _as_float(number.cut * effective)
         if number.to_time:
-            if not math.isclose(effective, number.to_time, rel_tol=1e-12):
+            if effective != number.to_time:
                 return None
-            cut = number.to_time if number.divided else 0.0
             return Resolved(
                 ref,
                 column.name.lower() if inner is None else inner.column,
@@ -1217,9 +1255,8 @@ class _Resolver:
                 owner,
                 number.up + earlier[1],
                 number.down + earlier[2],
-                converted="tz" if number.to_time == 1.0 else "naive",
+                converted="tz" if number.to_time == 1 else "naive",
             )
-        cut = effective if number.divided else 0.0
         return Resolved(
             ref,
             column.name.lower() if inner is None else inner.column,
@@ -2008,9 +2045,14 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
         b = _prediction_terms(node.right, scope, resolver, keyed=True)
         if a and b and scope is not None:
             keys = {term.keyed_by for term in (*a, *b)}
-            if keys != {None} and (len(keys) != 1 or scope.is_subquery):
-                # a unique key stands for the row only against the same key, and only where the
-                # rows are joined (a subquery on it computes a value the output row then shows)
+            if keys != {None} and (
+                len(keys) != 1
+                or scope.is_subquery
+                or not all(context.filters(term.alias) for term in (*a, *b))
+            ):
+                # a unique key stands for the row only against the same key, and only where both
+                # sides are restricted by it (an inner join, a WHERE): not in a subquery, and not
+                # on the preserved side of an outer join, where the other side is a feature
                 continue
             # a COALESCE is one of its arguments; a column fed by a UNION or EXCEPT is, in each
             # row, the column of the branch the row came from
@@ -2181,17 +2223,17 @@ def _comparison_terms(node: exp.Expression) -> list:
     return terms
 
 
-def _scaled_kind(got: Resolved, resolver: _Resolver) -> float | str | None:
+def _scaled_kind(got: Resolved, resolver: _Resolver) -> Fraction | str | None:
     """What a traced time is, for comparing it with another: the seconds per unit of a number
-    (a float), `conv:tz` / `conv:naive` for a timestamp made from a number, `plain` for a timestamp
-    column, None when it is none of these (a DATE, an integer without a unit)."""
+    (an exact fraction), `conv:tz` / `conv:naive` for a timestamp made from a number, `plain` for a
+    timestamp column, None when it is none of these (a DATE, an integer without a unit)."""
     if got.converted:
         return f"conv:{got.converted}"
     if got.scale:
-        return float(f"{got.scale:.12g}")
+        return Fraction(got.scale)
     native = resolver._native_scale(got.ref, got.column)
     if native is not None:
-        return float(f"{native:.12g}")
+        return native
     return "plain" if resolver.is_timestamp(got.ref, got.column) else None
 
 
@@ -2232,9 +2274,9 @@ def _record(
             if len(kinds) != 1 or None in kinds or any(r.epoch or r.zoned for r in resolved):
                 continue
             (kind,) = kinds
-            if needs_epoch and not isinstance(kind, float):
+            if needs_epoch and not isinstance(kind, Fraction):
                 continue
-            scale = kind if needs_epoch else 1.0
+            scale = _as_float(kind) if needs_epoch else 1.0
         elif any(r.zoned for r in resolved):
             # a converted time is only comparable with a column of the same kind (a plain
             # timestamp against an instant is read in the session's zone, which we do not know)
@@ -2287,7 +2329,9 @@ def _record(
             # across several labels (UNION branches) the loosest reading counts
             pick = max if upper else min
             offset = pick(lab.offset for lab in labels) + signed * scale - feature.offset
-            label_trunc = min(lab.trunc for lab in labels)
+            # a label that went through a unit conversion earns no credit for a truncation: whether
+            # a division drops a fraction depends on the engine
+            label_trunc = min(0.0 if lab.scale or lab.converted else lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts
             slack_up = max(lab.up for lab in labels) + feature.down + extra_up
