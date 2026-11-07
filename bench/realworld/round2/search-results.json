@@ -1,0 +1,3324 @@
+{
+ "registered_in": "search-prereg.yaml",
+ "run_at": "2026-11-07",
+ "searches": [
+  {
+   "command": "gh search repos \"dbt features\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R1",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2024-10-21T13:43:03Z",
+     "defaultBranch": "main",
+     "description": "Scalable OLAP system for credit card transaction analysis, leveraging AWS S3, Databricks, and dbt. Features end-to-end batch processing pipeline, medallion architecture, and interactive fraud detection dashboards. Demonstrates expertise in cloud-based data engineering and advanced analytical modeling for financial data.",
+     "fullName": "faizpuad/DataEngineeringProject-ScalableOlapSystemForCreditCradTransaction",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-10-24T05:29:46Z",
+     "stargazersCount": 26,
+     "url": "https://github.com/faizpuad/DataEngineeringProject-ScalableOlapSystemForCreditCradTransaction"
+    },
+    {
+     "createdAt": "2025-12-27T12:26:59Z",
+     "defaultBranch": "main",
+     "description": "NYC Taxi Lakehouse: A modern data platform using Trino, Apache Iceberg, MinIO, and dbt. Features a full Medallion Architecture (Bronze/Silver/Gold) with 2023 Yellow Taxi data.",
+     "fullName": "lotfimay/nyc-taxi-lakehouse",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-05-12T20:01:27Z",
+     "stargazersCount": 2,
+     "url": "https://github.com/lotfimay/nyc-taxi-lakehouse"
+    },
+    {
+     "createdAt": "2024-02-01T23:52:22Z",
+     "defaultBranch": "main",
+     "description": "A project for transforming data using basic DBT features. ",
+     "fullName": "saiakhilgolla/DBT",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-03-13T15:53:29Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/saiakhilgolla/DBT"
+    },
+    {
+     "createdAt": "2026-04-06T20:40:28Z",
+     "defaultBranch": "master",
+     "description": "An end-to-end Analytics Engineering system built on Databricks and dbt. Features automated data synthesis, Survival Analysis (Kaplan-Meier) via dbt-Python, and rigorous observability using Monte Carlo and Great Expectations to track the lifecycle of B2B subscription cohorts. #dbt #databricks #pyspark #unit-economics #survival-analysis #ltv #airflow",
+     "fullName": "theo-lyd/predictive-ltv-survival-pipeline",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-04-13T03:21:32Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/theo-lyd/predictive-ltv-survival-pipeline"
+    },
+    {
+     "createdAt": "2026-06-02T22:16:42Z",
+     "defaultBranch": "main",
+     "description": "Feature catalog for dbt projects, built for ML teams.",
+     "fullName": "gauthierpiarrette/dbt-features",
+     "isFork": false,
+     "license": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "url": "https://api.github.com/licenses/apache-2.0"
+     },
+     "pushedAt": "2026-06-02T22:17:05Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/gauthierpiarrette/dbt-features"
+    },
+    {
+     "createdAt": "2022-11-02T09:18:04Z",
+     "defaultBranch": "main",
+     "description": "Testing dbt features",
+     "fullName": "Lionelzs/dbt_play",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-11-02T09:18:05Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Lionelzs/dbt_play"
+    },
+    {
+     "createdAt": "2024-01-12T11:06:37Z",
+     "defaultBranch": "main",
+     "description": "dbt features demo",
+     "fullName": "spintocastro/dbt",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-01-12T11:29:53Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/spintocastro/dbt"
+    },
+    {
+     "createdAt": "2026-04-30T21:15:10Z",
+     "defaultBranch": "main",
+     "description": "Testing some dbt features",
+     "fullName": "Eudi-Duarte/dbt_assess",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-05-04T00:02:53Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Eudi-Duarte/dbt_assess"
+    },
+    {
+     "createdAt": "2025-07-09T11:45:30Z",
+     "defaultBranch": "main",
+     "description": "Testing DBT features and deploy",
+     "fullName": "efchemmer/dbt-core-project",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-07-16T14:23:37Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/efchemmer/dbt-core-project"
+    },
+    {
+     "createdAt": "2022-12-13T03:53:16Z",
+     "defaultBranch": "main",
+     "description": "Repo to test dbt features",
+     "fullName": "liu431/dbt-Analytics",
+     "isFork": false,
+     "license": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "url": "https://api.github.com/licenses/apache-2.0"
+     },
+     "pushedAt": "2022-12-18T03:06:32Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/liu431/dbt-Analytics"
+    },
+    {
+     "createdAt": "2023-01-13T15:22:21Z",
+     "defaultBranch": "main",
+     "description": "Repository for testing dbt features",
+     "fullName": "newsbrain/dbt-tutorial",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-01-14T13:11:01Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/newsbrain/dbt-tutorial"
+    },
+    {
+     "createdAt": "2021-04-09T15:07:55Z",
+     "defaultBranch": "main",
+     "description": "trying out some dbt features",
+     "fullName": "AkagiShigeru/dbt-tutorial",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2021-04-12T07:55:24Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/AkagiShigeru/dbt-tutorial"
+    },
+    {
+     "createdAt": "2023-04-18T13:47:17Z",
+     "defaultBranch": "main",
+     "description": "Repository to showcase dbt features",
+     "fullName": "nasakey/dbt-demo",
+     "isFork": false,
+     "license": {
+      "key": "gpl-3.0",
+      "name": "GNU General Public License v3.0",
+      "url": "https://api.github.com/licenses/gpl-3.0"
+     },
+     "pushedAt": "2023-04-18T13:47:17Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/nasakey/dbt-demo"
+    },
+    {
+     "createdAt": "2026-06-24T09:03:11Z",
+     "defaultBranch": "main",
+     "description": "Exploring new dbt features with Bigquery",
+     "fullName": "vividity/dbt_bigquery",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-06-24T16:20:20Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/vividity/dbt_bigquery"
+    },
+    {
+     "createdAt": "2022-09-23T19:37:26Z",
+     "defaultBranch": "main",
+     "description": "Testing dbt features on smaller cleaned dataset",
+     "fullName": "mkhan-merit/dbt-testing-clean",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-10-05T19:50:43Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/mkhan-merit/dbt-testing-clean"
+    },
+    {
+     "createdAt": "2023-01-14T05:23:19Z",
+     "defaultBranch": "main",
+     "description": "Collection of neat DBT features I've made",
+     "fullName": "brandonjwilliford/dbt",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-01-15T00:27:09Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/brandonjwilliford/dbt"
+    },
+    {
+     "createdAt": "2026-06-03T18:26:19Z",
+     "defaultBranch": "main",
+     "description": "Deep dive into dbt features with e-commerce analytics",
+     "fullName": "SurakantiMeghana26/dbt-ecommerce-analytics",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-06-22T18:48:20Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/SurakantiMeghana26/dbt-ecommerce-analytics"
+    },
+    {
+     "createdAt": "2022-02-06T20:47:14Z",
+     "defaultBranch": "main",
+     "description": "Exploring dbt features using a public dataset about New York Taxi Data",
+     "fullName": "jasturiano/dbt_exercise_nyctaxitrips",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-02-07T00:59:50Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/jasturiano/dbt_exercise_nyctaxitrips"
+    },
+    {
+     "createdAt": "2022-08-08T18:43:57Z",
+     "defaultBranch": "main",
+     "description": "Project for using dbt features and transforming data for a simulated data warehouse",
+     "fullName": "albertlok/dbt_project",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-08-08T18:48:32Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/albertlok/dbt_project"
+    },
+    {
+     "createdAt": "2026-10-13T07:41:21Z",
+     "defaultBranch": "main",
+     "description": "This repo is for exploration of dbt features in fivetran with trail account",
+     "fullName": "CORE-DE/fivetran-dbt-demo",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-10-13T07:47:35Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/CORE-DE/fivetran-dbt-demo"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt ml\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R2",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2021-01-08T09:48:01Z",
+     "defaultBranch": "main",
+     "description": "A SQL port of python's scikit-learn preprocessing module, provided as cross-database dbt macros.",
+     "fullName": "omnata-labs/dbt-ml-preprocessing",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2023-07-03T21:38:18Z",
+     "stargazersCount": 185,
+     "url": "https://github.com/omnata-labs/dbt-ml-preprocessing"
+    },
+    {
+     "createdAt": "2020-06-05T14:30:47Z",
+     "defaultBranch": "master",
+     "description": "Package for dbt that allows users to train, audit and use BigQuery ML models.",
+     "fullName": "kristeligt-dagblad/dbt_ml",
+     "isFork": false,
+     "license": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "url": "https://api.github.com/licenses/apache-2.0"
+     },
+     "pushedAt": "2026-02-07T20:46:39Z",
+     "stargazersCount": 77,
+     "url": "https://github.com/kristeligt-dagblad/dbt_ml"
+    },
+    {
+     "createdAt": "2024-08-10T23:18:10Z",
+     "defaultBranch": "main",
+     "description": "This dbt package produces a number of different machine learning preprocessing techniques inline in sql",
+     "fullName": "Matts52/dbt-ml-inline-preprocessing",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-08-07T18:09:37Z",
+     "stargazersCount": 8,
+     "url": "https://github.com/Matts52/dbt-ml-inline-preprocessing"
+    },
+    {
+     "createdAt": "2021-01-19T04:45:15Z",
+     "defaultBranch": "main",
+     "description": "A showcase of a dbt-driven machine learning pipeline",
+     "fullName": "omnata-labs/dbt-ml-pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2021-05-25T10:58:21Z",
+     "stargazersCount": 6,
+     "url": "https://github.com/omnata-labs/dbt-ml-pipeline"
+    },
+    {
+     "createdAt": "2023-02-15T20:10:24Z",
+     "defaultBranch": "main",
+     "description": "Package for dbt to easily generate actuals vs. forecast predictions",
+     "fullName": "HugoLu88/dbt-mlastronomy",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-03-08T08:19:29Z",
+     "stargazersCount": 5,
+     "url": "https://github.com/HugoLu88/dbt-mlastronomy"
+    },
+    {
+     "createdAt": "2020-02-13T22:30:33Z",
+     "defaultBranch": "master",
+     "description": "DBcg: Conformer generator (.com files for Gaussian) starting from smiles or sdf databases. Also, the code reoptimizes output files with imaginary frequencies and failed optimization jobs.",
+     "fullName": "shreesowndarya/DBtoML",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2020-02-13T22:07:46Z",
+     "stargazersCount": 2,
+     "url": "https://github.com/shreesowndarya/DBtoML"
+    },
+    {
+     "createdAt": "2025-10-18T03:16:55Z",
+     "defaultBranch": "main",
+     "description": "This dbt package produces a number of different machine learning evaluation criteria",
+     "fullName": "Matts52/dbt-ml-eval",
+     "isFork": false,
+     "license": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "url": "https://api.github.com/licenses/apache-2.0"
+     },
+     "pushedAt": "2026-05-24T07:33:25Z",
+     "stargazersCount": 2,
+     "url": "https://github.com/Matts52/dbt-ml-eval"
+    },
+    {
+     "createdAt": "2022-04-12T14:33:03Z",
+     "defaultBranch": "main",
+     "description": "Sample code for Redshift - driven ML workflow orchestrated by dbt",
+     "fullName": "matt-winkler/dbt-ml-workflow-aws",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-04-18T05:20:14Z",
+     "stargazersCount": 2,
+     "url": "https://github.com/matt-winkler/dbt-ml-workflow-aws"
+    },
+    {
+     "createdAt": "2025-05-03T20:01:20Z",
+     "defaultBranch": "main",
+     "description": "Cloud-native pipeline for GitHub event data using S3, Snowflake, DBT & ML for analytics & forecasts",
+     "fullName": "1pperalta/GitHub-Data-Pipeline",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-05-05T04:57:20Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/1pperalta/GitHub-Data-Pipeline"
+    },
+    {
+     "createdAt": "2023-10-30T15:43:58Z",
+     "defaultBranch": "main",
+     "description": "DBT + Terraform + Airbyte + Python + ClickHouse + Yandex DataLens + Power BI",
+     "fullName": "neworderby/dbt_ml_retail",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-11-10T09:22:11Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/neworderby/dbt_ml_retail"
+    },
+    {
+     "createdAt": "2025-12-15T17:50:51Z",
+     "defaultBranch": "main",
+     "description": "End-to-end analytics engineering + ML project using dbt and Supabase",
+     "fullName": "ritulchitra/customer-conversion-dbt-ml",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-12-17T13:48:41Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/ritulchitra/customer-conversion-dbt-ml"
+    },
+    {
+     "createdAt": "2026-06-25T12:27:06Z",
+     "defaultBranch": "main",
+     "description": "Zero-cost, code-first markets + macro data platform: ingestion \u00b7 dbt \u00b7 ML \u00b7 GenAI \u00b7 Streamlit BI.",
+     "fullName": "mathsisbest/macro-scope",
+     "isFork": false,
+     "license": {
+      "key": "other",
+      "name": "Other",
+      "url": ""
+     },
+     "pushedAt": "2026-11-06T13:47:14Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/mathsisbest/macro-scope"
+    },
+    {
+     "createdAt": "2024-06-02T15:26:39Z",
+     "defaultBranch": "main",
+     "description": " Complete end-to-end, full-stack data application that extracts, processes, and visualizes social media posts and trends using Python, PostgreSQL, dbt, ML/NLP and Dagster.",
+     "fullName": "AustinLowey/social-media-trends-tracker",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2024-10-29T00:48:43Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/AustinLowey/social-media-trends-tracker"
+    },
+    {
+     "createdAt": "2023-10-31T19:47:08Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "mlops-itba/dbt_mlops",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-11-05T23:48:02Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/mlops-itba/dbt_mlops"
+    },
+    {
+     "createdAt": "2024-01-06T17:58:14Z",
+     "defaultBranch": "main",
+     "description": "Implementacion en DBT del proyecto final de MLOps",
+     "fullName": "FedeJAvila/dbt_mlops",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-01-06T19:57:30Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/FedeJAvila/dbt_mlops"
+    },
+    {
+     "createdAt": "2023-07-17T04:04:48Z",
+     "defaultBranch": "master",
+     "description": "",
+     "fullName": "Pavan0kumar/DBT_ML",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-07-17T04:04:48Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Pavan0kumar/DBT_ML"
+    },
+    {
+     "createdAt": "2025-03-24T14:20:33Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "mkliment/dbt_mlops",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-03-24T15:00:34Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/mkliment/dbt_mlops"
+    },
+    {
+     "createdAt": "2026-02-26T17:45:43Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "cnolanminich/dbt-ml-workspace",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-26T20:53:26Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/cnolanminich/dbt-ml-workspace"
+    },
+    {
+     "createdAt": "2026-07-09T22:59:25Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "fabriziovaskup/de-dbt-ml",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-07-09T22:59:26Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/fabriziovaskup/de-dbt-ml"
+    },
+    {
+     "createdAt": "2026-06-12T19:45:01Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "kharigardner/dbt-mlv-repro",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-06-12T19:45:06Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/kharigardner/dbt-mlv-repro"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt churn model\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R3",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search repos \"dbt fraud features\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R4",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search code \"ml_features\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C1",
+   "kind": "code",
+   "results": [
+    {
+     "path": "dbt/models/gold/ml_features_hybrid.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4ODk1Njg5NjY=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mgrody1/Gamebot",
+      "url": "https://github.com/mgrody1/Gamebot"
+     },
+     "url": "https://github.com/mgrody1/Gamebot/blob/e901ae9d4a86715eb18cfc3a91dfbf178b5c891c/dbt/models/gold/ml_features_hybrid.sql"
+    },
+    {
+     "path": "dbt/models/gold/gold_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzA0NTUxNTYz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "clementlemon02/crypto-macd-screener",
+      "url": "https://github.com/clementlemon02/crypto-macd-screener"
+     },
+     "url": "https://github.com/clementlemon02/crypto-macd-screener/blob/05ddd8927cba99097b4162c619c89149c59433eb/dbt/models/gold/gold_ml_features.sql"
+    },
+    {
+     "path": "analytics-service/clickhouse/init/204_ml_features_materialized.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTI4MzQxMjQ0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "ent0n29/aware",
+      "url": "https://github.com/ent0n29/aware"
+     },
+     "url": "https://github.com/ent0n29/aware/blob/cf5e1d6ae3af2607dd3bd66947c970b2c5f3119c/analytics-service/clickhouse/init/204_ml_features_materialized.sql"
+    },
+    {
+     "path": "dbt/models/gold/ml_features_non_edit.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4ODk1Njg5NjY=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mgrody1/Gamebot",
+      "url": "https://github.com/mgrody1/Gamebot"
+     },
+     "url": "https://github.com/mgrody1/Gamebot/blob/e901ae9d4a86715eb18cfc3a91dfbf178b5c891c/dbt/models/gold/ml_features_non_edit.sql"
+    },
+    {
+     "path": "dbt/models/ml_features/book_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDE1NzkwMzE4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "LNshuti/soma",
+      "url": "https://github.com/LNshuti/soma"
+     },
+     "url": "https://github.com/LNshuti/soma/blob/ad94feacdb9f2856398ea074346938603327d8c3/dbt/models/ml_features/book_features.sql"
+    },
+    {
+     "path": "dbt/models/marts/ml/fct_cars_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzMzMDg2MzIx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "PHALMenghak/car-price-prediction",
+      "url": "https://github.com/PHALMenghak/car-price-prediction"
+     },
+     "url": "https://github.com/PHALMenghak/car-price-prediction/blob/e4decfc1028808d0ffdc81e7da27e927377654f9/dbt/models/marts/ml/fct_cars_ml_features.sql"
+    },
+    {
+     "path": "supabase/migrations/20251219190000_ml_features_and_enhancements.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTEzMDg3ODc3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "PapaPablano/SwiftBolt_ML",
+      "url": "https://github.com/PapaPablano/SwiftBolt_ML"
+     },
+     "url": "https://github.com/PapaPablano/SwiftBolt_ML/blob/381a0016944270185b293cf9d8d161857d0f11f4/supabase/migrations/20251219190000_ml_features_and_enhancements.sql"
+    },
+    {
+     "path": "hoteliq/models/marts/ml/mart_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTk1NjQ5Mjcy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sumanoj/hoteliq-analytics",
+      "url": "https://github.com/sumanoj/hoteliq-analytics"
+     },
+     "url": "https://github.com/sumanoj/hoteliq-analytics/blob/aad52fb1ac06b1b2ea24aa8cbe0214283166bba6/hoteliq/models/marts/ml/mart_ml_features.sql"
+    },
+    {
+     "path": "pipeline/dbt/models/ml/ml_features_client.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjYxNjYzMTk4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "renekomtsindi237/Stage",
+      "url": "https://github.com/renekomtsindi237/Stage"
+     },
+     "url": "https://github.com/renekomtsindi237/Stage/blob/7579979727c13d1de7615cbc0f5549aa6ce01274/pipeline/dbt/models/ml/ml_features_client.sql"
+    },
+    {
+     "path": "dbt_project/models/intermediate/int_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjA1ODU3ODM4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "alwyndsouza/asx_stock_analysis_using_ml",
+      "url": "https://github.com/alwyndsouza/asx_stock_analysis_using_ml"
+     },
+     "url": "https://github.com/alwyndsouza/asx_stock_analysis_using_ml/blob/43dcd16986979b3010c510aa9c0cbc78a3bdb260/dbt_project/models/intermediate/int_ml_features.sql"
+    },
+    {
+     "path": "dbt_project/models/gold/ml_features/customer_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjQzNzQ4MDI3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "smshde/NexusFlow-DataOps-Pipeline",
+      "url": "https://github.com/smshde/NexusFlow-DataOps-Pipeline"
+     },
+     "url": "https://github.com/smshde/NexusFlow-DataOps-Pipeline/blob/5823029a7c8c4296466107943bb572208d66ab9c/dbt_project/models/gold/ml_features/customer_ml_features.sql"
+    },
+    {
+     "path": "dbt_project/models/gold/gold_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjc0MTY2Nzcz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "KZDNguyenThanh/africa-energy-lakehouse",
+      "url": "https://github.com/KZDNguyenThanh/africa-energy-lakehouse"
+     },
+     "url": "https://github.com/KZDNguyenThanh/africa-energy-lakehouse/blob/2f685d456524cb05eb07ca13c3f3e0959b40283c/dbt_project/models/gold/gold_ml_features.sql"
+    },
+    {
+     "path": "database/supabase_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIwOTU0OTYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "moPPingg/realtime-fnb-data-platform",
+      "url": "https://github.com/moPPingg/realtime-fnb-data-platform"
+     },
+     "url": "https://github.com/moPPingg/realtime-fnb-data-platform/blob/c53f26994e9b1200bef67d7ea39b4a2202a93402/database/supabase_ml_features.sql"
+    },
+    {
+     "path": "src/dbt/models/ml/ml_features_produto_loja_mes.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDQ2ODY3NTU2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "gusdiaso/lh_nautical_athena",
+      "url": "https://github.com/gusdiaso/lh_nautical_athena"
+     },
+     "url": "https://github.com/gusdiaso/lh_nautical_athena/blob/a411a72e7b1b6bc8b722cb66164ac03d2728ab4b/src/dbt/models/ml/ml_features_produto_loja_mes.sql"
+    },
+    {
+     "path": "db/migrations/016_add_mantra_ml_features_view.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjA2Njg5NDUw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "lbrunorialmawave/baudo-spoon",
+      "url": "https://github.com/lbrunorialmawave/baudo-spoon"
+     },
+     "url": "https://github.com/lbrunorialmawave/baudo-spoon/blob/25954f91ec1deb9e55bc380731f27e74702bf4c7/db/migrations/016_add_mantra_ml_features_view.sql"
+    },
+    {
+     "path": "dbt/models/marts/ml_features/game_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4ODk2ODA0NjE=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sadelcarpio/steam_games_recommender",
+      "url": "https://github.com/sadelcarpio/steam_games_recommender"
+     },
+     "url": "https://github.com/sadelcarpio/steam_games_recommender/blob/5767ec60247501f25de5f317382f8ac55400f41a/dbt/models/marts/ml_features/game_features.sql"
+    },
+    {
+     "path": "supabase/migrations/20260820090200_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzIxNjE1MTM0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Manutd1234/AlphaEngine",
+      "url": "https://github.com/Manutd1234/AlphaEngine"
+     },
+     "url": "https://github.com/Manutd1234/AlphaEngine/blob/c94f3ed9309e2fecc4a92d9e427c2136d46fb5f3/supabase/migrations/20260820090200_ml_features.sql"
+    },
+    {
+     "path": "bhl-oms/migrations/036_ml_features_schema.up.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIwMjYzMjQ3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "tungtranle/Beer-HL",
+      "url": "https://github.com/tungtranle/Beer-HL"
+     },
+     "url": "https://github.com/tungtranle/Beer-HL/blob/ed74cec7c8cdf9e35b5a26d3eebbe2c450d7308b/bhl-oms/migrations/036_ml_features_schema.up.sql"
+    },
+    {
+     "path": "dbt/models/marts/ml_features/training_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4ODk2ODA0NjE=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sadelcarpio/steam_games_recommender",
+      "url": "https://github.com/sadelcarpio/steam_games_recommender"
+     },
+     "url": "https://github.com/sadelcarpio/steam_games_recommender/blob/5767ec60247501f25de5f317382f8ac55400f41a/dbt/models/marts/ml_features/training_features.sql"
+    },
+    {
+     "path": "dbt/models/marts/ml_features/monthly_game_metrics.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4ODk2ODA0NjE=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sadelcarpio/steam_games_recommender",
+      "url": "https://github.com/sadelcarpio/steam_games_recommender"
+     },
+     "url": "https://github.com/sadelcarpio/steam_games_recommender/blob/5767ec60247501f25de5f317382f8ac55400f41a/dbt/models/marts/ml_features/monthly_game_metrics.sql"
+    },
+    {
+     "path": "pipelines/dbt/models/marts/ml_features/product_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDkxMDMxNDYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "oleksandrmelnychenko/concord-bi-server",
+      "url": "https://github.com/oleksandrmelnychenko/concord-bi-server"
+     },
+     "url": "https://github.com/oleksandrmelnychenko/concord-bi-server/blob/c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef/pipelines/dbt/models/marts/ml_features/product_features.sql"
+    },
+    {
+     "path": "pipelines/dbt/models/marts/ml_features/product_demand_timeseries.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDkxMDMxNDYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "oleksandrmelnychenko/concord-bi-server",
+      "url": "https://github.com/oleksandrmelnychenko/concord-bi-server"
+     },
+     "url": "https://github.com/oleksandrmelnychenko/concord-bi-server/blob/c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef/pipelines/dbt/models/marts/ml_features/product_demand_timeseries.sql"
+    },
+    {
+     "path": "lib/supabase-migrations.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY0MzIxMzU0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "brandononchain/kalshibot",
+      "url": "https://github.com/brandononchain/kalshibot"
+     },
+     "url": "https://github.com/brandononchain/kalshibot/blob/a01af900f96a6038db081de18ebbb1e98cb3cbb2/lib/supabase-migrations.sql"
+    },
+    {
+     "path": "pipelines/dbt/models/marts/ml_features/customer_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDkxMDMxNDYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "oleksandrmelnychenko/concord-bi-server",
+      "url": "https://github.com/oleksandrmelnychenko/concord-bi-server"
+     },
+     "url": "https://github.com/oleksandrmelnychenko/concord-bi-server/blob/c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef/pipelines/dbt/models/marts/ml_features/customer_features.sql"
+    },
+    {
+     "path": "1.Environmental_Forensics/sql/ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM3Mzg2MTEw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Jayz-yuors/Environmental-Forensics-GEE-1-",
+      "url": "https://github.com/Jayz-yuors/Environmental-Forensics-GEE-1-"
+     },
+     "url": "https://github.com/Jayz-yuors/Environmental-Forensics-GEE-1-/blob/0fc05a9ee91a2169d328501c7413cc7b1c719245/1.Environmental_Forensics/sql/ml_features.sql"
+    },
+    {
+     "path": "pipelines/dbt/models/marts/ml_features/interaction_matrix.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDkxMDMxNDYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "oleksandrmelnychenko/concord-bi-server",
+      "url": "https://github.com/oleksandrmelnychenko/concord-bi-server"
+     },
+     "url": "https://github.com/oleksandrmelnychenko/concord-bi-server/blob/c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef/pipelines/dbt/models/marts/ml_features/interaction_matrix.sql"
+    },
+    {
+     "path": "backend/db/migrations/007_ml_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIxMTI1NTEw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Omartinezpaz/ozmar-sport",
+      "url": "https://github.com/Omartinezpaz/ozmar-sport"
+     },
+     "url": "https://github.com/Omartinezpaz/ozmar-sport/blob/c5c2810bdb9ce3c6ba9b1a547a9dd96a570cd728/backend/db/migrations/007_ml_features.sql"
+    },
+    {
+     "path": "pipelines/dbt/models/marts/ml_features/customer_purchase_sequences.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDkxMDMxNDYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "oleksandrmelnychenko/concord-bi-server",
+      "url": "https://github.com/oleksandrmelnychenko/concord-bi-server"
+     },
+     "url": "https://github.com/oleksandrmelnychenko/concord-bi-server/blob/c50bff3bdc95a0c69e9cf718e3d1aa807d7bafef/pipelines/dbt/models/marts/ml_features/customer_purchase_sequences.sql"
+    },
+    {
+     "path": "example_09_streaming_ml/ml_features/feature_engineering.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTQ2MDcwNjcy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "DiogoRibeiro7/mysql-business-to-schema",
+      "url": "https://github.com/DiogoRibeiro7/mysql-business-to-schema"
+     },
+     "url": "https://github.com/DiogoRibeiro7/mysql-business-to-schema/blob/883c24cf114e003e025e93c7559f2a45e814d63a/example_09_streaming_ml/ml_features/feature_engineering.sql"
+    },
+    {
+     "path": "bhl-oms/migrations/036b_ml_features_align_csv.up.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIwMjYzMjQ3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "tungtranle/Beer-HL",
+      "url": "https://github.com/tungtranle/Beer-HL"
+     },
+     "url": "https://github.com/tungtranle/Beer-HL/blob/ed74cec7c8cdf9e35b5a26d3eebbe2c450d7308b/bhl-oms/migrations/036b_ml_features_align_csv.up.sql"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt feature engineering\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R5",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2026-07-31T18:02:21Z",
+     "defaultBranch": "main",
+     "description": "Real-time fraud detection pipeline \u2014 Kafka streaming, dbt feature engineering, Databricks Feature Store, Redis online serving, sub-100ms scoring",
+     "fullName": "SarrangTech/fraud-detection-feature-store",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-08-04T18:48:38Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/SarrangTech/fraud-detection-feature-store"
+    },
+    {
+     "createdAt": "2026-04-12T09:45:45Z",
+     "defaultBranch": "main",
+     "description": "End-to-end churn prediction on KKBox WSDM 2018: DuckDB + dbt feature engineering, LightGBM + Optuna, SHAP, temporal holdout evaluation.",
+     "fullName": "mponsclo/music-streaming-churn-prediction",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-04-18T09:03:24Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/mponsclo/music-streaming-churn-prediction"
+    },
+    {
+     "createdAt": "2026-09-27T10:49:01Z",
+     "defaultBranch": "main",
+     "description": "End-to-end credit default risk system featuring DuckDB + dbt feature engineering, XGBoost with Isotonic Calibration, ONNX serving via FastAPI, and a SvelteKit UI.",
+     "fullName": "heikalazzouna-svg/credit-risk-mlops",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-09-27T10:50:38Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/heikalazzouna-svg/credit-risk-mlops"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt customer lifetime value\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R6",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search code \"training_set\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C2",
+   "kind": "code",
+   "results": [
+    {
+     "path": "backend/database/migrations/2026_training_set_consents.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTMwNzY3OTI0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Autinerary/Goal-Planning-System",
+      "url": "https://github.com/Autinerary/Goal-Planning-System"
+     },
+     "url": "https://github.com/Autinerary/Goal-Planning-System/blob/9b134b2eb6200d421025bd83d8bce72cbc2eba67/backend/database/migrations/2026_training_set_consents.sql"
+    },
+    {
+     "path": "predictor/price/sql/views/training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDM0MjA0MTM1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vaibhav0708/predictor",
+      "url": "https://github.com/vaibhav0708/predictor"
+     },
+     "url": "https://github.com/vaibhav0708/predictor/blob/7554263bedd43fda611974bfa1df5335388027c4/predictor/price/sql/views/training_set.sql"
+    },
+    {
+     "path": "03_technical_specifications/code_patterns/dbt_models/fraud_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjE1NDQzMDc1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "HenryMorganDibie/feature-store-design",
+      "url": "https://github.com/HenryMorganDibie/feature-store-design"
+     },
+     "url": "https://github.com/HenryMorganDibie/feature-store-design/blob/989638cc3fb30f18ba526bafb5e2abee2ecfe78b/03_technical_specifications/code_patterns/dbt_models/fraud_training_set.sql"
+    },
+    {
+     "path": "transform/models/features/feat_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzE0MDU2Mjgy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "KenImade/fpl-data-platform",
+      "url": "https://github.com/KenImade/fpl-data-platform"
+     },
+     "url": "https://github.com/KenImade/fpl-data-platform/blob/21916d10313bb5a001ca8400cf3decf289d2dc3f/transform/models/features/feat_training_set.sql"
+    },
+    {
+     "path": "Track02_Day17_Data-Pipeline-Engineering/dbt/models/gold/gold_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDM0NjU5ODAw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Helooeverybody/AI-thuc-chien",
+      "url": "https://github.com/Helooeverybody/AI-thuc-chien"
+     },
+     "url": "https://github.com/Helooeverybody/AI-thuc-chien/blob/578938ba3b910a3363f822096f3cd91340cefe3e/Track02_Day17_Data-Pipeline-Engineering/dbt/models/gold/gold_training_set.sql"
+    },
+    {
+     "path": "src/main/resources/db/migration/V1.5__initial_table_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4OTI5MzA0OTk=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "dududev-async/Pdumbbell",
+      "url": "https://github.com/dududev-async/Pdumbbell"
+     },
+     "url": "https://github.com/dududev-async/Pdumbbell/blob/2c8e78caba55031b865259bbbbeb9dab13bada8e/src/main/resources/db/migration/V1.5__initial_table_training_set.sql"
+    },
+    {
+     "path": "scripts/pos_perf/build_churn_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjU1NjE4OTcx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "robertgorsuch/jrs-deploy",
+      "url": "https://github.com/robertgorsuch/jrs-deploy"
+     },
+     "url": "https://github.com/robertgorsuch/jrs-deploy/blob/79405f94dc7a4b96b5b214fa85a6bda5c0514283/scripts/pos_perf/build_churn_training_set.sql"
+    },
+    {
+     "path": "models/edr/data_monitoring/anomaly_detection/metrics_anomaly_score.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk0NDYwOTMwOTM=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "elementary-data/dbt-data-reliability",
+      "url": "https://github.com/elementary-data/dbt-data-reliability"
+     },
+     "url": "https://github.com/elementary-data/dbt-data-reliability/blob/e3ab23d8c2e3bd7ad455de8bb1d23bf7ee84e675/models/edr/data_monitoring/anomaly_detection/metrics_anomaly_score.sql"
+    },
+    {
+     "path": "transform/models/features/feat_team_defence_training_set.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzE0MDU2Mjgy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "KenImade/fpl-data-platform",
+      "url": "https://github.com/KenImade/fpl-data-platform"
+     },
+     "url": "https://github.com/KenImade/fpl-data-platform/blob/21916d10313bb5a001ca8400cf3decf289d2dc3f/transform/models/features/feat_team_defence_training_set.sql"
+    },
+    {
+     "path": "scripts/database_create.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNzc1MTM0NDY=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "PathologyDataScience/HistomicsML2",
+      "url": "https://github.com/PathologyDataScience/HistomicsML2"
+     },
+     "url": "https://github.com/PathologyDataScience/HistomicsML2/blob/30162820a527d669bf818d2aa949c6ee985e412a/scripts/database_create.sql"
+    },
+    {
+     "path": "macros/edr/system/system_utils/get_config_var.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk0NDYwOTMwOTM=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "elementary-data/dbt-data-reliability",
+      "url": "https://github.com/elementary-data/dbt-data-reliability"
+     },
+     "url": "https://github.com/elementary-data/dbt-data-reliability/blob/e3ab23d8c2e3bd7ad455de8bb1d23bf7ee84e675/macros/edr/system/system_utils/get_config_var.sql"
+    },
+    {
+     "path": "scripts/database_create.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDAzOTkxNjA=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "PathologyDataScience/HistomicsML",
+      "url": "https://github.com/PathologyDataScience/HistomicsML"
+     },
+     "url": "https://github.com/PathologyDataScience/HistomicsML/blob/d6fba83842b35dec6346b509c3a3c83740b0620a/scripts/database_create.sql"
+    },
+    {
+     "path": "db/supabase/02-training-additions-REFERENCE.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5ODQxMTQy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "shamwari-ai/shamwari",
+      "url": "https://github.com/shamwari-ai/shamwari"
+     },
+     "url": "https://github.com/shamwari-ai/shamwari/blob/695b2ec5c9939ad3a0ed2bb1fe6644021c62b6a0/db/supabase/02-training-additions-REFERENCE.sql"
+    },
+    {
+     "path": "supabase/migrations/20260111150000_reset_ref_product_types_from_xlsx.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTMwODQ0MDk5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Biadone/ps",
+      "url": "https://github.com/Biadone/ps"
+     },
+     "url": "https://github.com/Biadone/ps/blob/e411d06cc0373263fd2db950d1578b5494e12b4b/supabase/migrations/20260111150000_reset_ref_product_types_from_xlsx.sql"
+    },
+    {
+     "path": "api/_lib/migrations/20260828170000_oracle_price_independent_labels.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTMwNjY3MDY2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "nirholas/three.ws",
+      "url": "https://github.com/nirholas/three.ws"
+     },
+     "url": "https://github.com/nirholas/three.ws/blob/8b19b56818f42ec3f3c5b30f161f9863801259c9/api/_lib/migrations/20260828170000_oracle_price_independent_labels.sql"
+    },
+    {
+     "path": "scripts/init-db.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDI4MDY1NzQ2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "kaori-seasons/algorithm-trains-platform",
+      "url": "https://github.com/kaori-seasons/algorithm-trains-platform"
+     },
+     "url": "https://github.com/kaori-seasons/algorithm-trains-platform/blob/058fd4ae52503e2bc06267c6fa53a9b4344c2615/scripts/init-db.sql"
+    },
+    {
+     "path": "docker/histomicsmldb_example/db_setup.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNzc1MTM0NDY=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "PathologyDataScience/HistomicsML2",
+      "url": "https://github.com/PathologyDataScience/HistomicsML2"
+     },
+     "url": "https://github.com/PathologyDataScience/HistomicsML2/blob/30162820a527d669bf818d2aa949c6ee985e412a/docker/histomicsmldb_example/db_setup.sql"
+    },
+    {
+     "path": "mbfit/database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkzODUzNzg3MTU=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "paesanilab/MB-Fit",
+      "url": "https://github.com/paesanilab/MB-Fit"
+     },
+     "url": "https://github.com/paesanilab/MB-Fit/blob/20bf66e60a5ad547a7797adfc5961ad5ae569006/mbfit/database/init.sql"
+    },
+    {
+     "path": "supabase/migrations/20260111155000_seed_ref_product_type_aliases.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTMwODQ0MDk5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Biadone/ps",
+      "url": "https://github.com/Biadone/ps"
+     },
+     "url": "https://github.com/Biadone/ps/blob/e411d06cc0373263fd2db950d1578b5494e12b4b/supabase/migrations/20260111155000_seed_ref_product_type_aliases.sql"
+    },
+    {
+     "path": "supabase/migrations/20261004000002_user_tables.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDMzOTE3ODU3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "dikym/terka",
+      "url": "https://github.com/dikym/terka"
+     },
+     "url": "https://github.com/dikym/terka/blob/d2feb62b499d2638dc412587606359f2c95b53f5/supabase/migrations/20261004000002_user_tables.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_calendar.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_calendar.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_ml_suggestion.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_ml_suggestion.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_last_training.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_last_training.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_ranking_weekly.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_ranking_weekly.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_progress_curve.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_progress_curve.sql"
+    },
+    {
+     "path": "dbt/models/marts/fct_prediction.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzU0MjU3OTMx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "pmnafshari/project_monitoring",
+      "url": "https://github.com/pmnafshari/project_monitoring"
+     },
+     "url": "https://github.com/pmnafshari/project_monitoring/blob/0f2444517d77916761e8eab8bebb100114aa0d68/dbt/models/marts/fct_prediction.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_personal_record.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_personal_record.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_ranking_monthly.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_ranking_monthly.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_ranking_alltime.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_ranking_alltime.sql"
+    },
+    {
+     "path": "dbt/models/mart/m_ranking_bodypart.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NzE3NTAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "m310-git/training-assistant",
+      "url": "https://github.com/m310-git/training-assistant"
+     },
+     "url": "https://github.com/m310-git/training-assistant/blob/04b514113d512143b5b5421a316a45a3e9874e68/dbt/models/mart/m_ranking_bodypart.sql"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt propensity\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R7",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search repos \"dbt training\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R8",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2022-03-25T09:42:35Z",
+     "defaultBranch": "main",
+     "description": "I created this repo to follow official training paths of DBT",
+     "fullName": "mebaysan/DBT-Training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-04-08T18:35:37Z",
+     "stargazersCount": 4,
+     "url": "https://github.com/mebaysan/DBT-Training"
+    },
+    {
+     "createdAt": "2026-04-22T22:53:15Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "databricks-solutions/databricks-dbt-training-labs",
+     "isFork": false,
+     "license": {
+      "key": "other",
+      "name": "Other",
+      "url": ""
+     },
+     "pushedAt": "2026-10-21T22:55:54Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/databricks-solutions/databricks-dbt-training-labs"
+    },
+    {
+     "createdAt": "2021-09-26T17:20:53Z",
+     "defaultBranch": "main",
+     "description": "dbt Training",
+     "fullName": "bridgeteon/africa",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-01-30T15:03:38Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/bridgeteon/africa"
+    },
+    {
+     "createdAt": "2022-02-04T23:16:49Z",
+     "defaultBranch": "main",
+     "description": "dbt Training Repository.",
+     "fullName": "zachfreitas/dbt-fundamentals",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-02-06T18:42:56Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/zachfreitas/dbt-fundamentals"
+    },
+    {
+     "createdAt": "2023-01-09T00:12:46Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "jerlyrosa/dbt-training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-01-09T19:27:30Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/jerlyrosa/dbt-training"
+    },
+    {
+     "createdAt": "2021-07-12T22:40:56Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "shipragupta11/DBT-training",
+     "isFork": false,
+     "license": {
+      "key": "gpl-3.0",
+      "name": "GNU General Public License v3.0",
+      "url": "https://api.github.com/licenses/gpl-3.0"
+     },
+     "pushedAt": "2021-07-12T22:40:57Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/shipragupta11/DBT-training"
+    },
+    {
+     "createdAt": "2023-01-31T21:47:16Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "jmour04/dbt_training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-04-03T21:32:11Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/jmour04/dbt_training"
+    },
+    {
+     "createdAt": "2023-09-01T08:09:26Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "CARMICHAELSORIA2023/dbt-training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-09-21T02:28:10Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/CARMICHAELSORIA2023/dbt-training"
+    },
+    {
+     "createdAt": "2026-01-10T01:30:17Z",
+     "defaultBranch": "main",
+     "description": "For training purpose ",
+     "fullName": "DheerajDahiya/dbt-training-",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-01-10T01:30:18Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/DheerajDahiya/dbt-training-"
+    },
+    {
+     "createdAt": "2024-09-03T08:39:35Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "jmd361-harshv/dbt-training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-09-10T11:29:50Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/jmd361-harshv/dbt-training"
+    },
+    {
+     "createdAt": "2026-07-22T05:35:55Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "thethien8a/Dbt-Training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-07-31T03:11:28Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/thethien8a/Dbt-Training"
+    },
+    {
+     "createdAt": "2023-09-08T22:01:13Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "fmmmendes/dbt_training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-27T15:55:57Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/fmmmendes/dbt_training"
+    },
+    {
+     "createdAt": "2024-07-08T06:57:53Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "wrt2sanjoydbt/dbt_training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-07-09T06:39:28Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/wrt2sanjoydbt/dbt_training"
+    },
+    {
+     "createdAt": "2022-08-22T23:34:53Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "Mestevam1976/dbt-training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-08-26T14:29:44Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/Mestevam1976/dbt-training"
+    },
+    {
+     "createdAt": "2026-02-20T13:21:47Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "thmshmm/dbt-training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-25T18:11:48Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/thmshmm/dbt-training"
+    },
+    {
+     "createdAt": "2023-01-20T17:01:57Z",
+     "defaultBranch": "main",
+     "description": "Kahan Data Solutions - DBT Course",
+     "fullName": "jmour04/dbt_training_old",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2023-01-31T20:44:56Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/jmour04/dbt_training_old"
+    },
+    {
+     "createdAt": "2026-06-10T02:37:05Z",
+     "defaultBranch": "claude/requirement-implementation-myi9k6",
+     "description": "",
+     "fullName": "greenwichg/snowflake_dbt_training",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-06-12T06:13:05Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/greenwichg/snowflake_dbt_training"
+    },
+    {
+     "createdAt": "2025-09-02T21:27:09Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "Vinayakvhegde/dbt-training-2025",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2025-09-02T21:46:53Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/Vinayakvhegde/dbt-training-2025"
+    },
+    {
+     "createdAt": "2022-01-11T18:48:20Z",
+     "defaultBranch": "master",
+     "description": "Repository for Bytecode dbt Training Course Code",
+     "fullName": "bytecodeio/dbt-training-bytecode",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-02-15T16:06:29Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/bytecodeio/dbt-training-bytecode"
+    },
+    {
+     "createdAt": "2022-02-06T21:34:14Z",
+     "defaultBranch": "main",
+     "description": "Yet another dbt Training Repository.",
+     "fullName": "zachfreitas/dbt-bqtest",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2022-02-07T03:17:42Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/zachfreitas/dbt-bqtest"
+    }
+   ]
+  },
+  {
+   "command": "gh search code \"training_data\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C3",
+   "kind": "code",
+   "results": [
+    {
+     "path": "docs/migration_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTcwOTU0MTM3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Sanschinu95/nutrisnap",
+      "url": "https://github.com/Sanschinu95/nutrisnap"
+     },
+     "url": "https://github.com/Sanschinu95/nutrisnap/blob/9139074f88a5ddabbb42ed00cf9885fed6e31304/docs/migration_training_data.sql"
+    },
+    {
+     "path": "crates/zeph-db/migrations/postgres/055_admission_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTUwOTA0Mjgw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "bug-ops/zeph",
+      "url": "https://github.com/bug-ops/zeph"
+     },
+     "url": "https://github.com/bug-ops/zeph/blob/a0439888f0b84c4ed40b7cd9c2a0cca01c28fe05/crates/zeph-db/migrations/postgres/055_admission_training_data.sql"
+    },
+    {
+     "path": "models/2_marts/erp_prod/9_forecast/fct_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk2MTI0NDc5ODE=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "anmarabb/floranow-dbt",
+      "url": "https://github.com/anmarabb/floranow-dbt"
+     },
+     "url": "https://github.com/anmarabb/floranow-dbt/blob/ed7a9ca3b8cf7077e782d305682b4c51b17e811d/models/2_marts/erp_prod/9_forecast/fct_training_data.sql"
+    },
+    {
+     "path": "db/migrations/002_llm_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTg1ODkzMDI3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "nealiyer88/nexus-finance",
+      "url": "https://github.com/nealiyer88/nexus-finance"
+     },
+     "url": "https://github.com/nealiyer88/nexus-finance/blob/c27de7bfe61a9625d9d65a9b1505b27e81cfac0c/db/migrations/002_llm_training_data.sql"
+    },
+    {
+     "path": "crates/dev/src/migrations/002_wipe_multi_scenario_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTEzNTk3ODc5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "nowaytouse/modern-format-boost",
+      "url": "https://github.com/nowaytouse/modern-format-boost"
+     },
+     "url": "https://github.com/nowaytouse/modern-format-boost/blob/5a8525b03a4c467eba67aedb3c0327fbe7064124/crates/dev/src/migrations/002_wipe_multi_scenario_training_data.sql"
+    },
+    {
+     "path": "backend/migrations/001_training_data_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDQxMTQ5NTky",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "avvy-lavoienne/sellica-golang",
+      "url": "https://github.com/avvy-lavoienne/sellica-golang"
+     },
+     "url": "https://github.com/avvy-lavoienne/sellica-golang/blob/249e00cbe37dccd2ae0d923433675d070cff6c94/backend/migrations/001_training_data_schema.sql"
+    },
+    {
+     "path": "supabase/migrations/20260116000002_training_data_collection.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTMyMDc0ODYz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Performile1/HitlAI",
+      "url": "https://github.com/Performile1/HitlAI"
+     },
+     "url": "https://github.com/Performile1/HitlAI/blob/007b1c941b98c62e3a4ceed04ed5fe9ee63f2a4e/supabase/migrations/20260116000002_training_data_collection.sql"
+    },
+    {
+     "path": "supabase/086_chatbot_training_data_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjczODk0OTg1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "postmos-labs/pos-system",
+      "url": "https://github.com/postmos-labs/pos-system"
+     },
+     "url": "https://github.com/postmos-labs/pos-system/blob/2e0010d822478c7f2934103edbb8d46337e243c0/supabase/086_chatbot_training_data_schema.sql"
+    },
+    {
+     "path": "models/fct_reorder_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk5NjkzNzAyNTk=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "justinlawee/instacart-reorder-prediction",
+      "url": "https://github.com/justinlawee/instacart-reorder-prediction"
+     },
+     "url": "https://github.com/justinlawee/instacart-reorder-prediction/blob/2817efb6be725470147ea3e8b63077623075e8ad/models/fct_reorder_training_data.sql"
+    },
+    {
+     "path": "my-backend/migrations/add_bey_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDYzOTQ4ODk4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sujisudharsanan/bisman-ERP-Building",
+      "url": "https://github.com/sujisudharsanan/bisman-ERP-Building"
+     },
+     "url": "https://github.com/sujisudharsanan/bisman-ERP-Building/blob/f239b6fefd3cc97a58d06ce293fb64e5d8823481/my-backend/migrations/add_bey_training_data.sql"
+    },
+    {
+     "path": "supabase/migrations/20251206_training_data_table.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk5ODA0MDkzNjk=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "ttuckerm/trendzo-working-5-7-25",
+      "url": "https://github.com/ttuckerm/trendzo-working-5-7-25"
+     },
+     "url": "https://github.com/ttuckerm/trendzo-working-5-7-25/blob/c1426cb3dacd19efcfd3c5ac77340739ed9fa602/supabase/migrations/20251206_training_data_table.sql"
+    },
+    {
+     "path": "supabase/migrations/20260522000002_training_data_export.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjI5MTQ3MDM4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "dgithinjibit/Syncsenta",
+      "url": "https://github.com/dgithinjibit/Syncsenta"
+     },
+     "url": "https://github.com/dgithinjibit/Syncsenta/blob/d745d91dbe899344c050c5afaec48098297c8e29/supabase/migrations/20260522000002_training_data_export.sql"
+    },
+    {
+     "path": "supabase/migrations/20260223050000_ai_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTE2ODQ3NDE1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "hanggu-api/projeto-central-",
+      "url": "https://github.com/hanggu-api/projeto-central-"
+     },
+     "url": "https://github.com/hanggu-api/projeto-central-/blob/9065606cc54085a08f6344667d1cd17a3fcf9e06/supabase/migrations/20260223050000_ai_training_data.sql"
+    },
+    {
+     "path": "supabase/digest_v2.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDAyMDc5NjU4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "diogoseca/bjjgraph",
+      "url": "https://github.com/diogoseca/bjjgraph"
+     },
+     "url": "https://github.com/diogoseca/bjjgraph/blob/e86dbe26c97e09d0b0f88e2f896b07de13dc1d6d/supabase/digest_v2.sql"
+    },
+    {
+     "path": "supabase/training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5OTc5MDMy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Alikhan207/InfraBharat",
+      "url": "https://github.com/Alikhan207/InfraBharat"
+     },
+     "url": "https://github.com/Alikhan207/InfraBharat/blob/fc597577496f34fbc1222627a484dd18433f8f5d/supabase/training_data.sql"
+    },
+    {
+     "path": "supabase/migrations/045_training_data_reset.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzE2MjU0OTg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "tincandream/heavyhaul-dms",
+      "url": "https://github.com/tincandream/heavyhaul-dms"
+     },
+     "url": "https://github.com/tincandream/heavyhaul-dms/blob/efad992bfba43d29cfa9c3050cb2472fd5b6b678/supabase/migrations/045_training_data_reset.sql"
+    },
+    {
+     "path": "database/ocr_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTU5NDA3NjE2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "kevanaenterprises-bot/LoadTracker-Pro-2026",
+      "url": "https://github.com/kevanaenterprises-bot/LoadTracker-Pro-2026"
+     },
+     "url": "https://github.com/kevanaenterprises-bot/LoadTracker-Pro-2026/blob/4dc9fddc7c783bc94a91b3b70344846b4eb84698/database/ocr_training_data.sql"
+    },
+    {
+     "path": "sql/supabase_migrations/20260522000002_training_data_export.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzA5ODE1MTI2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Asmit-ctrl/Ascendra",
+      "url": "https://github.com/Asmit-ctrl/Ascendra"
+     },
+     "url": "https://github.com/Asmit-ctrl/Ascendra/blob/6eea9a7b2d5d48358b06c4acd5d8f81aefd9577b/sql/supabase_migrations/20260522000002_training_data_export.sql"
+    },
+    {
+     "path": "src/main/resources/db/manual/V20261017_01__training_data_quality.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzUxNjE0ODUy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST",
+      "url": "https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST"
+     },
+     "url": "https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/blob/e46471a5948217b0098c1a678bc86f7fa922724d/src/main/resources/db/manual/V20261017_01__training_data_quality.sql"
+    },
+    {
+     "path": "migrations/create_ml_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDM5ODk5OTcw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "HumanAiDev/be_humanai_fastapi",
+      "url": "https://github.com/HumanAiDev/be_humanai_fastapi"
+     },
+     "url": "https://github.com/HumanAiDev/be_humanai_fastapi/blob/f03db3b05642593b662cdf445690da7b5f463154/migrations/create_ml_training_data.sql"
+    },
+    {
+     "path": "backend/sql/005_create_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjY4MjM3Mjg5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Arafulla-ai/medai-clinical-suite",
+      "url": "https://github.com/Arafulla-ai/medai-clinical-suite"
+     },
+     "url": "https://github.com/Arafulla-ai/medai-clinical-suite/blob/fb4063a71fe614416593d0ce4bc47830b04681a7/backend/sql/005_create_training_data.sql"
+    },
+    {
+     "path": "scripts/fix_missing_tables.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTc4NTAzNzY5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "guaardvark/guaardvark",
+      "url": "https://github.com/guaardvark/guaardvark"
+     },
+     "url": "https://github.com/guaardvark/guaardvark/blob/f6eb02e4529a65e8a31849802eb85f30722aaf09/scripts/fix_missing_tables.sql"
+    },
+    {
+     "path": "supabase/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDAyMDc5NjU4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "diogoseca/bjjgraph",
+      "url": "https://github.com/diogoseca/bjjgraph"
+     },
+     "url": "https://github.com/diogoseca/bjjgraph/blob/e86dbe26c97e09d0b0f88e2f896b07de13dc1d6d/supabase/schema.sql"
+    },
+    {
+     "path": "migrations/009_ml_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk5NzM0Mzg0MzY=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "almona02/almona-portfolio-forge",
+      "url": "https://github.com/almona02/almona-portfolio-forge"
+     },
+     "url": "https://github.com/almona02/almona-portfolio-forge/blob/f7234780a935d50edc3177391738df36ab199517/migrations/009_ml_training_data.sql"
+    },
+    {
+     "path": "day3/day3_agent_query_views.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjAyMzY4NDcz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Akin-ctrl/Data_Engineering_For_AI",
+      "url": "https://github.com/Akin-ctrl/Data_Engineering_For_AI"
+     },
+     "url": "https://github.com/Akin-ctrl/Data_Engineering_For_AI/blob/ae506096704aec083a737f6dea2cfb2e0fc36de4/day3/day3_agent_query_views.sql"
+    },
+    {
+     "path": "backend/migrations/V7__ai_domain.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjg1NjY2ODU0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Stevemeg/SentinelAI",
+      "url": "https://github.com/Stevemeg/SentinelAI"
+     },
+     "url": "https://github.com/Stevemeg/SentinelAI/blob/101db9851931192920d854a174d30cc8f65ff0cd/backend/migrations/V7__ai_domain.sql"
+    },
+    {
+     "path": "supabase/migrations/20240101000004_add_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk5OTY3Mzk0OTE=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vincentmcleese/automate-ai",
+      "url": "https://github.com/vincentmcleese/automate-ai"
+     },
+     "url": "https://github.com/vincentmcleese/automate-ai/blob/6d04f509a64cc786e31d4c1f31d0cc068c777122/supabase/migrations/20240101000004_add_training_data.sql"
+    },
+    {
+     "path": "snowflake/ml/stored_procedures.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDk1MzA0MTAx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "jpurrutia/snowflake-customer360-application-demo",
+      "url": "https://github.com/jpurrutia/snowflake-customer360-application-demo"
+     },
+     "url": "https://github.com/jpurrutia/snowflake-customer360-application-demo/blob/35914745e4344183e9b2b2bd136b6ea841586aed/snowflake/ml/stored_procedures.sql"
+    },
+    {
+     "path": "init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkzNDIwMjE1MTc=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "RcrdBrt/FitoTrack-logger",
+      "url": "https://github.com/RcrdBrt/FitoTrack-logger"
+     },
+     "url": "https://github.com/RcrdBrt/FitoTrack-logger/blob/344455e4098c125d404e5b68282478d6a23624b2/init.sql"
+    },
+    {
+     "path": "ml/export_wait_training_data.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjM2MTk2NzYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "ziyingtey/QMS",
+      "url": "https://github.com/ziyingtey/QMS"
+     },
+     "url": "https://github.com/ziyingtey/QMS/blob/67c60634e023822000bc778b00e177e72b2be34c/ml/export_wait_training_data.sql"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt recommendation features\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R9",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search repos \"dbt credit risk\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R10",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2026-06-09T23:23:07Z",
+     "defaultBranch": "main",
+     "description": "dbt package of credit-risk analytics macros: roll-rate matrices, vintage curves, CPR/SMM prepayment curves",
+     "fullName": "OmerTDK/dbt-credit-risk",
+     "isFork": false,
+     "license": {
+      "key": "other",
+      "name": "Other",
+      "url": ""
+     },
+     "pushedAt": "2026-09-29T09:33:54Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/OmerTDK/dbt-credit-risk"
+    },
+    {
+     "createdAt": "2026-04-27T13:06:09Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "szpeeKi/dbt-credit-risk-radar",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-04-27T13:11:27Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/szpeeKi/dbt-credit-risk-radar"
+    },
+    {
+     "createdAt": "2024-02-27T03:16:56Z",
+     "defaultBranch": "main",
+     "description": "",
+     "fullName": "nathandxn/dbt_credit_risk_model",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2024-05-25T16:59:02Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/nathandxn/dbt_credit_risk_model"
+    }
+   ]
+  },
+  {
+   "command": "gh search code \"churn_features\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C4",
+   "kind": "code",
+   "results": [
+    {
+     "path": "models/gold/churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4MjI1ODc2NzM=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "caiocvelasco/project02-docker-dbt-migration-medallion-kimball-postgres",
+      "url": "https://github.com/caiocvelasco/project02-docker-dbt-migration-medallion-kimball-postgres"
+     },
+     "url": "https://github.com/caiocvelasco/project02-docker-dbt-migration-medallion-kimball-postgres/blob/ee42614fc46f0c7fb556b42242314ab85a5952b1/models/gold/churn_features.sql"
+    },
+    {
+     "path": "dbt_2_transformation/models/gold/churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4MzQwNjk1MjU=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "caiocvelasco/project03-docker-dbt-from-s3-parquet-to-Snowflake-external-tables",
+      "url": "https://github.com/caiocvelasco/project03-docker-dbt-from-s3-parquet-to-Snowflake-external-tables"
+     },
+     "url": "https://github.com/caiocvelasco/project03-docker-dbt-from-s3-parquet-to-Snowflake-external-tables/blob/e2d715e07dafc31c1279c4a474092d809417e8ea/dbt_2_transformation/models/gold/churn_features.sql"
+    },
+    {
+     "path": "dbt/models/marts/obt_churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzI3NzUwMzg1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "AlaDdin0709/Telecom-Churn-GCP",
+      "url": "https://github.com/AlaDdin0709/Telecom-Churn-GCP"
+     },
+     "url": "https://github.com/AlaDdin0709/Telecom-Churn-GCP/blob/131ccb48556632b75d3fd8639c7866b5b9d530a1/dbt/models/marts/obt_churn_features.sql"
+    },
+    {
+     "path": "models/ml_features/disabled/ml_member_churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjgwNTU5NzI5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "jmyers911mm/ns11mm-data-platform",
+      "url": "https://github.com/jmyers911mm/ns11mm-data-platform"
+     },
+     "url": "https://github.com/jmyers911mm/ns11mm-data-platform/blob/3fac0b53fd3118181ee140f044219e0ff83dce9a/models/ml_features/disabled/ml_member_churn_features.sql"
+    },
+    {
+     "path": "models/ml_features/disabled/ml_donor_churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjgwNTU5NzI5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "jmyers911mm/ns11mm-data-platform",
+      "url": "https://github.com/jmyers911mm/ns11mm-data-platform"
+     },
+     "url": "https://github.com/jmyers911mm/ns11mm-data-platform/blob/3fac0b53fd3118181ee140f044219e0ff83dce9a/models/ml_features/disabled/ml_donor_churn_features.sql"
+    },
+    {
+     "path": "edtech/vyaparbazaar-main/dbt_project/models/ml_features/customer_churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTYxMzkxNDcz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "amlanacharya/portfolio",
+      "url": "https://github.com/amlanacharya/portfolio"
+     },
+     "url": "https://github.com/amlanacharya/portfolio/blob/99dbe060549e3724678898268dc6048011b3e00f/edtech/vyaparbazaar-main/dbt_project/models/ml_features/customer_churn_features.sql"
+    },
+    {
+     "path": "platform/dbt/models/marts/mart_ml_churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzA1MDI0MjY4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "rishav-sah/telco-churn-data-platform",
+      "url": "https://github.com/rishav-sah/telco-churn-data-platform"
+     },
+     "url": "https://github.com/rishav-sah/telco-churn-data-platform/blob/e9d5abcfe57797975850a0af1add3d5680b5a1e4/platform/dbt/models/marts/mart_ml_churn_features.sql"
+    },
+    {
+     "path": "services/churn_prediction/dbt/target/run/adplatform_batch/models/marts/churn_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzE1MzM0NTYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "spacey-cadet/ad-fraud",
+      "url": "https://github.com/spacey-cadet/ad-fraud"
+     },
+     "url": "https://github.com/spacey-cadet/ad-fraud/blob/6cb3addd6cb1ea57588511a918bb08d3d549a16c/services/churn_prediction/dbt/target/run/adplatform_batch/models/marts/churn_features.sql"
+    },
+    {
+     "path": "dbt/models/marts/dim_customers.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjg1OTc4ODk5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "FasterFlash/streamflow-analytics",
+      "url": "https://github.com/FasterFlash/streamflow-analytics"
+     },
+     "url": "https://github.com/FasterFlash/streamflow-analytics/blob/ff992dc2c4a2dd515f8d4032fc659d959ad25588/dbt/models/marts/dim_customers.sql"
+    },
+    {
+     "path": "docs/database_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NDY2MDcz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Arths17/CampusFuel",
+      "url": "https://github.com/Arths17/CampusFuel"
+     },
+     "url": "https://github.com/Arths17/CampusFuel/blob/37cb3140edad6667cf7e264e5eac6e2e8471dbab/docs/database_schema.sql"
+    },
+    {
+     "path": "dbt_churn/models/marts/fct_churn_analysis.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjE3ODk4NDky",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Javiersdr/EcoChurnPipeline",
+      "url": "https://github.com/Javiersdr/EcoChurnPipeline"
+     },
+     "url": "https://github.com/Javiersdr/EcoChurnPipeline/blob/a2d9c321fe435639b3ad1a395830741406a62e5d/dbt_churn/models/marts/fct_churn_analysis.sql"
+    },
+    {
+     "path": "dbt_project/models/marts/mart_customer_risk_scores.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTgxOTM0NjYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "joewynn/SaaSGuard",
+      "url": "https://github.com/joewynn/SaaSGuard"
+     },
+     "url": "https://github.com/joewynn/SaaSGuard/blob/1db0d19c1117e6c756f77875a702f8aab7798ee7/dbt_project/models/marts/mart_customer_risk_scores.sql"
+    },
+    {
+     "path": "dbt_project/models/marts/mart_churn_risk_rules.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDI5MzAwNzMx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "nedala/data-ml-ai-whirr-datacat",
+      "url": "https://github.com/nedala/data-ml-ai-whirr-datacat"
+     },
+     "url": "https://github.com/nedala/data-ml-ai-whirr-datacat/blob/45d03ea2b7f3399cd92a9ac3e72007e3f282c475/dbt_project/models/marts/mart_churn_risk_rules.sql"
+    },
+    {
+     "path": "demo-retail/lakehouse-retail-c360/01-Data-ingestion/01.1-SDP-SQL/transformations/03-gold.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk3NDY5MzM1NzU=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "databricks-demos/dbdemos-notebooks",
+      "url": "https://github.com/databricks-demos/dbdemos-notebooks"
+     },
+     "url": "https://github.com/databricks-demos/dbdemos-notebooks/blob/234b6d7f8abe8c2e1b16f8a967506eea97f2f33d/demo-retail/lakehouse-retail-c360/01-Data-ingestion/01.1-SDP-SQL/transformations/03-gold.sql"
+    },
+    {
+     "path": "dbt_project/models/marts/mart_customer_expansion_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTgxOTM0NjYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "joewynn/SaaSGuard",
+      "url": "https://github.com/joewynn/SaaSGuard"
+     },
+     "url": "https://github.com/joewynn/SaaSGuard/blob/1db0d19c1117e6c756f77875a702f8aab7798ee7/dbt_project/models/marts/mart_customer_expansion_features.sql"
+    },
+    {
+     "path": "supabase/migrations/20260428151000_seed_dbt_ai_university.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDc4MjQ4NTE3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "kanta13jp1/my_web_app",
+      "url": "https://github.com/kanta13jp1/my_web_app"
+     },
+     "url": "https://github.com/kanta13jp1/my_web_app/blob/222cfaee17375b7bd80f53e732705b39f7a80cbf/supabase/migrations/20260428151000_seed_dbt_ai_university.sql"
+    },
+    {
+     "path": "examples/breaking_change.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzI2MDIyMTM4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "aryan105825/contextguard",
+      "url": "https://github.com/aryan105825/contextguard"
+     },
+     "url": "https://github.com/aryan105825/contextguard/blob/00627b55a3d4e0f302eb8cc64e551ddfb3e87a64/examples/breaking_change.sql"
+    },
+    {
+     "path": "project.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDEwOTMxOTM0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "abhayadav708/Telco-Churn-Prediction",
+      "url": "https://github.com/abhayadav708/Telco-Churn-Prediction"
+     },
+     "url": "https://github.com/abhayadav708/Telco-Churn-Prediction/blob/84753097094abbb537eb4fa1570e72ac22a39372/project.sql"
+    },
+    {
+     "path": "churn_predictive_dbt/models/modelled/facts/fct_customer_month.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY3NTM2OTgw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "TCoote/churn_predictive_repo",
+      "url": "https://github.com/TCoote/churn_predictive_repo"
+     },
+     "url": "https://github.com/TCoote/churn_predictive_repo/blob/bc96e11eeba18272ed1f269fa64b220a81a33534/churn_predictive_dbt/models/modelled/facts/fct_customer_month.sql"
+    },
+    {
+     "path": "oracle_gym_db.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjgzODI5NDQ3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "leepmh674735-netizen/Spring31",
+      "url": "https://github.com/leepmh674735-netizen/Spring31"
+     },
+     "url": "https://github.com/leepmh674735-netizen/Spring31/blob/df925259dfa9b2f40cc4cfea8f6527219e9da523/oracle_gym_db.sql"
+    },
+    {
+     "path": "AgentSystem/database/churn_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDU5MTYzNjIw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "ereezyy/AgentSystem",
+      "url": "https://github.com/ereezyy/AgentSystem"
+     },
+     "url": "https://github.com/ereezyy/AgentSystem/blob/de2136e7b0550d43ad9b73751cb365bc413003a6/AgentSystem/database/churn_schema.sql"
+    },
+    {
+     "path": "sql/02_feature_engineering.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjg5Nzc5Mzg4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Mohitjoshi08/olist-customer-lifecycle-analytics",
+      "url": "https://github.com/Mohitjoshi08/olist-customer-lifecycle-analytics"
+     },
+     "url": "https://github.com/Mohitjoshi08/olist-customer-lifecycle-analytics/blob/0a46069040b4d27f68731e7b0de4276e7a511881/sql/02_feature_engineering.sql"
+    },
+    {
+     "path": "db/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzQ5MDQzOTI5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "visva-murali/retention-engine",
+      "url": "https://github.com/visva-murali/retention-engine"
+     },
+     "url": "https://github.com/visva-murali/retention-engine/blob/874b5000f35a7bed52bfc29f5936cd4bd3cdc031/db/schema.sql"
+    },
+    {
+     "path": "examples/03-ml-feature-break/generated/models/compat/customers_compat.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzEyMTE0NjAy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "BriceZemba/fuse-datahub",
+      "url": "https://github.com/BriceZemba/fuse-datahub"
+     },
+     "url": "https://github.com/BriceZemba/fuse-datahub/blob/e9402c91b368f09417e3aa1531e252b34063d95c/examples/03-ml-feature-break/generated/models/compat/customers_compat.sql"
+    },
+    {
+     "path": "Subscription_Project/models/intermediate/int_churn_analysis.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDA4NTI0NzQ2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "anderskd12/Subscription-Analytics---Snowflake-and-DBT",
+      "url": "https://github.com/anderskd12/Subscription-Analytics---Snowflake-and-DBT"
+     },
+     "url": "https://github.com/anderskd12/Subscription-Analytics---Snowflake-and-DBT/blob/e4364d1364ef6753555a966bce572418083c8f18/Subscription_Project/models/intermediate/int_churn_analysis.sql"
+    },
+    {
+     "path": "sql/features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDI0NTQzNTc0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Assare20/npontu-analytics-platform",
+      "url": "https://github.com/Assare20/npontu-analytics-platform"
+     },
+     "url": "https://github.com/Assare20/npontu-analytics-platform/blob/46022a2338db9c2c57ff117e24d7d3073afe821e/sql/features.sql"
+    },
+    {
+     "path": "00-quickstarts/lakehouse-retail-c360/01-Data-ingestion/01.1-DLT-churn-SQL.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk2NDU0MDE5Mjg=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "AbePabbathi/lakehouse-tacklebox",
+      "url": "https://github.com/AbePabbathi/lakehouse-tacklebox"
+     },
+     "url": "https://github.com/AbePabbathi/lakehouse-tacklebox/blob/9bbbf0a7181193091d887ed57e7394a466c369cf/00-quickstarts/lakehouse-retail-c360/01-Data-ingestion/01.1-DLT-churn-SQL.sql"
+    },
+    {
+     "path": "extensions/pg_feature/examples/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTg2MDg0NDM0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "matroidbe/pg_extensions-releases",
+      "url": "https://github.com/matroidbe/pg_extensions-releases"
+     },
+     "url": "https://github.com/matroidbe/pg_extensions-releases/blob/ecbd9a824fcbd81b37ac4a717c80b78168ed8806/extensions/pg_feature/examples/init.sql"
+    },
+    {
+     "path": "01_create_tables.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjQxNzQ3NDYz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sammi2213/Telecom-churn-prediction",
+      "url": "https://github.com/sammi2213/Telecom-churn-prediction"
+     },
+     "url": "https://github.com/sammi2213/Telecom-churn-prediction/blob/ed402ebc23d8e1eea03bb4bb4b1695b75550e359/01_create_tables.sql"
+    },
+    {
+     "path": "sql_queries/db_init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDY5OTIyNzEz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "KhalidAbdelaty/customer-churn-prediction",
+      "url": "https://github.com/KhalidAbdelaty/customer-churn-prediction"
+     },
+     "url": "https://github.com/KhalidAbdelaty/customer-churn-prediction/blob/1effcece1f6c16654ac74fd95c88c1e91a2397a0/sql_queries/db_init.sql"
+    }
+   ]
+  },
+  {
+   "command": "gh search repos \"dbt demand forecasting\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R11",
+   "kind": "repos",
+   "results": []
+  },
+  {
+   "command": "gh search repos \"dbt machine learning\" --sort stars --limit 20",
+   "failed": "",
+   "id": "R12",
+   "kind": "repos",
+   "results": [
+    {
+     "createdAt": "2024-04-17T08:37:05Z",
+     "defaultBranch": "main",
+     "description": "A data engineering project for a real-time ad insertion system leveraging Kafka, Spark Streaming, dbt, machine learning, and Looker, built within a robust data pipeline orchestrated with Airflow and Docker, managed by Terraform on GCP, designed to dynamically enhance viewer engagement and advertising efficacy on OTT platforms.",
+     "fullName": "chrisdamba/adaptive-ads",
+     "isFork": false,
+     "license": {
+      "key": "gpl-3.0",
+      "name": "GNU General Public License v3.0",
+      "url": "https://api.github.com/licenses/gpl-3.0"
+     },
+     "pushedAt": "2024-05-21T15:08:54Z",
+     "stargazersCount": 3,
+     "url": "https://github.com/chrisdamba/adaptive-ads"
+    },
+    {
+     "createdAt": "2026-06-09T18:21:59Z",
+     "defaultBranch": "main",
+     "description": "End-to-end data engineering and data science platform for UK housing market analysis, price prediction, and investment hotspot identification using Python, SQL, dbt, machine learning, and interactive dashboards.",
+     "fullName": "bibhraj-saha/UK-Housing-Intelligence-Platform",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-07-22T10:04:11Z",
+     "stargazersCount": 1,
+     "url": "https://github.com/bibhraj-saha/UK-Housing-Intelligence-Platform"
+    },
+    {
+     "createdAt": "2026-07-12T22:01:08Z",
+     "defaultBranch": "main",
+     "description": "Enterprise Financial Fraud Detection Platform using PostgreSQL, dbt, Machine Learning, RAG, Ollama, and Streamlit",
+     "fullName": "saithanuj2/enterprise-financial-fraud-detection-platform",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-08-04T20:15:06Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/saithanuj2/enterprise-financial-fraud-detection-platform"
+    },
+    {
+     "createdAt": "2026-10-15T22:35:58Z",
+     "defaultBranch": "main",
+     "description": "Retail Demand Forecasting & Inventory Optimization using Python, SQL, BigQuery, dbt, machine learning, FastAPI, and Streamlit.",
+     "fullName": "Varshapandey-8757/retail-demand-forecasting",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-11-06T16:06:29Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Varshapandey-8757/retail-demand-forecasting"
+    },
+    {
+     "createdAt": "2026-09-15T15:31:53Z",
+     "defaultBranch": "main",
+     "description": " AI-powered music analytics and recommendation platform using PostgreSQL, dbt, Machine Learning, FAISS, FastAPI and Streamlit.",
+     "fullName": "bharath9500704322/amazon-music-ai-platform",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-09-15T17:18:10Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/bharath9500704322/amazon-music-ai-platform"
+    },
+    {
+     "createdAt": "2026-11-05T08:16:20Z",
+     "defaultBranch": "main",
+     "description": "End-to-end Customer 360 and Revenue Intelligence platform using Python, SQL, Snowflake, dbt, machine learning, and AI.",
+     "fullName": "nithyaa-d/customer-360-revenue-intelligence",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-11-05T10:54:23Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/nithyaa-d/customer-360-revenue-intelligence"
+    },
+    {
+     "createdAt": "2026-02-27T01:38:10Z",
+     "defaultBranch": "main",
+     "description": "Production-style FinTech data platform detecting fraud across 100,000+ transactions using Python, PostgreSQL, dbt, Machine Learning and Power BI",
+     "fullName": "gayatrisurya97/fintech-fraud-detection-platform",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-02-27T02:12:38Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/gayatrisurya97/fintech-fraud-detection-platform"
+    },
+    {
+     "createdAt": "2026-07-09T13:52:58Z",
+     "defaultBranch": "main",
+     "description": "Plataforma de Intelig\u00eancia Financeira para Open Finance com Docker, PostgreSQL, MinIO, MLflow, dbt, Machine Learning, FastAPI, Streamlit e IA Generativa.",
+     "fullName": "isaiasjusto/finpulse-ai",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-08-29T21:53:43Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/isaiasjusto/finpulse-ai"
+    },
+    {
+     "createdAt": "2026-10-01T05:26:42Z",
+     "defaultBranch": "main",
+     "description": "Retail demand forecasting and inventory optimization system using BigQuery, dbt, machine learning, and Streamlit to predict product demand and recommend inventory actions.",
+     "fullName": "babyprasanna1606-spec/Project-3-Retail-Demand-Forecasting-Inventory-Optimization",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-10-12T09:49:39Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/babyprasanna1606-spec/Project-3-Retail-Demand-Forecasting-Inventory-Optimization"
+    },
+    {
+     "createdAt": "2026-07-30T23:10:39Z",
+     "defaultBranch": "main",
+     "description": "Pipeline de engenharia de dados para previs\u00e3o de vendas e estoque inteligente, com Python, AWS S3, BigQuery, dbt, Machine Learning, Airflow e Power BI.",
+     "fullName": "FerNegreiro/DataEngine",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-08-25T15:59:10Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/FerNegreiro/DataEngine"
+    },
+    {
+     "createdAt": "2026-06-06T23:27:55Z",
+     "defaultBranch": "main",
+     "description": "End-to-end revenue intelligence platform combining Databricks, Snowflake, dbt, machine learning, and Power BI to forecast revenue, predict customer churn, estimate customer lifetime value, and deliver executive-ready business insights.",
+     "fullName": "Achayo-Emmanuel/Strategic-Revenue-Intelligence-Platform-SaaS",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-06-11T04:22:24Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Achayo-Emmanuel/Strategic-Revenue-Intelligence-Platform-SaaS"
+    },
+    {
+     "createdAt": "2026-07-16T13:56:31Z",
+     "defaultBranch": "main",
+     "description": "Production-ready Retail Intelligence Platform featuring ETL Pipelines, Data Warehouse (Star Schema & SCD Type 2), SQL Analytics, Airflow, dbt, Machine Learning Sales Forecasting, and Interactive Business Intelligence Dashboards built with Streamlit.",
+     "fullName": "Madhumitha-Chinta/RetailIQ-AI",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-07-16T13:59:29Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/Madhumitha-Chinta/RetailIQ-AI"
+    },
+    {
+     "createdAt": "2026-07-03T22:22:30Z",
+     "defaultBranch": "main",
+     "description": "Plateforme d'Intelligence R\u00e9seau pour ODDnet \u2014 Data Lakehouse (Kafka, Spark, MinIO/Delta Lake, dbt) + Machine Learning (Isolation Forest, Prophet) pour la d\u00e9tection d'anomalies et la maintenance pr\u00e9dictive des r\u00e9seaux t\u00e9l\u00e9com. Orchestr\u00e9 avec Airflow, visualis\u00e9 via Grafana & Streamlit. 100% conteneuris\u00e9 (Docker).",
+     "fullName": "FatimaZahraBoukab/oddnet-network-intelligence",
+     "isFork": false,
+     "license": {
+      "key": "",
+      "name": "",
+      "url": ""
+     },
+     "pushedAt": "2026-07-25T22:41:30Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/FatimaZahraBoukab/oddnet-network-intelligence"
+    },
+    {
+     "createdAt": "2026-09-30T02:22:04Z",
+     "defaultBranch": "main",
+     "description": "End-to-end marketplace analytics project using FINN.no data to explore buyer engagement, evaluate promoted listings through simulated A/B testing, and develop personalised recommendation models. Combines Python, Snowflake, dbt, machine learning, and Tableau to turn marketplace interaction data into actionable insights.",
+     "fullName": "mansigupta101/finn-marketplace-analytics",
+     "isFork": false,
+     "license": {
+      "key": "mit",
+      "name": "MIT License",
+      "url": "https://api.github.com/licenses/mit"
+     },
+     "pushedAt": "2026-10-15T22:27:35Z",
+     "stargazersCount": 0,
+     "url": "https://github.com/mansigupta101/finn-marketplace-analytics"
+    }
+   ]
+  },
+  {
+   "command": "gh search code \"fraud_features\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C5",
+   "kind": "code",
+   "results": [
+    {
+     "path": "analytics/models/features/fraud_features_serving.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM2ODAwMzE1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vilim-cro/Financial-Transactions-Analytics-Platform",
+      "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform"
+     },
+     "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform/blob/8328dbeedab9b91a7fe7f9be04f6ec4bad2b4d55/analytics/models/features/fraud_features_serving.sql"
+    },
+    {
+     "path": "dbt_project/models/marts/fraud_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTk0MTUzNjQx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Kshitijbhatt1998/fintech-fraud-pipeline",
+      "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline"
+     },
+     "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline/blob/cead424881d541aaee72d9be00866f63c4b1143e/dbt_project/models/marts/fraud_features.sql"
+    },
+    {
+     "path": "analytics/models/features/fraud_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM2ODAwMzE1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vilim-cro/Financial-Transactions-Analytics-Platform",
+      "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform"
+     },
+     "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform/blob/8328dbeedab9b91a7fe7f9be04f6ec4bad2b4d55/analytics/models/features/fraud_features.sql"
+    },
+    {
+     "path": "dbt_project/target/compiled/fraud_pipeline/models/marts/fraud_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTk0MTUzNjQx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Kshitijbhatt1998/fintech-fraud-pipeline",
+      "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline"
+     },
+     "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline/blob/cead424881d541aaee72d9be00866f63c4b1143e/dbt_project/target/compiled/fraud_pipeline/models/marts/fraud_features.sql"
+    },
+    {
+     "path": "realtime-banking-fraud-detection/02_features_and_udfs.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjUxNTU1MTg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "exasol-labs/industry-solutions",
+      "url": "https://github.com/exasol-labs/industry-solutions"
+     },
+     "url": "https://github.com/exasol-labs/industry-solutions/blob/8079c2a02e159fb36a207dadd42e2c13f59d7ec3/realtime-banking-fraud-detection/02_features_and_udfs.sql"
+    },
+    {
+     "path": "sql/fraud_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDEwODMyMTI1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Lifewitdata/account-takeover-fraud-detection",
+      "url": "https://github.com/Lifewitdata/account-takeover-fraud-detection"
+     },
+     "url": "https://github.com/Lifewitdata/account-takeover-fraud-detection/blob/c8b68037fd6302013c7912abc669f24d39f1470e/sql/fraud_features.sql"
+    },
+    {
+     "path": "analytics/macros/train_fraud_lr_v1.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM2ODAwMzE1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vilim-cro/Financial-Transactions-Analytics-Platform",
+      "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform"
+     },
+     "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform/blob/8328dbeedab9b91a7fe7f9be04f6ec4bad2b4d55/analytics/macros/train_fraud_lr_v1.sql"
+    },
+    {
+     "path": "pipeline/supabase_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzk4NDcwODk1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "jaime-sql/factored-hackathon-2026-databank_sv",
+      "url": "https://github.com/jaime-sql/factored-hackathon-2026-databank_sv"
+     },
+     "url": "https://github.com/jaime-sql/factored-hackathon-2026-databank_sv/blob/6a2697872a11a6f8fa8ec8fa0451471c9344f907/pipeline/supabase_schema.sql"
+    },
+    {
+     "path": "analytics/models/features/fraud_predictions.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM2ODAwMzE1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vilim-cro/Financial-Transactions-Analytics-Platform",
+      "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform"
+     },
+     "url": "https://github.com/vilim-cro/Financial-Transactions-Analytics-Platform/blob/8328dbeedab9b91a7fe7f9be04f6ec4bad2b4d55/analytics/models/features/fraud_predictions.sql"
+    },
+    {
+     "path": "dbt/models/gold/fct_transactions_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzYxNTk3NzM2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sameramri-alt/Financial-Fraud-Analytics-Real-Time-ML",
+      "url": "https://github.com/sameramri-alt/Financial-Fraud-Analytics-Real-Time-ML"
+     },
+     "url": "https://github.com/sameramri-alt/Financial-Fraud-Analytics-Real-Time-ML/blob/5dd93698aa6504a8b8efbe2f2fb823f3a8e2a689/dbt/models/gold/fct_transactions_features.sql"
+    },
+    {
+     "path": "dbt/models/data_quality/dq_pipeline_health.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIxNTEzODkx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "NADEEMTHEBA8/realtime-fraud-feature-store",
+      "url": "https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store"
+     },
+     "url": "https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store/blob/9d7bed7bc15d2e8f173c3d09de183fc711b418ab/dbt/models/data_quality/dq_pipeline_health.sql"
+    },
+    {
+     "path": "dbt/models/data_quality/recon_bronze_silver.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjIxNTEzODkx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "NADEEMTHEBA8/realtime-fraud-feature-store",
+      "url": "https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store"
+     },
+     "url": "https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store/blob/9d7bed7bc15d2e8f173c3d09de183fc711b418ab/dbt/models/data_quality/recon_bronze_silver.sql"
+    },
+    {
+     "path": "nova/models/mart/mart_transaction_fraud_tableau.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjYzODczMTAy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "dorukalkan/nova-analytics",
+      "url": "https://github.com/dorukalkan/nova-analytics"
+     },
+     "url": "https://github.com/dorukalkan/nova-analytics/blob/fb82fa39c4583995b95adfed2781341c6d3ba30b/nova/models/mart/mart_transaction_fraud_tableau.sql"
+    },
+    {
+     "path": "transform/payflow/models/marts/mart_fraud_daily.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDQ3MDg1MjY3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vifestudio/payflow-data-platform",
+      "url": "https://github.com/vifestudio/payflow-data-platform"
+     },
+     "url": "https://github.com/vifestudio/payflow-data-platform/blob/00bb8f46eb72cb3360a8090d9fd6e1c8e024a1d4/transform/payflow/models/marts/mart_fraud_daily.sql"
+    },
+    {
+     "path": "transform/payflow/models/marts/mart_fraud_by_merchant.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDQ3MDg1MjY3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "vifestudio/payflow-data-platform",
+      "url": "https://github.com/vifestudio/payflow-data-platform"
+     },
+     "url": "https://github.com/vifestudio/payflow-data-platform/blob/00bb8f46eb72cb3360a8090d9fd6e1c8e024a1d4/transform/payflow/models/marts/mart_fraud_by_merchant.sql"
+    },
+    {
+     "path": "dbt_project/socgen_fraud/models/mart/mart_fraud_detection.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTk2MTE5Mjk5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "joviale08/SG_ML",
+      "url": "https://github.com/joviale08/SG_ML"
+     },
+     "url": "https://github.com/joviale08/SG_ML/blob/06552a66e5e00c7268ce1a29977c48eb850a1d6b/dbt_project/socgen_fraud/models/mart/mart_fraud_detection.sql"
+    },
+    {
+     "path": "realtime-banking-fraud-detection/07_refresh_analytics_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjUxNTU1MTg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "exasol-labs/industry-solutions",
+      "url": "https://github.com/exasol-labs/industry-solutions"
+     },
+     "url": "https://github.com/exasol-labs/industry-solutions/blob/8079c2a02e159fb36a207dadd42e2c13f59d7ec3/realtime-banking-fraud-detection/07_refresh_analytics_features.sql"
+    },
+    {
+     "path": "migrations/001_app_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzk4NDcwODk1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "jaime-sql/factored-hackathon-2026-databank_sv",
+      "url": "https://github.com/jaime-sql/factored-hackathon-2026-databank_sv"
+     },
+     "url": "https://github.com/jaime-sql/factored-hackathon-2026-databank_sv/blob/6a2697872a11a6f8fa8ec8fa0451471c9344f907/migrations/001_app_schema.sql"
+    },
+    {
+     "path": "supabase/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjEzOTg3NzYw",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "VIVEKj24/nexus-pay",
+      "url": "https://github.com/VIVEKj24/nexus-pay"
+     },
+     "url": "https://github.com/VIVEKj24/nexus-pay/blob/a4513d87e8e37fa0f915204a979fa48adb201900/supabase/schema.sql"
+    },
+    {
+     "path": "infra/dbt/models/marts/fraud/fct_fraud_signals.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjcyMDM5NTk3",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "munisp/paygate",
+      "url": "https://github.com/munisp/paygate"
+     },
+     "url": "https://github.com/munisp/paygate/blob/54d27dff5ae5a1d984ff08fa5ee4f1c798470f18/infra/dbt/models/marts/fraud/fct_fraud_signals.sql"
+    },
+    {
+     "path": "src/pipeline/amarbank_dq_pipeline.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzU0OTE0NjQ1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "danteliew6/amarbank-databricks-solution",
+      "url": "https://github.com/danteliew6/amarbank-databricks-solution"
+     },
+     "url": "https://github.com/danteliew6/amarbank-databricks-solution/blob/cdfd7a9c57e828ceea055ddd100268e7560e7640/src/pipeline/amarbank_dq_pipeline.sql"
+    },
+    {
+     "path": "realtime-banking-fraud-detection/01_exasol_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjUxNTU1MTg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "exasol-labs/industry-solutions",
+      "url": "https://github.com/exasol-labs/industry-solutions"
+     },
+     "url": "https://github.com/exasol-labs/industry-solutions/blob/8079c2a02e159fb36a207dadd42e2c13f59d7ec3/realtime-banking-fraud-detection/01_exasol_schema.sql"
+    },
+    {
+     "path": "dbt_project/target/run/fraud_pipeline/models/marts/fraud_summary.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTk0MTUzNjQx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Kshitijbhatt1998/fintech-fraud-pipeline",
+      "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline"
+     },
+     "url": "https://github.com/Kshitijbhatt1998/fintech-fraud-pipeline/blob/cead424881d541aaee72d9be00866f63c4b1143e/dbt_project/target/run/fraud_pipeline/models/marts/fraud_summary.sql"
+    },
+    {
+     "path": "supabase/migrations/003_orders_table.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjgyMzQ1MzA4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "burna5566/TonatonPay",
+      "url": "https://github.com/burna5566/TonatonPay"
+     },
+     "url": "https://github.com/burna5566/TonatonPay/blob/99e0ec2da63171c2030b24c7049db5f98ef19457/supabase/migrations/003_orders_table.sql"
+    },
+    {
+     "path": "sql/duckdb/login_features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxNDEwODMyMTI1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Lifewitdata/account-takeover-fraud-detection",
+      "url": "https://github.com/Lifewitdata/account-takeover-fraud-detection"
+     },
+     "url": "https://github.com/Lifewitdata/account-takeover-fraud-detection/blob/c8b68037fd6302013c7912abc669f24d39f1470e/sql/duckdb/login_features.sql"
+    },
+    {
+     "path": "tests/assert_row_count_matches.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjY1NjAzNzAx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "haseebkn/aegisagent",
+      "url": "https://github.com/haseebkn/aegisagent"
+     },
+     "url": "https://github.com/haseebkn/aegisagent/blob/915a38ecd4b49029cb8750784bb89bd5913f43a8/tests/assert_row_count_matches.sql"
+    },
+    {
+     "path": "dbt_project/tests/assert_class_binary.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzk5Nzk4MDky",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "tusharpanthri/transaction-lens",
+      "url": "https://github.com/tusharpanthri/transaction-lens"
+     },
+     "url": "https://github.com/tusharpanthri/transaction-lens/blob/ae42dc69bee0cbbdd3689ebb4d992691a71efd28/dbt_project/tests/assert_class_binary.sql"
+    },
+    {
+     "path": "tests/assert_card_history_is_prior_only.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjY1NjAzNzAx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "haseebkn/aegisagent",
+      "url": "https://github.com/haseebkn/aegisagent"
+     },
+     "url": "https://github.com/haseebkn/aegisagent/blob/915a38ecd4b49029cb8750784bb89bd5913f43a8/tests/assert_card_history_is_prior_only.sql"
+    },
+    {
+     "path": "tests/assert_no_degenerate_feature_scale.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjY1NjAzNzAx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "haseebkn/aegisagent",
+      "url": "https://github.com/haseebkn/aegisagent"
+     },
+     "url": "https://github.com/haseebkn/aegisagent/blob/915a38ecd4b49029cb8750784bb89bd5913f43a8/tests/assert_no_degenerate_feature_scale.sql"
+    },
+    {
+     "path": "tests/assert_velocity_no_train_serve_skew.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjY1NjAzNzAx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "haseebkn/aegisagent",
+      "url": "https://github.com/haseebkn/aegisagent"
+     },
+     "url": "https://github.com/haseebkn/aegisagent/blob/915a38ecd4b49029cb8750784bb89bd5913f43a8/tests/assert_velocity_no_train_serve_skew.sql"
+    }
+   ]
+  },
+  {
+   "command": "gh search code \"prediction_date\" \"ref\" --extension sql --limit 30",
+   "failed": "",
+   "id": "C6",
+   "kind": "code",
+   "results": [
+    {
+     "path": "data_extraction/sql/load_prediction_date_tables.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk2MzY5Mjc3OTk=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "clinicalml/large-scale-temporal-shift-study",
+      "url": "https://github.com/clinicalml/large-scale-temporal-shift-study"
+     },
+     "url": "https://github.com/clinicalml/large-scale-temporal-shift-study/blob/c09e3c2e92cd85f6867541b30f38382fd3b980e8/data_extraction/sql/load_prediction_date_tables.sql"
+    },
+    {
+     "path": "dbt/models/multiengine/staging/staging_churn.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk3MTI0ODc4MjM=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "hachej/multi-engine-data-stack",
+      "url": "https://github.com/hachej/multi-engine-data-stack"
+     },
+     "url": "https://github.com/hachej/multi-engine-data-stack/blob/5894bf321d2c6370c8b2db39aa3389492755aeeb/dbt/models/multiengine/staging/staging_churn.sql"
+    },
+    {
+     "path": "sql/deploy_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjE2MDEzODI5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "sandersdHES/ADF_DataCycleProject",
+      "url": "https://github.com/sandersdHES/ADF_DataCycleProject"
+     },
+     "url": "https://github.com/sandersdHES/ADF_DataCycleProject/blob/bcbdc6a327a059a525c6cbf513bc24402f09b7a3/sql/deploy_schema.sql"
+    },
+    {
+     "path": "database/migrations/001_initial_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTgxNjE0NTk4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mandeep6207/Autonomous-Pothole-Detection-And-National-Road-Intelligence-Platform",
+      "url": "https://github.com/mandeep6207/Autonomous-Pothole-Detection-And-National-Road-Intelligence-Platform"
+     },
+     "url": "https://github.com/mandeep6207/Autonomous-Pothole-Detection-And-National-Road-Intelligence-Platform/blob/3aa1bb1f6a8e235cd94392eccbd2a6830fe79423/database/migrations/001_initial_schema.sql"
+    },
+    {
+     "path": "hisabai.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMzk5MDA3NDg4",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "minhajMahmud/Hishab_AI",
+      "url": "https://github.com/minhajMahmud/Hishab_AI"
+     },
+     "url": "https://github.com/minhajMahmud/Hishab_AI/blob/8436f4e69e26d6bdee28b80b343b1304164e23f1/hisabai.sql"
+    },
+    {
+     "path": "database/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDA5NTYyNDEx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "waynemkearns/smart-ordering-system",
+      "url": "https://github.com/waynemkearns/smart-ordering-system"
+     },
+     "url": "https://github.com/waynemkearns/smart-ordering-system/blob/5843190a40a105b249df18fc56a367c5378750a7/database/schema.sql"
+    },
+    {
+     "path": "dbt/models/multiengine/public/metric_action.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk3MTI0ODc4MjM=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "hachej/multi-engine-data-stack",
+      "url": "https://github.com/hachej/multi-engine-data-stack"
+     },
+     "url": "https://github.com/hachej/multi-engine-data-stack/blob/5894bf321d2c6370c8b2db39aa3389492755aeeb/dbt/models/multiengine/public/metric_action.sql"
+    },
+    {
+     "path": "migrations/002_create_all_tables.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjk1Mjg3MDA1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "incheckk/base-bangkago",
+      "url": "https://github.com/incheckk/base-bangkago"
+     },
+     "url": "https://github.com/incheckk/base-bangkago/blob/a6101595924d49bd8e22992025259c2918f1d5c1/migrations/002_create_all_tables.sql"
+    },
+    {
+     "path": "sql/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTA5NjkxNTA1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "simonibsen/gefion",
+      "url": "https://github.com/simonibsen/gefion"
+     },
+     "url": "https://github.com/simonibsen/gefion/blob/6f995fa050d1e2539c555437920a31d4f8cf2961/sql/schema.sql"
+    },
+    {
+     "path": "database_schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk4MzEzNTY2NTc=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "NickScherbakov/NickScherbakov",
+      "url": "https://github.com/NickScherbakov/NickScherbakov"
+     },
+     "url": "https://github.com/NickScherbakov/NickScherbakov/blob/e599f6b58fa1e21bb0fd29ae2737d305c5a978b4/database_schema.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM0MjE2Nzg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mercydeez/lulu-sales-intelligence-dashboard",
+      "url": "https://github.com/mercydeez/lulu-sales-intelligence-dashboard"
+     },
+     "url": "https://github.com/mercydeez/lulu-sales-intelligence-dashboard/blob/430b9f43c40a99ba9c72ba510e0a417fc9108a81/database/init.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM2NTI5MDUy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "krish2105/lulu-intelligence-dashboard",
+      "url": "https://github.com/krish2105/lulu-intelligence-dashboard"
+     },
+     "url": "https://github.com/krish2105/lulu-intelligence-dashboard/blob/f96bcd2d184c79a880b82b17d4b554b6d4fbca30/database/init.sql"
+    },
+    {
+     "path": "backend/database/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDU4NDI0MTEx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Kuldeep2822k/aqua-ai",
+      "url": "https://github.com/Kuldeep2822k/aqua-ai"
+     },
+     "url": "https://github.com/Kuldeep2822k/aqua-ai/blob/af40d1fa39486208ffac92baa620371f4043f6f4/backend/database/schema.sql"
+    },
+    {
+     "path": "codebase/init/db/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTg0NDQ2NjI0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "linuxarena/clinical_trial",
+      "url": "https://github.com/linuxarena/clinical_trial"
+     },
+     "url": "https://github.com/linuxarena/clinical_trial/blob/73d30f0267bf495c6373f077313297caf4bf6478/codebase/init/db/init.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDc3NDU3Mjg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "hindrobah85-cyber/ERP-gajahnusa",
+      "url": "https://github.com/hindrobah85-cyber/ERP-gajahnusa"
+     },
+     "url": "https://github.com/hindrobah85-cyber/ERP-gajahnusa/blob/e8f8b9378f2b77846ec236baecaa60c980dd6ecb/database/init.sql"
+    },
+    {
+     "path": "sql_schema/3_schema_market.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NDIzMTM5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mohaaHeiba/EGX360-Graduation-Project",
+      "url": "https://github.com/mohaaHeiba/EGX360-Graduation-Project"
+     },
+     "url": "https://github.com/mohaaHeiba/EGX360-Graduation-Project/blob/9582e5cab59d2afc1b03fb2e10e71bc561ef3a2e/sql_schema/3_schema_market.sql"
+    },
+    {
+     "path": "supabase/migrations/0001_init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjQ2Mzk4NjM2",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "2026Graduation-Work/take_a_look",
+      "url": "https://github.com/2026Graduation-Work/take_a_look"
+     },
+     "url": "https://github.com/2026Graduation-Work/take_a_look/blob/1fee8a95a3f16228dbb7d6b7f4b8347d29f1c78c/supabase/migrations/0001_init.sql"
+    },
+    {
+     "path": "src/deploy/scripts/init-db.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDQ5ODc4MjAy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "SiemonCha/stock-ai",
+      "url": "https://github.com/SiemonCha/stock-ai"
+     },
+     "url": "https://github.com/SiemonCha/stock-ai/blob/197e61752283dc46e793e6a7c48ff932f5245217/src/deploy/scripts/init-db.sql"
+    },
+    {
+     "path": "sql/customer_ltv.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTQzMjI5MzAz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Deepakkaruppasamy/Shashti-Karz",
+      "url": "https://github.com/Deepakkaruppasamy/Shashti-Karz"
+     },
+     "url": "https://github.com/Deepakkaruppasamy/Shashti-Karz/blob/2948724a18da98ca885ec22fea60d8274713e8c5/sql/customer_ltv.sql"
+    },
+    {
+     "path": "backend/drizzle/0030_cash_flow_forecasting.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDQ3MjkzMzU0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "csxark/Wealth-Vault",
+      "url": "https://github.com/csxark/Wealth-Vault"
+     },
+     "url": "https://github.com/csxark/Wealth-Vault/blob/74cb6479f4b0b740de3c067cbd8f902793cc365d/backend/drizzle/0030_cash_flow_forecasting.sql"
+    },
+    {
+     "path": "app/supabase/3_schema_market.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTY5NDIzMTM5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mohaaHeiba/EGX360-Graduation-Project",
+      "url": "https://github.com/mohaaHeiba/EGX360-Graduation-Project"
+     },
+     "url": "https://github.com/mohaaHeiba/EGX360-Graduation-Project/blob/9582e5cab59d2afc1b03fb2e10e71bc561ef3a2e/app/supabase/3_schema_market.sql"
+    },
+    {
+     "path": "scripts/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTU3MzIxMTcy",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Naveen200524/sanjeevini-cdss",
+      "url": "https://github.com/Naveen200524/sanjeevini-cdss"
+     },
+     "url": "https://github.com/Naveen200524/sanjeevini-cdss/blob/d0796cb7696b064e6710e1d426f0e6b3493014e2/scripts/schema.sql"
+    },
+    {
+     "path": "database/prod-init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTM0MjE2Nzg0",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mercydeez/lulu-sales-intelligence-dashboard",
+      "url": "https://github.com/mercydeez/lulu-sales-intelligence-dashboard"
+     },
+     "url": "https://github.com/mercydeez/lulu-sales-intelligence-dashboard/blob/430b9f43c40a99ba9c72ba510e0a417fc9108a81/database/prod-init.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMjA3ODc2MTE5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "lakshanashreee/public-health-surveillance",
+      "url": "https://github.com/lakshanashreee/public-health-surveillance"
+     },
+     "url": "https://github.com/lakshanashreee/public-health-surveillance/blob/0e58150fbdaa9b50c4e53d2b35df743f7decc0a0/database/init.sql"
+    },
+    {
+     "path": "backend/init_db.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTE0NTI3MzEz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "shah-data-scientist/Scoring_Model_Enhanced",
+      "url": "https://github.com/shah-data-scientist/Scoring_Model_Enhanced"
+     },
+     "url": "https://github.com/shah-data-scientist/Scoring_Model_Enhanced/blob/cf20b8a5c40149cbd1ff1a3358e8ee5dff0b4fef/backend/init_db.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnk5ODM3Njk3MDk=",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "mateusdfaria/portif-lio",
+      "url": "https://github.com/mateusdfaria/portif-lio"
+     },
+     "url": "https://github.com/mateusdfaria/portif-lio/blob/52f6699d505a5f67eb7560617d310ecb6b96a76b/database/init.sql"
+    },
+    {
+     "path": "database/next-gen-features.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDQ5MDE1NDIz",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "davuterl/music-platform-infiwo-v1",
+      "url": "https://github.com/davuterl/music-platform-infiwo-v1"
+     },
+     "url": "https://github.com/davuterl/music-platform-infiwo-v1/blob/819e114fa5472118a0e850b7c41941240bce57a3/database/next-gen-features.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMDY5ODk0NDk5",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "pcwto2025/subway-wear-prediction",
+      "url": "https://github.com/pcwto2025/subway-wear-prediction"
+     },
+     "url": "https://github.com/pcwto2025/subway-wear-prediction/blob/be68ae3a714ed1bbca8197b91f115e6f9303c1fe/database/init.sql"
+    },
+    {
+     "path": "database/init.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTIzNzkyMzA1",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "Shriram-Iyer/stock-market-project",
+      "url": "https://github.com/Shriram-Iyer/stock-market-project"
+     },
+     "url": "https://github.com/Shriram-Iyer/stock-market-project/blob/10a6cd1b93bd73fc1ec6916913d9a9780ff7243b/database/init.sql"
+    },
+    {
+     "path": "backend/schema.sql",
+     "repository": {
+      "id": "MDEwOlJlcG9zaXRvcnkxMTI0MDQwNTYx",
+      "isFork": false,
+      "isPrivate": false,
+      "nameWithOwner": "anujky576/SmartDrain",
+      "url": "https://github.com/anujky576/SmartDrain"
+     },
+     "url": "https://github.com/anujky576/SmartDrain/blob/57813351e9a65737926f4825d1892ae060d20d17/backend/schema.sql"
+    }
+   ]
+  }
+ ]
+}
