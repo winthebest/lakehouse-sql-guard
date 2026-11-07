@@ -1619,22 +1619,32 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
         a = _prediction_terms(node.left, scope, resolver, keyed=True)
         b = _prediction_terms(node.right, scope, resolver, keyed=True)
         if a and b and scope is not None:
-            equalities.append((a, b, context, scope))
+            # a COALESCE is one of its arguments; a column fed by a UNION or EXCEPT is, in each
+            # row, the column of the branch the row came from
+            alternatives = (
+                isinstance(_unparen(node.left), exp.Coalesce),
+                isinstance(_unparen(node.right), exp.Coalesce),
+            )
+            equalities.append((a, b, context, scope, alternatives))
     changed = True
     while changed:
         changed = False
-        for a, b, context, scope in equalities:
-            for known, new in ((a, b), (b, a)):
-                # a single column equal to something already on the spine is on it too — if the
-                # predicate really restricts that column's rows (not the preserved side of a join)
-                if len(new) != 1 or not context.filters(new[0].alias):
+        for a, b, context, scope, (a_either, b_either) in equalities:
+            for known, new, new_either in ((a, b, b_either), (b, a, a_either)):
+                # a column equal to something already on the spine is on it too — if the
+                # predicate really restricts that column's rows (not the preserved side of a join).
+                # Every branch of a UNION that feeds the column is, for the rows that survive.
+                if (len(new) != 1 and new_either) or not all(
+                    context.filters(term.alias) for term in new
+                ):
                     continue
                 for instance in resolver.paths[id(scope)]:
                     if all(resolver.on_spine(k, instance) for k in known):
-                        for p in resolver.full_paths(new[0], instance):
-                            if (id(new[0].ref), p) not in spine:
-                                spine.add((id(new[0].ref), p))
-                                changed = True
+                        for term in new:
+                            for p in resolver.full_paths(term, instance):
+                                if (id(term.ref), p) not in spine:
+                                    spine.add((id(term.ref), p))
+                                    changed = True
 
 
 def _only_projects_and_filters(scope: Scope) -> bool:

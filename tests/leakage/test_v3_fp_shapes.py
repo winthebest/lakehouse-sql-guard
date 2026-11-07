@@ -354,3 +354,86 @@ WHERE user_id IN (SELECT user_id FROM cleaned WHERE churned = 1)""",
 )
 def test_a_label_filter_that_is_not_a_plain_filter_of_the_output_rows_is_still_a_use(query):
     assert "L6" in rules(query)
+
+
+# --- a column fed by a UNION or an EXCEPT that is joined to the spine ----------------------------
+
+
+def facts_union(
+    operator: str = "UNION",
+    first_bound: str = "e.ingested_at < l.label_ts",
+    second_bound: str = "s.updated_at < l.label_ts",
+) -> str:
+    return f"""WITH active AS (
+  SELECT l.user_id, l.label_ts, e.event_id AS ref
+  FROM labels l JOIN events e ON e.user_id = l.user_id AND {first_bound}
+  {operator}
+  SELECT l.user_id, l.label_ts, s.n_orders AS ref
+  FROM labels l JOIN user_stats s ON s.user_id = l.user_id AND {second_bound}
+)
+SELECT {KEYS}, COUNT(a.ref) AS n
+FROM labels l LEFT JOIN active a ON a.user_id = l.user_id AND a.label_ts = l.label_ts
+GROUP BY 1, 2, 3"""
+
+
+@pytest.mark.parametrize("operator", ["UNION", "UNION ALL", "INTERSECT"])
+def test_facts_gathered_by_a_set_operation_are_bounded_in_each_branch(operator):
+    assert rules(facts_union(operator)) == set()
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("e.ingested_at < l.label_ts + INTERVAL 1 DAY", "s.updated_at < l.label_ts"),
+        ("e.ingested_at < l.label_ts", "s.updated_at < l.label_ts + INTERVAL 1 DAY"),
+        ("e.ingested_at < l.label_ts", "s.updated_at >= l.label_ts - INTERVAL 7 DAY"),
+        ("e.ingested_at <= l.label_ts", "s.updated_at < l.label_ts"),
+        ("e.user_id > 0", "s.updated_at < l.label_ts"),
+    ],
+)
+def test_a_branch_with_a_wrong_or_missing_bound_is_still_flagged(first, second):
+    for operator in ("UNION", "UNION ALL"):
+        assert rules(facts_union(operator, first, second)), (operator, first, second)
+
+
+def test_a_branch_that_is_not_a_prediction_time_keeps_the_union_off_the_spine():
+    shifted = facts_union().replace(
+        "SELECT l.user_id, l.label_ts, s.n_orders AS ref",
+        "SELECT l.user_id, l.label_ts + INTERVAL 1 DAY AS label_ts, s.n_orders AS ref",
+    )
+    assert rules(shifted)
+    other = facts_union().replace(
+        "SELECT l.user_id, l.label_ts, s.n_orders AS ref\n  FROM labels l JOIN user_stats s",
+        "SELECT s.user_id, s.updated_at AS label_ts, s.n_orders AS ref\n  FROM user_stats s "
+        "JOIN labels l",
+    )
+    assert rules(other)
+
+
+def test_a_union_joined_without_its_prediction_time_is_not_on_the_spine():
+    loose = facts_union().replace(" AND a.label_ts = l.label_ts", "")
+    assert rules(loose)
+
+
+def lapsed(recent_source: str = "FROM known") -> str:
+    return f"""WITH known AS (
+  SELECT l.user_id, l.label_ts, e.event_ts FROM labels l
+  JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+),
+earlier AS (SELECT user_id, label_ts FROM known WHERE event_ts < label_ts - INTERVAL 21 DAY),
+recent AS (SELECT user_id, label_ts {recent_source} WHERE event_ts >= label_ts - INTERVAL 21 DAY),
+gone AS (SELECT user_id, label_ts FROM earlier EXCEPT SELECT user_id, label_ts FROM recent)
+SELECT {KEYS}, g.user_id IS NOT NULL AS lapsed
+FROM labels l LEFT JOIN gone g ON g.user_id = l.user_id AND g.label_ts = l.label_ts"""
+
+
+def test_rows_removed_by_an_except_over_bounded_facts_are_clean():
+    assert rules(lapsed()) == set()
+
+
+def test_an_except_whose_removed_side_reads_unbounded_facts_is_flagged():
+    future = lapsed(
+        "FROM (SELECT l.user_id, l.label_ts, e.event_ts FROM labels l "
+        "JOIN events e ON e.user_id = l.user_id) k"
+    )
+    assert rules(future)
