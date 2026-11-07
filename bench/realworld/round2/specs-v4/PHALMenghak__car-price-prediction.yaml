@@ -1,0 +1,86 @@
+# Spec for PHALMenghak/car-price-prediction, dbt/ subdirectory (group: round2, no license) at the
+# pinned commit of ../projects.yaml. Written from the README, the models' yml (staging, intermediate,
+# marts/ml) and the header comments of the staging and training models, before the checker ran on any
+# round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (training model header: "Day-0 appraisal features", "chronological
+# split assignment by observation date"; staging yml: "daily snapshots (grain: listing_id +
+# scrape_date)").
+#
+# Assumptions the project does not settle:
+#   - The documented label is the listing price (log_price is its log). The staging model
+#     stg_khmer24_cars holds `price` (and the other raw listing fields) one row per listing and
+#     scrape date, and int_listing_history rebuilds the listing's longitudinal history from the same
+#     table, so it is both the label spine and the history (single-table case of the round 1 specs).
+#   - The observation date is taken as scrape_date, the documented grain column that the training
+#     table selects; scraped_at (README: "Normalized TIMESTAMPTZ") is the same observation as a
+#     timestamp.
+#   - The nine seeds are code-to-label mapping tables with no event time: declared static.
+#
+# v4 addition: the type of scrape_date, which the staging model's own SQL gives (line 42).
+label_table: stg_khmer24_cars
+entity_keys: [listing_id]
+prediction_ts: scrape_date
+label_columns: [price]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+static_tables:
+  - seed_brand_mapping
+  - seed_model_alias
+  - seed_location_mapping
+  - seed_fuel_mapping
+  - seed_transmission_mapping
+  - seed_tax_mapping
+  - seed_color_mapping
+  - seed_condition_mapping
+  - seed_body_type_mapping
+
+realworld:
+  training_sets: [fct_cars_ml_features]
+  meta:
+    "model:stg_khmer24_cars": {role: label_spine}
+  basis: |
+    - fct_cars_ml_features is the training table: model header "Canonical ML Feature Store: Day-0
+      appraisal features, log-stabilized price target, and temporal split metadata"; marts/ml yml
+      "ML Feature Store ... with explicit target, chronological split_group".
+    - the header lists what the table leaves out to avoid leakage: days_on_market, price_drop_amount,
+      initial_price ("future market dynamics").
+    - stg_khmer24_cars: "Thin ingestion view of Khmer24 daily snapshots (grain: listing_id +
+      scrape_date)"; README: normalized TIMESTAMPTZ columns.
+    - no availability column or ingestion delay is documented.
+  not_training:
+    int_*: intermediate cleaning and listing history
+    stg_khmer24_cars: label spine
+  schema:
+    "model:stg_khmer24_cars":
+      listing_id: VARCHAR
+      scrape_date: DATE   # dbt/models/staging/stg_khmer24_cars.sql:42 (TRY_CAST(scraped_at AS DATE) AS scrape_date)
+      scraped_at: TIMESTAMPTZ
+      posted_at: TIMESTAMPTZ
+      price: DOUBLE
+      price_raw: UNKNOWN
+      raw_currency: UNKNOWN
+      raw_title: UNKNOWN
+      raw_description: UNKNOWN
+      raw_spec_brand: UNKNOWN
+      raw_spec_model: UNKNOWN
+      raw_spec_year: UNKNOWN
+      raw_spec_mileage: UNKNOWN
+      raw_spec_engine_size: UNKNOWN
+      raw_spec_fuel_type: UNKNOWN
+      raw_spec_transmission: UNKNOWN
+      raw_spec_color: UNKNOWN
+      raw_spec_condition: UNKNOWN
+      raw_spec_tax_type: UNKNOWN
+      raw_spec_body_type: UNKNOWN
+      raw_province: UNKNOWN
+      raw_district: UNKNOWN
+      seller_id: UNKNOWN
+      seller_name: UNKNOWN
+      seller_type: UNKNOWN
+      seller_username: UNKNOWN
+      seller_phones: UNKNOWN
+      thumbnail_url: UNKNOWN
+      listing_url: UNKNOWN

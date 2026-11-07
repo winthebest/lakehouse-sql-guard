@@ -9,8 +9,10 @@ case-insensitively (stored lowercase), matching how unquoted SQL identifiers res
 
 Optional fields: `entity_keys: []` for a single series (the key must still be written out),
 `time_units` for integer time columns, `label_known_after: 0` for labels final the moment the
-row is stamped, and `output_roles` to say which output columns of the query are labels,
-run metadata, or (when `features` is given) the only features.
+row is stamped, `output_roles` to say which output columns of the query are labels,
+run metadata, or (when `features` is given) the only features, `validity_end_columns` for the
+column that closes a version of a row (an SCD2 `valid_to`), and `unique_keys` for columns that
+name one row of a table.
 """
 
 from __future__ import annotations
@@ -133,6 +135,33 @@ def _time_units(value: Any) -> dict[str, str]:
     return found
 
 
+def _validity_end_columns(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SpecError(f"validity_end_columns must be a mapping of table -> column, got {value!r}")
+    return {
+        _name(t, "validity_end_columns"): _name(c, "validity_end_columns") for t, c in value.items()
+    }
+
+
+def _unique_keys(value: Any) -> dict[str, tuple[tuple[str, ...], ...]]:
+    """`table -> [col, ...]` (one key) or `table -> [[col, ...], ...]` (several keys)."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SpecError(f"unique_keys must be a mapping of table -> key columns, got {value!r}")
+    found: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for table, keys in value.items():
+        if not isinstance(keys, list) or not keys:
+            raise SpecError(f"unique_keys[{table}] must be a non-empty list, got {keys!r}")
+        listed = keys if all(isinstance(k, list) for k in keys) else [keys]
+        found[_name(table, "unique_keys")] = tuple(
+            _names(key, f"unique_keys[{table}]") for key in listed
+        )
+    return found
+
+
 @dataclass(frozen=True)
 class OutputRoles:
     """What the output columns of a query are, as far as the spec author documented them.
@@ -196,6 +225,13 @@ class LeakageSpec:
     time_units: dict[str, str] = field(default_factory=dict)
     # which output columns of the query are labels, run metadata, or the only features
     output_roles: OutputRoles = field(default_factory=OutputRoles)
+    # table -> the column that holds when a row's validity ended (an SCD2 `valid_to`): the time the
+    # row was closed, in the clock of the table's time column, never a scheduled future date. A
+    # bound on it limits what was known like a bound on the time column does
+    validity_end_columns: dict[str, str] = field(default_factory=dict)
+    # table -> sets of columns whose values never repeat in it: two reads of the label table joined
+    # on one of them are the same row
+    unique_keys: dict[str, tuple[tuple[str, ...], ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.boundary not in BOUNDARIES:
@@ -223,9 +259,32 @@ class LeakageSpec:
                 f"time_units must be one of {', '.join(TIME_UNITS[:-1])} or {TIME_UNITS[-1]}, "
                 f"got {bad_unit}"
             )
+        self._check_validity_and_keys()
         if not (self.label_columns or self.output_roles.label):
             raise SpecError("name the label: label_columns or output_roles.label (or both)")
         self._check_output_roles()
+
+    def _check_validity_and_keys(self) -> None:
+        for table, column in self.validity_end_columns.items():
+            if table not in self.time_columns:
+                raise SpecError(
+                    f"validity_end_columns names a table without a time column: {table}"
+                )
+            if column in (self.time_columns[table], self.availability_columns.get(table)):
+                raise SpecError(
+                    f"validity_end_columns[{table}] is already the time or availability column"
+                )
+        classified = {
+            self.label_table,
+            *self.time_columns,
+            *self.static_tables,
+            *self.outcome_tables,
+        }
+        unknown = set(self.unique_keys) - classified
+        if unknown:
+            raise SpecError(
+                f"unique_keys names tables the spec does not classify: {sorted(unknown)}"
+            )
 
     def _check_output_roles(self) -> None:
         roles = self.output_roles
@@ -345,6 +404,8 @@ class LeakageSpec:
             relations=_relations(data.get("relations")),
             time_units=_time_units(data.get("time_units")),
             output_roles=roles,
+            validity_end_columns=_validity_end_columns(data.get("validity_end_columns")),
+            unique_keys=_unique_keys(data.get("unique_keys")),
         )
 
     @classmethod

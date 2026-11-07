@@ -1,0 +1,11 @@
+# Kobe Bryant Shot Selection: each shot is a prediction row and history for later shots.
+label_table: data
+entity_keys: []                   # a single player, so there is no entity key
+prediction_ts: game_date          # DATE grain; the only full time column
+label_columns: [shot_made_flag]
+time_columns: {data: game_date}
+static_tables: []
+outcome_columns: []
+# Data page: "only train on events that occurred prior to the shot". Assumption: a shot's
+# result is known as soon as it is taken, so earlier games' results are final.
+label_known_after: 0 seconds

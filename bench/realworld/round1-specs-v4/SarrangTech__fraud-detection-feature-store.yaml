@@ -1,0 +1,74 @@
+# Spec for SarrangTech/fraud-detection-feature-store, dbt/ subdirectory (group: seen, MIT) at the
+# pinned commit of ../projects.yaml. Written from the README, data/README.md and the source yml,
+# before the checker ran on this project in this validation. This is the negative control and the
+# base of the mutation corpus: its rolling-window features are written to look only at earlier rows.
+# Spec-writing rules: see ../specs/DobleL2__dbt_churn_prediction.yaml.
+#
+# v4 addition (D13 retry): the label table is its own history, with the availability column the
+# project documents; the earlier spec declared a placeholder instead.
+label_table: bronze_transactions
+entity_keys: [transaction_id]
+prediction_ts: event_time
+label_columns: [is_fraud]
+# The transaction table is the spine and the history of every feature, loaded by the streaming
+# consumer: its own time and the column the project's source yml names as the load time.
+time_columns:
+  bronze_transactions: event_time
+# dbt/models/staging/_sources.yml:13-14 (`loaded_at_field: _ingested_at` on bronze_transactions) and
+# README.md:108 (`_ingested_at` is "Ingestion lineage").
+availability_columns:
+  bronze_transactions: _ingested_at
+# transaction_id is unique: dbt/models/staging/_sources.yml:17 ("Unique transaction identifier
+# assigned by the producer") and README.md:102 ("Unique transaction identifier"). The model joins
+# its per-transaction feature tables back on it.
+unique_keys:
+  bronze_transactions: [transaction_id]
+
+realworld:
+  training_sets: [silver_transaction_features]
+  basis: |
+    - silver_transaction_features is the training table: README "one row per transaction; training
+      input", "Training reads silver_transaction_features".
+    - silver_user_features is NOT a training table: the README says the online Feature Store table
+      is an all-time aggregate and training does not read it (it would leak future behaviour).
+    - bronze_transactions is the only source: label is_fraud, time event_time ("Transaction
+      timestamp"). Column list: the staging model; types: data/README.md schema.
+  not_training:
+    silver_user_features: online feature store table (README)
+    stg_transactions, int_*: staging / intermediate
+  schema:
+    "source:bronze.bronze_transactions":
+      transaction_id: VARCHAR
+      user_id: VARCHAR
+      event_time: TIMESTAMP
+      amount: DOUBLE
+      is_fraud: INTEGER
+      v1: DOUBLE
+      v2: DOUBLE
+      v3: DOUBLE
+      v4: DOUBLE
+      v5: DOUBLE
+      v6: DOUBLE
+      v7: DOUBLE
+      v8: DOUBLE
+      v9: DOUBLE
+      v10: DOUBLE
+      v11: DOUBLE
+      v12: DOUBLE
+      v13: DOUBLE
+      v14: DOUBLE
+      v15: DOUBLE
+      v16: DOUBLE
+      v17: DOUBLE
+      v18: DOUBLE
+      v19: DOUBLE
+      v20: DOUBLE
+      v21: DOUBLE
+      v22: DOUBLE
+      v23: DOUBLE
+      v24: DOUBLE
+      v25: DOUBLE
+      v26: DOUBLE
+      v27: DOUBLE
+      v28: DOUBLE
+      _ingested_at: TIMESTAMP

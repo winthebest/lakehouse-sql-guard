@@ -40,6 +40,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -89,6 +90,11 @@ _TIME_ARITHMETIC = (
     exp.DateDiff,
     exp.TsOrDsDiff,
     exp.TimeToUnix,
+    # the same cutoff in the spine's unit: epoch_ms(now()), epoch(now()) * 1000
+    exp.UnixToTime,
+    exp.Mul,
+    exp.Div,
+    exp.IntDiv,
     *_DATE_ADD,
     *_DATE_SUB,
 )
@@ -167,6 +173,10 @@ _ROW_MULTIPLIERS = (
     exp.Lateral,
 )
 _MAX_PATHS = 256
+# seconds: below this a credit of a unit-converted bound is lost in floating-point arithmetic
+_FLOAT_GRAIN = 1e-3
+# the largest bare constant added to an integer time column: a double holds 2**53 exactly
+_EXACT_LIMIT = 2.0**53
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
 
 Use = tuple[int, str]  # (id(scope), alias) of one CTE / derived-table use
@@ -241,6 +251,8 @@ class TableRef:
     # (the output rows) and a temporal row along the others; other tables are temporal along all.
     time_column: str | None = None
     availability_column: str | None = None
+    # the column that closes a version of a row, when the spec declares one (see the spec)
+    validity_end_column: str | None = None
     spine_paths: set[Chain] = field(default_factory=set)
     # an uncorrelated scan of the label table that only yields a cutoff time (see _global_scans)
     global_scan: bool = False
@@ -559,7 +571,8 @@ def _amount_seconds(
     amount: exp.Expression, unit: exp.Expression | None
 ) -> tuple[float, float] | None:
     """(seconds, slack) of an interval amount: slack is how much shorter the real length may be
-    (months and years vary; a unitless INTERVAL '5' means seconds in DuckDB, so it is unbounded)."""
+    (months and years vary). An interval without a unit (`INTERVAL '5'`: five seconds in DuckDB, an
+    error elsewhere) has no length to rely on, so it is None, like every shape that is not read."""
     if isinstance(amount, exp.Interval):
         inner, sign = amount.this, 1.0
         while isinstance(inner, exp.Paren | exp.Neg):
@@ -584,11 +597,15 @@ def _amount_seconds(
             value = float(text)
         except (TypeError, ValueError):
             return None
-        per = _unit_seconds(unit)
+        per = _unit_seconds(unit) if amount.unit is not None else None
         if per is None:
             return None
         slack = _UNIT_SLACK.get(_unit_name(unit), 0.0) * abs(value)
-        return sign * value * per, math.inf if amount.unit is None else slack
+        if per >= 60:
+            # an engine may cut a fractional amount to whole units (DuckDB reads INTERVAL 0.5 DAY
+            # as zero days): the fraction is no credit
+            slack += (abs(value) - math.floor(abs(value))) * per
+        return sign * value * per, slack
     value = _constant(amount)
     per = _unit_seconds(unit)
     if value is None or per is None:
@@ -782,6 +799,165 @@ def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     )
 
 
+@dataclass(frozen=True)
+class _Number:
+    """A time column that holds a number, scaled, shifted or turned into a timestamp:
+    `to_timestamp(col / 1000 - 5)`, `col * 1000`, `epoch_ms(col)`.
+
+    `mult`: the expression equals the column times `mult`, an exact fraction (a factor that is only
+    nearly a unit is another unit), plus `pending`, a bare number in the column's own unit.
+    `to_time` is the seconds per unit the number had when a function turned it into a timestamp
+    (1 for to_timestamp, 1/1000 for epoch_ms, 1/1000000 for make_timestamp) and 0 when it stays a
+    number; `offset`, `up` and `down` are the interval shifts of that timestamp. `cut`: a division
+    may have dropped a fraction of a unit; the result then moves in steps of `cut` of its own units
+    (what multiplies it further out), 0 without a division.
+    """
+
+    column: exp.Column
+    mult: Fraction = Fraction(1)
+    pending: float = 0.0
+    to_time: Fraction = Fraction(0)
+    cut: Fraction = Fraction(0)
+    offset: float = 0.0
+    up: float = 0.0
+    down: float = 0.0
+
+
+# DuckDB's to_timestamp, epoch_ms and make_timestamp are one sqlglot node told apart by the scale
+_UNIX_SCALE = {None: Fraction(1), 0: Fraction(1), 3: Fraction(1, 1000), 6: Fraction(1, 10**6)}
+# seconds per unit of an integer time column, exactly
+_NATIVE_SCALE = {
+    "seconds": Fraction(1),
+    "milliseconds": Fraction(1, 1000),
+    "microseconds": Fraction(1, 10**6),
+}
+# a cast to an integer type rounds (DuckDB) or truncates (Spark) and DECIMAL rounds: not read
+_NUMBER_TYPES = {exp.DataType.Type.DOUBLE}
+
+
+_PLAIN_NUMBER = re.compile(r"\d+(?:\.\d*)?(?:[eE](?P<exponent>[+-]?\d+))?")
+
+
+def _as_float(value: Fraction) -> float:
+    """`value` as a float; infinity when it is too large for one (a bound with an infinite
+    truncation admits everything, so it is flagged)."""
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf
+
+
+def _exact(node: exp.Expression) -> Fraction | None:
+    """The exact value of a numeric literal expression (literals, parentheses, * and /), read from
+    the digits as written, so `999.9999999999` is not `1000`."""
+    if isinstance(node, exp.Paren):
+        return _exact(node.this)
+    if isinstance(node, exp.Literal) and not node.is_string:
+        match = _PLAIN_NUMBER.fullmatch(node.name)
+        if match is None or abs(int(match["exponent"] or 0)) > 30 or len(node.name) > 40:
+            return None  # exact arithmetic on a huge exponent would stall the check
+        try:
+            return Fraction(node.name)
+        except (ValueError, ZeroDivisionError):
+            return None
+    if isinstance(node, exp.Mul | exp.Div):
+        a, b = _exact(node.this), _exact(node.expression)
+        if a is None or b is None or (isinstance(node, exp.Div) and b == 0):
+            return None
+        return a * b if isinstance(node, exp.Mul) else a / b
+    return None
+
+
+_FACTOR_RANGE = (Fraction(1, 10**12), Fraction(10**12))
+
+
+def _usable(k: Fraction | None) -> bool:
+    """Is `k` a factor a unit conversion can rest on? Positive, in a sane range (one that cannot
+    overflow or underflow a column of epoch values), and exact in a double: `0.001` is not, and a
+    product with it rounds differently from the quotient by 1000."""
+    if k is None or not _FACTOR_RANGE[0] <= k <= _FACTOR_RANGE[1]:
+        return False
+    return Fraction(float(k)) == k
+
+
+def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, Fraction] | None:
+    """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`.
+
+    Only a usable positive constant: a negative factor turns every comparison round."""
+    k = _exact(node.expression)
+    if _usable(k):
+        return node.this, k
+    if isinstance(node, exp.Mul):
+        k = _exact(node.this)
+        if _usable(k):
+            return node.expression, k
+    return None
+
+
+def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | None:
+    """Read `node` as a number in a time column's unit that is scaled, shifted or converted to a
+    timestamp (see `_Number`), or None when it has none of those forms or any other shape.
+
+    A product or quotient with a constant, and DuckDB's `to_timestamp(x)`, `epoch_ms(x)` and
+    `make_timestamp(x)`, are the forms taken. Whether the column holds a number or a timestamp
+    is for the caller to decide: `epoch_ms(ts)` of a timestamp column means something else.
+    """
+    mult, pending, to_time = Fraction(1), 0.0, Fraction(0)
+    offset = up = down = 0.0
+    cut = Fraction(0)
+    new = False
+    while True:
+        if isinstance(node, exp.Paren):
+            node = node.this
+        elif isinstance(node, exp.UnixToTime) and dialect == "duckdb":
+            scale = node.args.get("scale")
+            if scale is None:
+                key = None
+            elif isinstance(scale, exp.Literal) and scale.name.isdigit():
+                key = int(scale.name)
+            else:
+                return None
+            if to_time or pending or mult != 1 or node.args.get("zone") or key not in _UNIX_SCALE:
+                return None  # a number added to or multiplied into a timestamp, or an unknown scale
+            to_time, new, node = _UNIX_SCALE[key], True, node.this
+        elif isinstance(node, exp.Add | exp.Sub) and isinstance(node.expression, exp.Interval):
+            if to_time or pending or mult != 1:
+                return None  # a shift of a timestamp comes outside the conversion
+            got = _amount_seconds(node.expression, None)
+            if got is None:
+                return None
+            sign = 1 if isinstance(node, exp.Add) else -1
+            offset, up, down = _shift(offset, up, down, sign * got[0], got[1])
+            node = node.this
+        elif isinstance(node, exp.Add | exp.Sub) and _constant(node.expression) is not None:
+            amount = _constant(node.expression)
+            if abs(amount) > _EXACT_LIMIT:
+                return None  # added to an epoch value in a double it would be rounded away
+            pending += amount if isinstance(node, exp.Add) else -amount
+            node = node.this
+        elif isinstance(node, exp.Mul | exp.Div | exp.IntDiv) and (got := _factor(node)):
+            operand, k = got
+            if isinstance(node, exp.Mul):
+                mult, pending = mult * k, pending / _as_float(k)
+            else:
+                # the result moves in steps of `mult`, what multiplies it further out; the steps
+                # of several divisions add up
+                cut += mult
+                mult, pending = mult / k, pending * _as_float(k)
+            if not _FACTOR_RANGE[0] <= mult <= _FACTOR_RANGE[1]:
+                return None  # the factors together overflow or underflow
+            new, node = True, operand
+        elif isinstance(node, exp.Cast | exp.TryCast) and node.to and node.to.this in _NUMBER_TYPES:
+            node = node.this
+        else:
+            break
+    if not new or not isinstance(node, exp.Column) or not math.isfinite(pending):
+        return None
+    if not to_time and (offset or up or down):
+        return None  # an interval added to a number
+    return _Number(node, mult, pending, to_time, cut, offset, up, down)
+
+
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
     """Add a signed shift of `seconds` whose real size may be `slack` smaller in magnitude."""
     if seconds <= 0:
@@ -810,11 +986,20 @@ class Resolved:
     zoned: bool = False
     aware: bool | None = None
     retyped: bool = False  # a cast to a timestamp type was peeled on the path
+    # An integer column in a declared unit that was scaled (`ts_s * 1000`): the seconds one unit of
+    # the expression stands for, 0.0 when the expression is not such a number
+    scale: Fraction | float = 0.0
+    # An integer column turned into a timestamp by to_timestamp / epoch_ms / make_timestamp:
+    # "tz" (to_timestamp, a timestamptz) or "naive". Two kinds are only comparable with themselves.
+    converted: str = ""
+    # (table, column) of the unique key this stands for: a value read as "the prediction time of the
+    # row with this key". It only equals another value of the same key, never a time or another key.
+    keyed_by: tuple[str, str] | None = None
 
     @property
     def exact(self) -> bool:
         """The expression equals the column (at most a lossless timestamp cast)."""
-        return self.offset == 0 and self.trunc == 0
+        return self.offset == 0 and self.trunc == 0 and not self.scale and not self.converted
 
 
 class _Resolver:
@@ -889,9 +1074,10 @@ class _Resolver:
         resolves to the prediction_ts it contains: the key stands for the prediction.
         """
         peeled = _peel(node, self.spec.dialect)
-        if peeled is None or scope is None or depth > _MAX_DEPTH:
+        number = _peel_number(node, self.spec.dialect)
+        if (peeled is None and number is None) or scope is None or depth > _MAX_DEPTH:
             return None
-        column = peeled.column
+        column = (peeled or number).column
         if not column.table:
             return None
         found = self._source(scope, column.table, local)
@@ -903,6 +1089,19 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
+            native = self._native_scale(ref, column.name)
+            if number is not None and native is not None:
+                made = self._from_number(number, native, None, ref, column, id(owner), ())
+                return [made] if made else None
+            if peeled is None:
+                return None
+            standing_for = None
+            if keyed and raw and self._unique_key(ref, column.name):
+                # a column that never repeats names one row of the label table: it stands for the
+                # prediction_ts of that row, as a surrogate key built from the whole identity does
+                standing_for = (ref.table, column.name.lower())
+                column = exp.column(self.spec.prediction_ts, table=column.table)
+                peeled = replace(peeled, column=column)
             shift = self.pending_seconds(peeled.pending, ref, column.name)
             if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
@@ -934,6 +1133,7 @@ class _Resolver:
                     bool(peeled.zones),
                     aware,
                     peeled.retyped,
+                    keyed_by=standing_for,
                 )
             ]
         if not isinstance(source, Scope):
@@ -966,7 +1166,32 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
-                shift = self.pending_seconds(peeled.pending, g.ref, g.column)
+                base = self._numeric_base(g)
+                if number is not None and base is not None:
+                    made = self._from_number(
+                        number,
+                        base,
+                        g,
+                        g.ref,
+                        column,
+                        id(owner),
+                        ((id(owner), column.table), *g.chain),
+                    )
+                    if made is None:
+                        return None
+                    resolved.append(made)
+                    continue
+                if peeled is None:
+                    return None
+                if g.converted or g.scale:
+                    # a number scaled or turned into a timestamp: only an interval may follow
+                    if peeled.epoch or peeled.zones or peeled.retyped or peeled.stamp_only:
+                        return None
+                    if g.converted and peeled.pending:
+                        return None
+                    shift = peeled.pending * g.scale
+                else:
+                    shift = self.pending_seconds(peeled.pending, g.ref, g.column)
                 if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
                 offset, up, down = (
@@ -1001,9 +1226,81 @@ class _Resolver:
                         zoned,
                         aware,
                         peeled.retyped or g.retyped,
+                        g.scale,
+                        g.converted,
+                        g.keyed_by,
                     )
                 )
         return resolved
+
+    def _native_scale(self, ref: TableRef, column: str) -> Fraction | None:
+        """Seconds per unit of an integer time column of `ref` whose unit the spec declares, else
+        None (a timestamp or DATE column, a column that is not a time of the table, no unit)."""
+        factor = _NATIVE_SCALE.get(self.spec.time_units.get(ref.table, ""))
+        times = {ref.time_column, ref.availability_column, ref.validity_end_column}
+        if factor is None or column.lower() not in times:
+            return None
+        if self.is_timestamp(ref, column) or self.is_date(ref, column):
+            return None
+        return factor
+
+    def _numeric_base(self, got: Resolved) -> Fraction | None:
+        """Seconds per unit of a traced value that is still a number in a declared unit."""
+        if got.converted or got.epoch or got.zoned or got.retyped:
+            return None
+        return got.scale or self._native_scale(got.ref, got.column)
+
+    def _from_number(
+        self,
+        number: _Number,
+        base: Fraction,
+        inner: Resolved | None,
+        ref: TableRef,
+        column: exp.Column,
+        owner: int,
+        chain: Chain,
+    ) -> Resolved | None:
+        """`number` applied to a value of `base` seconds per unit (the column itself, or `inner`,
+        what a CTE column traced to), or None when the units do not fit.
+
+        A conversion to a timestamp is accepted only when the number is in the unit the function
+        expects, exactly: the scale of `col / 1000` over a millisecond column is seconds, which is
+        what `to_timestamp` reads. A division is sized where it happens (`ts // 3600000 * 3600000`
+        floors to the hour).
+        """
+        effective = base / number.mult
+        seconds = number.pending * _as_float(base)
+        earlier = (inner.offset, inner.up, inner.down, inner.trunc) if inner else (0.0,) * 4
+        cut = _as_float(number.cut * effective)
+        if number.to_time:
+            if effective != number.to_time:
+                return None
+            return Resolved(
+                ref,
+                column.name.lower() if inner is None else inner.column,
+                chain,
+                number.offset + seconds + earlier[0],
+                cut + earlier[3],
+                False,
+                column.table,
+                owner,
+                number.up + earlier[1],
+                number.down + earlier[2],
+                converted="tz" if number.to_time == 1 else "naive",
+            )
+        return Resolved(
+            ref,
+            column.name.lower() if inner is None else inner.column,
+            chain,
+            seconds + earlier[0],
+            cut + earlier[3],
+            False,
+            column.table,
+            owner,
+            earlier[1],
+            earlier[2],
+            scale=effective,
+        )
 
     def pending_seconds(self, amount: float, ref: TableRef, column: str) -> float | None:
         """Seconds in a bare number added to a time column of `ref`'s table: days for a DATE
@@ -1015,6 +1312,12 @@ class _Resolver:
             return amount * 86_400
         factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
         return None if factor is None else amount * factor
+
+    def _unique_key(self, ref: TableRef, column: str) -> bool:
+        """Is `column` alone a declared unique key of the label table `ref` reads?"""
+        return ref.kind == "label" and any(
+            key == (column.lower(),) for key in self.spec.unique_keys.get(ref.table, ())
+        )
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
@@ -1602,6 +1905,9 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
     if any(op.args.get("by_name") for op in tree.find_all(exp.SetOperation)):
         tree = tree.copy()  # the BY NAME rewrite works in place
     qualified = qualify_statement(_positional(tree), schema, spec.dialect)
+    if qualified.find(exp.PositionalColumn) is not None:
+        # a column read by its position (`#2`, DuckDB) is traced by no rule that follows names
+        raise ValueError("positional column references (#n) are not analyzed")
     every_scope = list(traverse_scope(qualified))
     live = _live_scopes(every_scope)
     scopes = [s for s in every_scope if id(s) in live]
@@ -1624,10 +1930,12 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         if ref.kind == "temporal":
             ref.time_column = spec.time_columns[ref.table]
             ref.availability_column = spec.availability_columns.get(ref.table)
+            ref.validity_end_column = spec.validity_end_columns.get(ref.table)
         elif ref.kind == "label":
             # a label table that doubles as event history is bounded by its own time column
             ref.time_column = spec.time_columns.get(ref.table, spec.prediction_ts)
             ref.availability_column = spec.availability_columns.get(ref.table)
+            ref.validity_end_column = spec.validity_end_columns.get(ref.table)
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
@@ -1682,12 +1990,16 @@ def _check_spec(analysis: QueryAnalysis) -> None:
             needed = [spec.time_columns[ref.table]]
             if ref.table in spec.availability_columns:
                 needed.append(spec.availability_columns[ref.table])
+            if ref.table in spec.validity_end_columns:
+                needed.append(spec.validity_end_columns[ref.table])
         elif ref.kind == "label":
             needed = [spec.prediction_ts, *spec.label_columns]
             if ref.table in spec.time_columns:
                 needed.append(spec.time_columns[ref.table])
             if ref.table in spec.availability_columns:
                 needed.append(spec.availability_columns[ref.table])
+            if ref.table in spec.validity_end_columns:
+                needed.append(spec.validity_end_columns[ref.table])
         for column in needed:
             if column not in columns:
                 analysis.spec_errors.append(f"spec column {ref.table}.{column} not in schema")
@@ -1763,6 +2075,16 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
         a = _prediction_terms(node.left, scope, resolver, keyed=True)
         b = _prediction_terms(node.right, scope, resolver, keyed=True)
         if a and b and scope is not None:
+            keys = {term.keyed_by for term in (*a, *b)}
+            if keys != {None} and (
+                len(keys) != 1
+                or scope.is_subquery
+                or not all(context.filters(term.alias) for term in (*a, *b))
+            ):
+                # a unique key stands for the row only against the same key, and only where both
+                # sides are restricted by it (an inner join, a WHERE): not in a subquery, and not
+                # on the preserved side of an outer join, where the other side is a feature
+                continue
             # a COALESCE is one of its arguments; a column fed by a UNION or EXCEPT is, in each
             # row, the column of the branch the row came from
             alternatives = (
@@ -1932,6 +2254,20 @@ def _comparison_terms(node: exp.Expression) -> list:
     return terms
 
 
+def _scaled_kind(got: Resolved, resolver: _Resolver) -> Fraction | str | None:
+    """What a traced time is, for comparing it with another: the seconds per unit of a number
+    (an exact fraction), `conv:tz` / `conv:naive` for a timestamp made from a number, `plain` for a
+    timestamp column, None when it is none of these (a DATE, an integer without a unit)."""
+    if got.converted:
+        return f"conv:{got.converted}"
+    if got.scale:
+        return Fraction(got.scale)
+    native = resolver._native_scale(got.ref, got.column)
+    if native is not None:
+        return native
+    return "plain" if resolver.is_timestamp(got.ref, got.column) else None
+
+
 def _record(
     left,
     op,
@@ -1961,16 +2297,29 @@ def _record(
             continue
         scale = 1.0
         resolved = features + labels
-        if any(r.zoned for r in resolved):
+        scaled = any(r.scale or r.converted for r in resolved)
+        if scaled:
+            # numbers scaled to a common unit, or timestamps made from numbers the same way, bound
+            # each other; a number against a timestamp, or two units, says nothing
+            kinds = {_scaled_kind(r, resolver) for r in resolved}
+            if len(kinds) != 1 or None in kinds or any(r.epoch or r.zoned for r in resolved):
+                continue
+            (kind,) = kinds
+            if needs_epoch and not isinstance(kind, Fraction):
+                continue
+            scale = _as_float(kind) if needs_epoch else 1.0
+        elif any(r.zoned for r in resolved):
             # a converted time is only comparable with a column of the same kind (a plain
             # timestamp against an instant is read in the session's zone, which we do not know)
             kinds = {r.aware if r.zoned else resolver.is_aware(r.ref, r.column) for r in resolved}
             if len(kinds) != 1 or None in kinds:
                 continue
         scales = {r.epoch_scale for r in resolved if r.epoch}
-        if len(scales) > 1 or 0.0 in scales:
+        if scaled:
+            pass
+        elif len(scales) > 1 or 0.0 in scales:
             continue  # numbers in different or unknown units (seconds, milliseconds) say nothing
-        if needs_epoch and all(r.epoch for r in resolved):
+        elif needs_epoch and all(r.epoch for r in resolved):
             scale = scales.pop()  # both sides are epoch numbers: the constant is in their unit
         elif not any(r.epoch for r in resolved) or needs_epoch:
             # integer columns are compared in their own unit: columns of different units do not
@@ -1990,6 +2339,10 @@ def _record(
                 role = "time"
             elif feature.column == ref.availability_column:
                 role = "availability"
+            elif feature.column == ref.validity_end_column and upper:
+                # the row was closed no later than this: an upper bound on it caps what was known
+                # like one on the time column (a lower bound on a value that changes says nothing)
+                role = "time"
             else:
                 continue
             if context.aggregate_filter is not None and not upper:
@@ -2007,7 +2360,13 @@ def _record(
             # across several labels (UNION branches) the loosest reading counts
             pick = max if upper else min
             offset = pick(lab.offset for lab in labels) + signed * scale - feature.offset
-            label_trunc = min(lab.trunc for lab in labels)
+            if scaled and upper and -_FLOAT_GRAIN < offset < 0:
+                # a credit finer than a double or a timestamp resolves at epoch size is rounded
+                # away by the engine: the row at the same instant passes
+                offset = 0.0
+            # a label that went through a unit conversion earns no credit for a truncation: whether
+            # a division drops a fraction depends on the engine
+            label_trunc = min(0.0 if lab.scale or lab.converted else lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts
             slack_up = max(lab.up for lab in labels) + feature.down + extra_up
@@ -2740,7 +3099,29 @@ class _PastWindows:
         if not any(isinstance(a, exp.AggFunc) for a in _ancestors(column, projection)):
             return False
         readers = self._readers(scope, projection.alias)
-        return bool(readers) and all(self.holds(c) for c in readers)
+        return bool(readers) and all(self.holds(c) or self._is_label_output(c) for c in readers)
+
+    def _is_label_output(self, column: exp.Column, depth: int = 0) -> bool:
+        """Does this read of a label sum only carry it, unchanged, to an output column the spec
+        declares a label (through any number of CTEs that merely select it)?"""
+        scope = self.resolver.scope_of(column)
+        select = scope.expression if scope is not None else None
+        if not isinstance(select, exp.Select) or depth > 8:
+            return False
+        projection = column.parent if isinstance(column.parent, exp.Alias) else column
+        if projection.parent is not select or projection not in select.expressions:
+            return False  # a filter, a calculation, a join key: not a plain projection
+        name = projection.alias_or_name
+        if id(scope) in self.analysis.output_scopes:
+            return name.lower() in self.spec.output_roles.label
+        if not (scope.is_cte or scope.is_derived_table) or isinstance(
+            select.parent, exp.SetOperation
+        ):
+            return False
+        readers = self._readers(scope, name)
+        return bool(readers) and all(
+            self.holds(r) or self._is_label_output(r, depth + 1) for r in readers
+        )
 
     def rows_of(self, scope: Scope) -> TableRef | None:
         """The label reference when `scope` is one row per (entity keys, prediction time) of it."""
@@ -2756,7 +3137,10 @@ class _PastWindows:
         if len(scope.selected_sources) != 1 or select.find(exp.Window, *_ROW_MULTIPLIERS):
             return None
         ((_, source),) = scope.selected_sources.values()
-        ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+        if isinstance(source, exp.Table):
+            ref = self.resolver.refs.get(id(source))
+        else:
+            ref = self._label_rows(source)
         if ref is None or not self._spine_only(ref):
             return None
         wanted = {self.spec.prediction_ts, *self.spec.entity_keys}
@@ -2767,6 +3151,66 @@ class _PastWindows:
                 return None
             grouped |= {g.column for g in got}
         return ref if grouped == wanted else None
+
+    def _label_rows(self, source: Scope | exp.Table, depth: int = 0) -> TableRef | None:
+        """The label reference when the rows of `source` are label rows and nothing else: the
+        label table read directly, or a SELECT (or a chain of them, each a CTE or derived table)
+        that filters them and joins tables of static attributes, without grouping, windows or
+        row-multiplying sources. Static rows may repeat or drop a label row, but never move it in
+        time or bring in what happened later."""
+        if depth > _MAX_DEPTH:
+            return None
+        if isinstance(source, exp.Table):
+            ref = self.resolver.refs.get(id(source))
+            return ref if ref is not None and ref.kind == "label" else None
+        select = source.expression
+        if not isinstance(select, exp.Select) or isinstance(select.parent, exp.SetOperation):
+            return None
+        if any(
+            select.args.get(k)
+            for k in ("group", "having", "distinct", "qualify", "limit", "offset")
+        ):
+            return None
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
+            return None
+        label = None
+        for _, part in source.selected_sources.values():
+            if isinstance(part, exp.Table):
+                ref = self.resolver.refs.get(id(part))
+                if ref is None:
+                    return None
+                if ref.kind == "label":
+                    found = ref
+                elif ref.kind == "static":
+                    continue
+                else:
+                    return None
+            else:
+                found = self._label_rows(part, depth + 1)
+                if found is None:
+                    if self._static_only(part, depth + 1):
+                        continue
+                    return None
+            if label is not None and found is not label:
+                return None
+            label = found
+        return label
+
+    def _static_only(self, source: Scope, depth: int = 0) -> bool:
+        """Does `source` read nothing but tables of static attributes?"""
+        if depth > _MAX_DEPTH or isinstance(source.expression.parent, exp.SetOperation):
+            return False
+        parts = list(source.selected_sources.values())
+        if not parts:
+            return False
+        for _, part in parts:
+            if isinstance(part, exp.Table):
+                ref = self.resolver.refs.get(id(part))
+                if ref is None or ref.kind != "static":
+                    return False
+            elif not self._static_only(part, depth + 1):
+                return False
+        return True
 
     def _plain_rows(self, scope: Scope) -> TableRef | None:
         """The label reference when `scope` selects (and filters) rows of it without regrouping."""

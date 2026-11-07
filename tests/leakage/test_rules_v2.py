@@ -690,10 +690,14 @@ def test_event_time_lag_at_least_the_declared_delay_needs_no_ingestion_bound(lag
     assert check(sql, **DELAY) == ("clean", set())
 
 
-@pytest.mark.parametrize("lag", ["1 DAY", "47 HOUR", "'1 day 23 hours'", "'5'"])
+@pytest.mark.parametrize("lag", ["1 DAY", "47 HOUR", "'1 day 23 hours'"])
 def test_event_time_lag_shorter_than_the_delay_keeps_the_hint(lag):
-    # a unitless INTERVAL '5' is five seconds in DuckDB, never "5 days"
     assert check(EVENT_LAG.format(lag=lag), **DELAY)[1] == {"L4"}
+
+
+def test_a_lag_without_a_unit_is_not_a_bound_at_all():
+    # INTERVAL '5' is five seconds in DuckDB, never "5 days": it has no length to rely on
+    assert check(EVENT_LAG.format(lag="'5'"), **DELAY)[0] == "leaky"
 
 
 def test_a_month_lag_counts_at_its_shortest_length():

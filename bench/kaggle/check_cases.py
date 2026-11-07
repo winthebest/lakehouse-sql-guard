@@ -398,8 +398,9 @@ def main() -> int:
     ap.add_argument("cases", nargs="*", help="case ids (default: all)")
     ap.add_argument("--rows", type=int, default=60, help="spine rows replayed per case")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--cases-dir", type=Path, default=CASES, help="folder of the case folders")
     args = ap.parse_args()
-    dirs = sorted(p for p in CASES.iterdir() if (p / "case.yaml").exists())
+    dirs = sorted(p for p in args.cases_dir.iterdir() if (p / "case.yaml").exists())
     if args.cases:
         dirs = [d for d in dirs if d.name in args.cases]
     failed = 0

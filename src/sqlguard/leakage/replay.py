@@ -768,6 +768,18 @@ class Replayer:
             ref.node.set("catalog", None)
         return analysis.qualified.sql(dialect=self.spec.dialect)
 
+    def _ignored_output(self, column: str, output: pa.Table) -> bool:
+        """Is this output column left out of the comparison because the spec declares it a label
+        or metadata? A `features` list is trusted only if every name in it is a column of the
+        output: a misspelt name would otherwise drop real features from the comparison."""
+        roles = self.spec.output_roles
+        if column.lower() in self.spec.non_feature_outputs:
+            return True
+        if roles.features is None:
+            return False
+        present = {c.lower() for c in output.column_names}
+        return set(roles.features) <= present and column.lower() not in roles.features
+
     def run(self, sql: str) -> ReplayResult:
         spec = self.spec
         try:
@@ -801,9 +813,14 @@ class Replayer:
                 reason=f"output must include {missing} to align rows for replay",
             )
         key_cols = [names[c] for c in spec.key_columns]
-        # Every non-key column is compared, labels included: a "label" that changes between
-        # runs is not the label.
-        value_cols = [c for c in full.column_names if c not in key_cols]
+        # Every non-key column is compared, the label columns of the spec included: a "label" that
+        # changes between runs is not the label. The exception is a column the spec declares, in
+        # `output_roles`, a label or metadata of the query (or leaves out of the feature list):
+        # it is not a feature, so a difference confined to it is no leakage into one. Rows that
+        # exist in only one run, and every feature column, are still compared.
+        value_cols = [
+            c for c in full.column_names if c not in key_cols and not self._ignored_output(c, full)
+        ]
         tolerances = _tolerances(full, value_cols)
         full_by_ts: dict[datetime, dict[tuple, list[tuple]]] = defaultdict(dict)
         # rows keep their own key (the value as the query printed it); only the choice of the

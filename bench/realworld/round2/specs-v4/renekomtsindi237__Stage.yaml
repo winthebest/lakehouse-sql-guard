@@ -1,0 +1,22 @@
+# Spec for renekomtsindi237/Stage, pipeline/dbt subdirectory (group: round2, no license) at the pinned
+# commit of ../projects.yaml. Written from the header of models/ml/ml_features_client.sql,
+# conception/03_conception_pipeline.md and docs/presentation/03_modele_ml_mcrs.md, before the checker
+# ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (feature table with date_feature; default risk at a 90-day horizon;
+# walk-forward validation with a 3-month gap between training and test).
+#
+# Not applicable: ml_features_client is the daily client feature store read by the scoring DAG
+# (header: "Table quotidienne utilisee par dag_ml_scoring"), and the training DAG reads "2 ans de
+# ml.features_client + labels defaut". The default labels are built outside dbt and no relation the
+# model reads carries them (the staging models read application tables such as app.creances by
+# name). The checker needs a label table with label columns, so a spec cannot be written.
+# The repository has a second dbt project (pipeline/dbt_project) with its own features_client; this
+# one was pinned because the header names it as the feature store of the deployed model (v2).
+
+realworld:
+  applicable: false
+  reason: >
+    daily scoring feature store whose default labels are produced outside dbt (training DAG joins
+    ml.features_client with default labels), so no label table or column exists in the dbt project
+    and the leakage spec cannot be written

@@ -1,0 +1,13 @@
+project,group,training_model,verdict,score,leak_types,findings,info_non_feature,unchecked,seconds,controller,reviewer,final,reason
+theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,leaky,1.0,L1 L2 L3 L6 L7,10,0,0,0.628,,,,
+ritulchitra/customer-conversion-dbt-ml,round2,fct_customer_features,unverifiable,0.0,,0,0,3,0.444,,,,
+clementlemon02/crypto-macd-screener,round2,gold_ml_features,leaky,1.0,L1 L2,5,0,1,0.596,,,,
+LNshuti/soma,round2,demand_forecasting_features,leaky,1.0,L6 L7,14,0,0,1.017,,,,
+PHALMenghak/car-price-prediction,round2,fct_cars_ml_features,unverifiable,1.0,,0,0,1,0.522,,,,
+sumanoj/hoteliq-analytics,round2,mart_ml_features,leaky,0.9999,L6 L7,3,0,2,1.87,,,,
+alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,leaky,1.0,L1,4,0,4,2.881,,,,
+KZDNguyenThanh/africa-energy-lakehouse,round2,gold_ml_features,leaky,0.95,L6,1,0,0,0.458,,,,
+gusdiaso/lh_nautical_athena,round2,ml_features_produto_loja_mes,leaky,0.9,L3,1,0,0,0.925,,,,
+KenImade/fpl-data-platform,round2,feat_training_set,unverifiable,1.0,,0,0,2,0.508,,,,
+Helooeverybody/AI-thuc-chien,round2,gold_training_set,unverifiable,0.0,,0,0,3,0.429,,,,
+nathandxn/dbt_credit_risk_model,round2,modeling_case_default_prediction,unverifiable,1.0,,0,0,1,0.425,,,,

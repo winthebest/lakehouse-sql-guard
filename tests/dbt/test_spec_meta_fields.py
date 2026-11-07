@@ -203,6 +203,54 @@ def test_time_units_in_the_spec_file_merge_per_table_and_a_change_is_warned_abou
     assert added.spec.time_units == {"events": "seconds"} and added.warnings == []
 
 
+# -- validity_end_column and unique_keys -------------------------------------------------------
+
+
+def test_validity_end_column_on_a_temporal_table_becomes_validity_end_columns():
+    events = events_with(validity_end_column="Valid_To")
+    spec = built(train(), base=[BASE[0], events, BASE[2]]).spec
+    assert spec.validity_end_columns == {"events": "valid_to"}
+
+
+def test_validity_end_column_without_a_time_column_is_refused():
+    spine = spine_with(validity_end_column="valid_to")
+    with pytest.raises(SpecError, match="validity_end_column needs a time_column"):
+        built(train(), base=base_with(spine))
+
+
+def test_a_table_without_validity_end_column_has_no_entry():
+    assert built(train()).spec.validity_end_columns == {}
+
+
+def test_unique_keys_on_the_label_spine_reach_the_spec():
+    for declared, expected in (
+        (["user_id"], (("user_id",),)),
+        ([["user_id"], ["a", "b"]], (("user_id",), ("a", "b"))),
+    ):
+        spine = spine_with(unique_keys=declared)
+        assert built(train(), base=base_with(spine)).spec.unique_keys == {"labels": expected}
+    assert built(train()).spec.unique_keys == {}
+
+
+def test_a_malformed_unique_keys_value_is_refused_with_the_model_named():
+    spine = spine_with(unique_keys="user_id")
+    with pytest.raises(SpecError, match=r"model\.proj\.train: unique_keys"):
+        built(train(), base=base_with(spine))
+
+
+def test_validity_and_unique_keys_in_the_spec_file_are_relaxations_and_are_warned_about():
+    result = built(
+        train(),
+        override={"unique_keys": {"labels": ["user_id"]}, "validity_end_columns": {"events": "x"}},
+    )
+    assert result.spec.unique_keys == {"labels": (("user_id",),)}
+    assert result.spec.validity_end_columns == {"events": "x"}
+    assert sorted(w.split(" (")[0] for w in result.warnings) == [
+        "--spec sets unique_keys[labels] = ['user_id']",
+        "--spec sets validity_end_columns[events] = x",
+    ]
+
+
 # -- entity_keys: [] ---------------------------------------------------------------------------
 
 

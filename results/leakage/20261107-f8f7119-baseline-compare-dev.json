@@ -1,0 +1,884 @@
+{
+ "dev": true,
+ "baseline": "tests/bench/data/v3-baseline-verdicts.json",
+ "report": {
+  "dev": {
+   "cases": 373,
+   "leaky_lost": {
+    "static": [],
+    "combined": []
+   },
+   "clean_newly_flagged": {
+    "static": [],
+    "combined": []
+   },
+   "clean_fixed": {
+    "static": [],
+    "combined": []
+   },
+   "verdict_changed": 0,
+   "rule_ids_changed": []
+  },
+  "dev_v1b": {
+   "cases": 138,
+   "leaky_lost": {
+    "static": [],
+    "combined": []
+   },
+   "clean_newly_flagged": {
+    "static": [],
+    "combined": []
+   },
+   "clean_fixed": {
+    "static": [],
+    "combined": []
+   },
+   "verdict_changed": 0,
+   "rule_ids_changed": []
+  },
+  "holdout_v2": {
+   "cases": 316,
+   "leaky_lost": {
+    "static": [],
+    "combined": []
+   },
+   "clean_newly_flagged": {
+    "static": [],
+    "combined": []
+   },
+   "clean_fixed": {
+    "static": [],
+    "combined": []
+   },
+   "verdict_changed": 0,
+   "rule_ids_changed": []
+  },
+  "holdout_v3": {
+   "cases": 221,
+   "leaky_lost": {
+    "static": [],
+    "combined": []
+   },
+   "clean_newly_flagged": {
+    "static": [],
+    "combined": []
+   },
+   "clean_fixed": {
+    "static": [
+     "hv3_clean_country_matured_range_frame-000",
+     "hv3_clean_dbt_lapsed_except-000",
+     "hv3_clean_dbt_lapsed_except-001",
+     "hv3_clean_spine_lag_churn_if_matured-000",
+     "hv3_clean_timeline_rows_preceding_spine_first-000",
+     "hv3_clean_timeline_rows_preceding_spine_first-001",
+     "hv3_clean_timeline_rows_preceding_spine_first-002",
+     "hv3_clean_tz_shift_backward-000",
+     "hv3_clean_tz_shift_backward-001",
+     "hv3_clean_union_distinct_active_days-000",
+     "hv3_clean_union_distinct_active_days-001"
+    ],
+    "combined": [
+     "hv3_clean_country_matured_range_frame-000",
+     "hv3_clean_dbt_lapsed_except-000",
+     "hv3_clean_dbt_lapsed_except-001",
+     "hv3_clean_reconcile_events_vs_stats-000",
+     "hv3_clean_spine_lag_churn_if_matured-000",
+     "hv3_clean_stats_regr_slope_known-000",
+     "hv3_clean_stats_regr_slope_known-001",
+     "hv3_clean_timeline_rows_preceding_spine_first-000",
+     "hv3_clean_timeline_rows_preceding_spine_first-001",
+     "hv3_clean_timeline_rows_preceding_spine_first-002",
+     "hv3_clean_tz_shift_backward-000",
+     "hv3_clean_tz_shift_backward-001",
+     "hv3_clean_union_distinct_active_days-000",
+     "hv3_clean_union_distinct_active_days-001"
+    ]
+   },
+   "verdict_changed": 14,
+   "rule_ids_changed": [
+    "hv3_clean_country_matured_range_frame-000",
+    "hv3_clean_dbt_lapsed_except-000",
+    "hv3_clean_dbt_lapsed_except-001",
+    "hv3_clean_reconcile_events_vs_stats-000",
+    "hv3_clean_spine_lag_churn_if_matured-000",
+    "hv3_clean_stats_regr_slope_known-000",
+    "hv3_clean_stats_regr_slope_known-001",
+    "hv3_clean_timeline_rows_preceding_spine_first-000",
+    "hv3_clean_timeline_rows_preceding_spine_first-001",
+    "hv3_clean_timeline_rows_preceding_spine_first-002",
+    "hv3_clean_tz_shift_backward-000",
+    "hv3_clean_tz_shift_backward-001",
+    "hv3_clean_union_distinct_active_days-000",
+    "hv3_clean_union_distinct_active_days-001",
+    "hv3_l4_timeline_event_time_order-000",
+    "hv3_l4_timeline_event_time_order-001",
+    "hv3_l4_timeline_event_time_order-002",
+    "hv3_l5_timeline_tie_events_first-000",
+    "hv3_l5_timeline_tie_events_first-001",
+    "hv3_l5_timeline_tie_events_first-002",
+    "hv3_l5_tz_shift_forward-000",
+    "hv3_l5_tz_shift_forward-001",
+    "hv3_l5_tz_shift_forward-002"
+   ]
+  },
+  "real": {
+   "cases": 27,
+   "leaky_lost": {
+    "static": [],
+    "combined": []
+   },
+   "clean_newly_flagged": {
+    "static": [],
+    "combined": []
+   },
+   "clean_fixed": {
+    "static": [],
+    "combined": []
+   },
+   "verdict_changed": 0,
+   "rule_ids_changed": []
+  }
+ },
+ "rule_changes": {
+  "holdout_v3": {
+   "hv3_clean_country_matured_range_frame-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      1.0,
+      [
+       "L6"
+      ]
+     ],
+     "static": [
+      "leaky",
+      1.0,
+      [
+       "L6"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_dbt_lapsed_except-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.99,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_dbt_lapsed_except-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.99,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_reconcile_events_vs_stats-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "clean",
+      0.0,
+      []
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_spine_lag_churn_if_matured-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9975,
+      [
+       "L6"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9975,
+      [
+       "L6"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_stats_regr_slope_known-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "clean",
+      0.0,
+      []
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_stats_regr_slope_known-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "clean",
+      0.0,
+      []
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_timeline_rows_preceding_spine_first-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_timeline_rows_preceding_spine_first-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_timeline_rows_preceding_spine_first-002": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_tz_shift_backward-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_tz_shift_backward-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_union_distinct_active_days-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9999,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9999,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_clean_union_distinct_active_days-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.9999,
+      [
+       "L2"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9999,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "clean",
+      0.0,
+      []
+     ],
+     "combined": [
+      "clean",
+      0.0,
+      []
+     ]
+    }
+   },
+   "hv3_l4_timeline_event_time_order-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L4"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L4",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l4_timeline_event_time_order-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L4"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L4",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l4_timeline_event_time_order-002": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L4"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L4",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_timeline_tie_events_first-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_timeline_tie_events_first-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_timeline_tie_events_first-002": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L2",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L2"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_tz_shift_forward-000": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L3",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_tz_shift_forward-001": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L3",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   },
+   "hv3_l5_tz_shift_forward-002": {
+    "was": {
+     "combined": [
+      "leaky",
+      0.99,
+      [
+       "L3",
+       "REPLAY"
+      ]
+     ],
+     "static": [
+      "leaky",
+      0.9,
+      [
+       "L3"
+      ]
+     ]
+    },
+    "now": {
+     "static": [
+      "leaky",
+      0.85,
+      [
+       "L5"
+      ]
+     ],
+     "combined": [
+      "leaky",
+      0.985,
+      [
+       "L5",
+       "REPLAY"
+      ]
+     ]
+    }
+   }
+  }
+ }
+}

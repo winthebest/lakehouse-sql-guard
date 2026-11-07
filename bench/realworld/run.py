@@ -10,7 +10,10 @@ Per project: clone at the pinned commit, compile with dbt-duckdb into `build_<sl
 spec's `realworld:` block to a copy of the manifest, then run the checker exactly as a user would
 (`sqlguard leakage dbt --manifest ... --spec ... --catalog-json ... --json`, static, no replay:
 these projects have no snapshot history), once per training model so that one unusable model does
-not hide the others. The rules must be unchanged since the tag `rules-frozen-v3`.
+not hide the others. The rules must be unchanged since `--rules-tag` (default `rules-frozen-v3`),
+unless `--dev` is given: then nothing is checked, and every result file says `"dev": true` with the
+git sha it was produced at. A finding the checker demoted to INFO (it feeds no feature column) is
+counted as `info_non_feature`, apart from `findings`.
 
 Writes `results/realworld/<date>-<sha>.json` (counts and findings, no code of unlicensed
 projects), `results/realworld/findings.csv`, `unverifiable.csv` and `models.csv` (adjudication
@@ -95,9 +98,16 @@ def run_checker(
 
 
 def check_project(
-    project: Project, spec: dict[str, Any], prepared: bool = False, specs: Path = SPECS
+    project: Project,
+    spec: dict[str, Any],
+    prepared: bool = False,
+    specs: Path = SPECS,
+    info_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list, list]:
     """Result record of one project and its finding rows (full view).
+
+    The rows returned are scored findings. Findings the checker demoted to INFO (they feed no
+    feature column) are not among them; they are appended to `info_rows` when it is given.
 
     `prepared`: the project directory already holds the files to check (a mutant), so nothing is
     fetched and `dbt deps` is not repeated.
@@ -131,6 +141,7 @@ def check_project(
     models_total = sum(1 for n in annotated["nodes"].values() if n["resource_type"] == "model")
     inlined: dict[str, None] = {}
     leaks: list[dict[str, Any]] = []
+    info: list[dict[str, Any]] = []
     unchecked: list[dict[str, Any]] = []
     checked_models = []
     seconds = 0.0
@@ -151,18 +162,27 @@ def check_project(
             "warnings": warnings,
         }
         if error:
-            entry |= {"verdict": "error", "error": error, "findings": 0, "unchecked": 0}
+            entry |= {
+                "verdict": "error",
+                "error": error,
+                "findings": 0,
+                "info_non_feature": 0,
+                "unchecked": 0,
+            }
         else:
-            found, skipped = rows.finding_rows(
+            everything, skipped = rows.finding_rows(
                 {"repo": project.repo, "group": project.group}, entries, annotated
             )
+            found, demoted = rows.split_info(everything)
             leaks += found
+            info += demoted
             unchecked += skipped
             entry |= {
                 "verdict": entries[0]["verdict"],
                 "score": entries[0]["score"],
                 "leak_types": entries[0]["leak_types"],
                 "findings": len(found),
+                "info_non_feature": len(demoted),
                 "unchecked": len(skipped),
                 "trusted_models": [m["file"] for m in entries[0].get("trusted_models", [])],
             }
@@ -175,9 +195,12 @@ def check_project(
         "seconds": round(seconds, 3),
         "models": checked_models,
         "findings": len(leaks),
+        "info_non_feature": len(info),
         "unverifiable": sum(1 for m in checked_models if m["verdict"] == "unverifiable"),
         "errors": sum(1 for m in checked_models if m["verdict"] == "error"),
     }
+    if info_rows is not None:
+        info_rows += info
     return record, leaks, unchecked
 
 
@@ -195,6 +218,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             "models_in_projects": sum(r["models_in_project"] for r in checked),
             "training_models": sum(r["training_models"] for r in checked),
             "findings": sum(r["findings"] for r in checked),
+            "info_non_feature": sum(r.get("info_non_feature", 0) for r in checked),
             "leaky_models": sum(1 for r in checked for m in r["models"] if m["verdict"] == "leaky"),
             "unverifiable_models": sum(r["unverifiable"] for r in checked),
             # models whose verdict is leaky but whose report also says part of the query was
@@ -229,9 +253,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--full-csv", type=Path, default=FULL_CSV, help="git-ignored findings with code excerpts"
     )
+    parser.add_argument(
+        "--rules-tag", default=rows.FROZEN_TAG, help="tag the leakage code must still equal"
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="development run: the rules need not be frozen; results are marked dev",
+    )
     args = parser.parse_args(argv)
 
-    rows.assert_rules_frozen(ROOT)
+    if not args.dev:
+        rows.assert_rules_frozen(ROOT, tag=args.rules_tag)
     projects = load_projects(args.projects_file)
     if args.projects:
         unknown = set(args.projects) - {p.repo for p in projects}
@@ -243,10 +276,12 @@ def main(argv: list[str] | None = None) -> int:
     full_rows: list[dict[str, Any]] = []
     public_rows: list[dict[str, Any]] = []
     unchecked_public: list[dict[str, Any]] = []
+    info_public: list[dict[str, Any]] = []
     for project in projects:
+        shown: list[dict[str, Any]] = []
         try:
             record, leaks, unchecked = check_project(
-                project, load_spec(project, args.specs_dir), specs=args.specs_dir
+                project, load_spec(project, args.specs_dir), specs=args.specs_dir, info_rows=shown
             )
         except (
             rows.RealworldError,
@@ -263,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         full_rows += leaks
         public_rows += [rows.public_row(r, project.publish) for r in leaks]
         unchecked_public += [rows.public_row(r, project.publish) for r in unchecked]
+        info_public += [rows.public_row(r, project.publish) for r in shown]
         print(
             f"{project.group:4} {project.repo}: {record['status']}"
             + (
@@ -277,7 +313,9 @@ def main(argv: list[str] | None = None) -> int:
     result = {
         "run_date": args.date,
         "code_sha": sha,
-        "rules_tag": rows.FROZEN_TAG,
+        "dev": args.dev,
+        "rules_tag": None if args.dev else args.rules_tag,
+        "specs_dir": str(args.specs_dir),
         "mode": "static (no replay: no snapshot history)",
         "summary": summarise(records),
         "projects": records,
@@ -295,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out / "unverifiable.csv",
         rows.keep_adjudication(unchecked_public, args.out / "unverifiable.csv", ran),
     )
+    rows.write_csv(args.out / "info-non-feature.csv", info_public)
     rows.write_csv(args.out / "models.csv", rows.model_rows(records), rows.MODEL_COLUMNS)
     rows.write_csv(args.full_csv, rows.keep_adjudication(full_rows, args.full_csv, ran))
     print(json.dumps(result["summary"], indent=2))

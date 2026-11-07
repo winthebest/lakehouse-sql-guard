@@ -365,6 +365,9 @@ class ModeResult:
     rows_compared: int = 0
     rows_mismatched: int = 0
     detail: str = ""  # why unverifiable / the error summary / why static-only
+    replay_reason: str = ""  # the replay's own reason (why it could not decide, or what it noted)
+    findings: int = 0  # scored findings (not SPEC/PARSE-style notes, not demoted INFO)
+    info_non_feature: int = 0  # findings demoted to INFO because they feed no feature column
 
 
 _FRAME = re.compile(r'File "(?P<path>[^"]+)", line (?P<line>\d+), in (?P<fn>\S+)')
@@ -410,6 +413,14 @@ def parse_cli_output(stdout: str, stderr: str, returncode: int | None) -> ModeRe
             if unchecked
             else str(replay.get("reason") or "")
         )
+    scored = info = 0
+    for finding in entry.get("findings", []):
+        if finding.get("rule_id") in UNCHECKED:
+            continue
+        if (finding.get("evidence") or {}).get("non_feature_only") is True:
+            info += 1
+        else:
+            scored += 1
     return ModeResult(
         entry["verdict"],
         float(entry["score"]),
@@ -418,6 +429,9 @@ def parse_cli_output(stdout: str, stderr: str, returncode: int | None) -> ModeRe
         int(replay.get("rows_compared") or 0),
         int(replay.get("rows_mismatched") or 0),
         detail[:400],
+        str(replay.get("reason") or "")[:400],
+        scored,
+        info,
     )
 
 
@@ -691,48 +705,59 @@ def git(*args: str) -> str:
     return run.stdout.strip()
 
 
-def preflight(prereg: dict) -> list[str]:
-    """Everything the registration requires to still hold; an empty list means the run may start."""
+def preflight(
+    prereg: dict,
+    *,
+    dev: bool = False,
+    rules_tag: str = "rules-frozen-v3",
+    prereg_path: Path = PREREG_PATH,
+    cases_dir: Path = CASES_DIR,
+) -> list[str]:
+    """Everything the registration requires to still hold; an empty list means the run may start.
+
+    A `dev` run checks the registration file, the cases and the thresholds only: the checker's
+    source tree may differ from the one registered and need not equal the frozen tag.
+    """
     problems = []
     try:
-        dirty = git(
-            "status",
-            "--porcelain",
-            "--",
-            "bench/kaggle/eval-prereg.yaml",
-            "bench/kaggle/cases",
-            "src",
-        )
+        watched = [prereg_path, cases_dir] + ([] if dev else [ROOT / "src"])
+        inside = [
+            str(p.resolve().relative_to(ROOT)) for p in watched if p.resolve().is_relative_to(ROOT)
+        ]
+        dirty = git("status", "--porcelain", "--", *inside) if inside else ""
         if dirty:
             problems.append(f"registration, cases or src are not committed as they are:\n{dirty}")
         checker = prereg["checker"]
-        tree = git("rev-parse", "HEAD:src/sqlguard")
-        if tree != checker["src_tree"]:
-            problems.append(f"src/sqlguard tree {tree} is not the registered {checker['src_tree']}")
-        release = git("rev-parse", f"{checker['release_tag']}:src/sqlguard")
-        if release != checker["src_tree"]:
-            problems.append(f"src/sqlguard of {checker['release_tag']} is {release}")
-        frozen = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(ROOT),
-                "diff",
-                "--quiet",
-                "rules-frozen-v3",
-                "HEAD",
-                "--",
-                "src/sqlguard/leakage",
-                "src/sqlguard/core",
-                "src/sqlguard/dbt",
-            ],  # fmt: skip
-            check=False,
-        )
-        if frozen.returncode != 0:
-            problems.append("src/sqlguard/{leakage,core,dbt} differ from rules-frozen-v3")
+        if not dev:
+            tree = git("rev-parse", "HEAD:src/sqlguard")
+            if tree != checker["src_tree"]:
+                problems.append(
+                    f"src/sqlguard tree {tree} is not the registered {checker['src_tree']}"
+                )
+            release = git("rev-parse", f"{checker['release_tag']}:src/sqlguard")
+            if release != checker["src_tree"]:
+                problems.append(f"src/sqlguard of {checker['release_tag']} is {release}")
+            frozen = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "diff",
+                    "--quiet",
+                    rules_tag,
+                    "HEAD",
+                    "--",
+                    "src/sqlguard/leakage",
+                    "src/sqlguard/core",
+                    "src/sqlguard/dbt",
+                ],  # fmt: skip
+                check=False,
+            )
+            if frozen.returncode != 0:
+                problems.append(f"src/sqlguard/{{leakage,core,dbt}} differ from {rules_tag}")
     except (RuntimeError, KeyError) as err:
         problems.append(f"cannot check the checker's source: {err}")
-    digest, count = cases_digest()
+    digest, count = cases_digest(cases_dir)
     inputs = prereg["inputs"]
     if (digest, count) != (inputs["cases_digest"], inputs["cases_file_count"]):
         problems.append(f"cases digest {digest} ({count} files) is not the registered one")
@@ -769,6 +794,7 @@ def environment() -> dict:
 CSV_COLUMNS = (
     "case", "file", "label", "leak_type", "also_matches", "disputed", "mode", "class", "score",
     "leak_types", "replay_status", "rows_compared", "rows_mismatched", "detail",
+    "replay_reason", "findings", "info_non_feature",
 )  # fmt: skip
 
 
@@ -793,6 +819,9 @@ def csv_rows(records: Sequence[Record]) -> list[dict]:
                     "rows_compared": m.rows_compared,
                     "rows_mismatched": m.rows_mismatched,
                     "detail": m.detail,
+                    "replay_reason": m.replay_reason,
+                    "findings": m.findings,
+                    "info_non_feature": m.info_non_feature,
                 }
             )
     return rows
@@ -874,6 +903,18 @@ def render_markdown(result: dict) -> str:
     out = [
         title,
         "",
+        *(
+            [
+                "**Development run (dev: true).** The rules were changed while looking at these"
+                " cases, so these numbers are in-sample and are not evidence of held-out"
+                " performance. Authors and judges of the cases are Claude models; no human"
+                " raters."
+                + (f" Specs read from `{meta['specs_dir']}`." if meta.get("specs_dir") else ""),
+                "",
+            ]
+            if meta.get("dev")
+            else []
+        ),
         *(_variant_intro(variant, meta) if variant else []),
         f"Run `{meta['stem']}` of `bench/kaggle/evaluate.py` at {meta['git_sha']}"
         f"{' (dirty tree)' if meta['git_dirty'] else ''}. Registration:"
@@ -989,8 +1030,17 @@ def render_markdown(result: dict) -> str:
 
 
 def run(args: argparse.Namespace) -> int:
-    prereg = yaml.safe_load(PREREG_PATH.read_text(encoding="utf-8"))
-    if problems := preflight(prereg):
+    prereg_path = Path(args.prereg)
+    cases_dir = Path(args.cases_dir)
+    specs_dir = Path(args.specs_dir) if args.specs_dir else None
+    prereg = yaml.safe_load(prereg_path.read_text(encoding="utf-8"))
+    if problems := preflight(
+        prereg,
+        dev=args.dev,
+        rules_tag=args.rules_tag,
+        prereg_path=prereg_path,
+        cases_dir=cases_dir,
+    ):
         print("refusing to run:\n" + "\n".join(f"- {p}" for p in problems), file=sys.stderr)
         return 2
     if args.variant and "variant_spec_workaround" not in prereg:
@@ -1000,7 +1050,7 @@ def run(args: argparse.Namespace) -> int:
     interval = prereg["intervals"]
     disputed = prereg["disputed_labels"]["cases"]
     case_ids = list(prereg["inputs"]["cases"])
-    queries = [q for cid in case_ids for q in load_queries(CASES_DIR / cid, disputed)]
+    queries = [q for cid in case_ids for q in load_queries(cases_dir / cid, disputed)]
     if len(queries) != prereg["inputs"]["queries"]["total"]:
         print(f"refusing to run: {len(queries)} queries, not the registered count", file=sys.stderr)
         return 2
@@ -1009,12 +1059,14 @@ def run(args: argparse.Namespace) -> int:
         work = Path(tmp)
         build: dict[str, BuildResult] = {}
         schema_files: dict[str, Path] = {}
-        spec_files: dict[str, Path] = {cid: CASES_DIR / cid / "spec.yaml" for cid in case_ids}
+        spec_files: dict[str, Path] = {
+            cid: (specs_dir or cases_dir) / cid / "spec.yaml" for cid in case_ids
+        }
         specs: dict[str, dict] = {}
         for cid in case_ids:
-            case_dir = CASES_DIR / cid
+            case_dir = cases_dir / cid
             schema = yaml.safe_load((case_dir / "schema.yaml").read_text(encoding="utf-8"))
-            spec = yaml.safe_load((case_dir / "spec.yaml").read_text(encoding="utf-8"))
+            spec = yaml.safe_load(spec_files[cid].read_text(encoding="utf-8"))
             if args.variant:
                 specs[cid] = variant_spec(spec)
                 spec_files[cid] = work / cid / "spec-variant.yaml"
@@ -1040,7 +1092,7 @@ def run(args: argparse.Namespace) -> int:
 
         def check(task: tuple[Query, str]) -> ModeResult:
             query, mode = task
-            case_dir = CASES_DIR / query.case
+            case_dir = cases_dir / query.case
             if mode == "replay" and build[query.case].status != "built":
                 return ModeResult("static_only", detail=build[query.case].reason)
             warehouse = work / query.case / "warehouse" if mode == "replay" else None
@@ -1062,7 +1114,11 @@ def run(args: argparse.Namespace) -> int:
         ]
 
     sha = git("rev-parse", "--short=7", "HEAD")
-    stem = f"{datetime.now(UTC):%Y%m%d}-{sha}" + ("-variant" if args.variant else "")
+    stem = (
+        f"{datetime.now(UTC):%Y%m%d}-{sha}"
+        + ("-variant" if args.variant else "")
+        + (f"-{args.tag}" if args.tag else "")
+    )
     seed, resamples, level = (
         int(interval["seed"]),
         int(interval["resamples"]),
@@ -1073,12 +1129,16 @@ def run(args: argparse.Namespace) -> int:
             "stem": stem,
             "git_sha": sha,
             "git_dirty": bool(git("status", "--porcelain", "--", ".", ":!results/kaggle")),
-            "prereg_commit": git(
-                "log", "--diff-filter=A", "--format=%h", "--", "bench/kaggle/eval-prereg.yaml"
-            ),
+            "prereg_commit": git("log", "--diff-filter=A", "--format=%h", "--", str(prereg_path)),
             "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "checker": prereg["checker"],
-            "cases_digest": cases_digest()[0],
+            "cases_digest": cases_digest(cases_dir)[0],
+            "dev": args.dev,
+            "rules_tag": None if args.dev else args.rules_tag,
+            "specs_dir": str(specs_dir) if specs_dir else None,
+            "prereg": str(prereg_path.relative_to(ROOT))
+            if prereg_path.is_relative_to(ROOT)
+            else str(prereg_path),
             "thresholds": thresholds,
             "verdict_threshold": prereg["checker"]["verdict_threshold"],
             "seed": seed,
@@ -1145,6 +1205,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="build the warehouses only; the checker is not run"
     )
+    parser.add_argument("--cases-dir", default=str(CASES_DIR), help="folder of the case folders")
+    parser.add_argument("--prereg", default=str(PREREG_PATH), help="the registration to follow")
+    parser.add_argument(
+        "--specs-dir",
+        help="read each case's spec from SPECS_DIR/<case>/spec.yaml instead of the case folder",
+    )
+    parser.add_argument(
+        "--rules-tag",
+        default="rules-frozen-v3",
+        help="tag the leakage code must equal (ignored with --dev)",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="development run: the checker need not be frozen; every result is marked dev",
+    )
+    parser.add_argument("--tag", default="", help="suffix of the result files, for example v4dev")
     return run(parser.parse_args(argv))
 
 

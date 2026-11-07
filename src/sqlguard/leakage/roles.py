@@ -114,7 +114,9 @@ class _Trace:
             self.projection(scope, select, child)
         elif key == "order":
             # an order cuts rows when the select is bounded, or when a later scope can bound it
-            if _bounded(select) or scope.scope_type is not ScopeType.ROOT:
+            distinct = select.args.get("distinct")
+            keeps_first = distinct is not None and distinct.args.get("on")  # DISTINCT ON (..)
+            if _bounded(select) or keeps_first or scope.scope_type is not ScopeType.ROOT:
                 self.row_level = True
         else:
             self.row_level = True  # where / having / qualify / join / group / from / ...
@@ -125,6 +127,16 @@ class _Trace:
         if select.args.get("distinct") or (group is not None and group.args.get("all")):
             # which rows survive (or how they group) depends on every projected value
             self.row_level = True
+        order = select.args.get("order")
+        if (
+            order is not None
+            and any(
+                isinstance(o.this, exp.Var) and o.this.name.upper() == "ALL"
+                for o in order.expressions
+            )
+            and (_bounded(select) or scope.scope_type is not ScopeType.ROOT)
+        ):
+            self.row_level = True  # ORDER BY ALL orders by every column and a bound keeps the first
         name = item.alias_or_name.lower()
         # a bare name that is not a table column is another projection's alias (the qualifier
         # expands them in most clauses, not in ORDER BY)
@@ -250,8 +262,17 @@ class _Flow:
 _FLOWS: dict[int, _Flow] = {}
 
 
+def _renames_columns(analysis: QueryAnalysis) -> bool:
+    """Does a FROM item give new names to the columns of what it reads (`st AS a(id, t)`)? The
+    trace follows columns by name, so it would lose them there."""
+    return any(
+        isinstance(alias.parent, exp.Table) and alias.args.get("columns")
+        for alias in analysis.qualified.find_all(exp.TableAlias)
+    )
+
+
 def _flow(analysis: QueryAnalysis) -> _Flow | None:
-    if analysis.resolver is None:
+    if analysis.resolver is None or _renames_columns(analysis):
         return None
     flow = _FLOWS.get(id(analysis))
     if flow is None:
@@ -277,16 +298,22 @@ def is_declared_non_feature(spec: LeakageSpec, column: str) -> bool:
 
 
 def non_feature_only(analysis: QueryAnalysis, node: exp.Expression | None) -> bool:
-    """True only when the node reaches at least one output, every output it reaches is declared
-    not to be a feature, and it decides no row. Anything else is false."""
+    """True only when the trace of the node finished without deciding a row, and every output it
+    reaches is declared not to be a feature. A node that reaches no output at all counts as well,
+    but only for a spec that declares output roles: nothing reads its value, so no feature can."""
     if node is None:
         return False
     got = feeds(analysis, node)
-    return (
-        bool(got.outputs)
-        and not got.row_level
-        and all(is_declared_non_feature(analysis.spec, c) for c in got.outputs)
-    )
+    if got.row_level:
+        return False
+    if not got.outputs:
+        return _declares_roles(analysis.spec)  # read by nothing: dead, once the spec has roles
+    return all(is_declared_non_feature(analysis.spec, c) for c in got.outputs)
+
+
+def _declares_roles(spec: LeakageSpec) -> bool:
+    roles = spec.output_roles
+    return bool(roles.label or roles.metadata or roles.features)
 
 
 def attribute(analysis: QueryAnalysis, finding: Finding, node: exp.Expression | None) -> Finding:
@@ -298,10 +325,11 @@ def attribute(analysis: QueryAnalysis, finding: Finding, node: exp.Expression | 
     spec = analysis.spec
     if non_feature_only(analysis, node):
         columns = sorted(got.outputs)
+        feeds_text = f"feeds only label/metadata columns: {', '.join(columns)}"
         return replace(
             finding,
             severity=Severity.INFO,
-            message=f"{finding.message} (feeds only label/metadata columns: {', '.join(columns)})",
+            message=f"{finding.message} ({feeds_text if columns else 'feeds no output column'})",
             evidence={**finding.evidence, "outputs": columns, "non_feature_only": True},
         )
     columns = sorted(c for c in got.outputs if not is_declared_non_feature(spec, c))

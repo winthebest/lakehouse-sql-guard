@@ -1,0 +1,291 @@
+# Spec for KenImade/fpl-data-platform, transform/ subdirectory (group: round2, no license) at the
+# pinned commit of ../projects.yaml. Written from the README, models/features/_features.yml,
+# models/marts/_marts.yml, models/staging/_staging.yml and models/staging/_sources.yml, before the
+# checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (`deadline_utc`: "FEATURES ARE LEFT OF THE DEADLINE, LABELS RIGHT OF
+# IT"; the project asserts it with tests/no_post_deadline_leakage.sql).
+#
+# Assumptions the project does not settle:
+#   - Two spines feed the matrix (a live one and a reconstructed historical one, "disjoint by
+#     construction and unioned"). Only feat_player_fixture_spine, which the yml documents with its
+#     primary label did_appear, is declared as the label spine and trusted; the historical spine is
+#     inlined and checked as part of the training query.
+#   - The upstream tables are declared by role from the yml: match and player-gameweek facts
+#     (kickoff_utc) and the deadline snapshots (fct_player_snapshot) and our own captures
+#     (stg_fpl_players, captured_at) are temporal; the deadline calendar, players and teams are static.
+#     Their bronze sources declare no columns (every bronze column is TEXT), so the staging and mart
+#     models are the physical tables.
+#   - ingested_at / built_at columns exist but are not described as availability times: no
+#     availability column or delay is declared. A column is typed TIMESTAMPTZ only where the staging
+#     model casts it; snapshot_at and captured_at are not cast in the models read, so UNKNOWN.
+#
+# v4 additions: the types of captured_at (UTC datetime, bronze.py:15) and snapshot_at (the newest
+# captured_at before a deadline, fct_deadline_snapshot.sql:41), which the earlier spec left UNKNOWN.
+label_table: feat_player_fixture_spine
+entity_keys: [player_id, match_id]
+prediction_ts: deadline_utc
+label_columns: [did_appear, gw_points, gw_bonus, gw_bps]
+time_columns:
+  fct_player_gw: kickoff_utc
+  fct_team_fixture: kickoff_utc
+  fct_player_snapshot: snapshot_at
+  stg_fpl_players: captured_at
+static_tables: [stg_gameweeks, stg_players, stg_teams]
+
+realworld:
+  training_sets: [feat_training_set]
+  meta:
+    "model:feat_player_fixture_spine": {role: label_spine}
+    "model:fct_player_gw": {time_column: kickoff_utc}
+    "model:fct_team_fixture": {time_column: kickoff_utc}
+    "model:fct_player_snapshot": {time_column: snapshot_at}
+    "model:stg_fpl_players": {time_column: captured_at}
+    "model:stg_gameweeks": {role: static}
+    "model:stg_players": {role: static}
+    "model:stg_teams": {role: static}
+  basis: |
+    - feat_training_set is the training table: yml "The assembled matrix. One row per player per
+      fixture they could have played in, with every feature and every label"; README "models trained
+      on historical data" with "strict point-in-time guarantees".
+    - labels: did_appear is "THE PRIMARY LABEL"; gw_points, gw_bonus, gw_bps are "gameweek-level
+      label[s]"; minutes, played_60, goals, assists, xg, xa, saves and the other post-match columns
+      are the match outcome of the same row (yml: "Nothing reads stg_player_gameweek_stats except as a
+      label"). Only the four the yml calls labels are listed as label_columns; the others are outcome
+      statistics of the same row that the yml does not call labels.
+    - prediction time: deadline_utc, the gameweek deadline ("Everything in the point-in-time layer
+      keys off deadline_utc - a capture is a valid feature source for gameweek N only if it predates
+      N's deadline", stg_gameweeks).
+    - stg_fpl_players: "Our own captures ... Grain is (captured_at, player_id)".
+  not_training:
+    feat_team_defence_training_set: second training table (team defence model); not run here
+    mart_player_fixture_predictions, mart_player_gameweek_predictions: marts over model predictions
+    feat_player_form, feat_player_load, feat_team_strength, feat_*_spine*: feature models (inlined)
+  schema:
+    "model:feat_player_fixture_spine":
+      snapshot_id: UNKNOWN
+      season: UNKNOWN
+      gameweek: UNKNOWN
+      deadline_utc: TIMESTAMPTZ
+      player_id: UNKNOWN
+      player_code: UNKNOWN
+      team_code: UNKNOWN
+      position: UNKNOWN
+      match_id: UNKNOWN
+      kickoff_utc: TIMESTAMPTZ
+      opponent_code: UNKNOWN
+      is_home: UNKNOWN
+      elo: UNKNOWN
+      opponent_elo: UNKNOWN
+      elo_diff: UNKNOWN
+      fixtures_in_gw: UNKNOWN
+      price_tenths: UNKNOWN
+      selected_by_percent: UNKNOWN
+      status: UNKNOWN
+      has_news: UNKNOWN
+      chance_of_playing_next: UNKNOWN
+      ep_next: UNKNOWN
+      minutes: UNKNOWN
+      did_appear: BOOLEAN
+      played_60: UNKNOWN
+      goals: UNKNOWN
+      assists: UNKNOWN
+      xg: UNKNOWN
+      xa: UNKNOWN
+      goals_conceded_on_pitch: UNKNOWN
+      saves: UNKNOWN
+      defensive_actions: UNKNOWN
+      gw_points: UNKNOWN
+      gw_bonus: UNKNOWN
+      gw_bps: UNKNOWN
+      gw_clean_sheets: UNKNOWN
+      built_at: UNKNOWN
+    "model:fct_player_gw":
+      season: UNKNOWN
+      gameweek: UNKNOWN
+      match_id: UNKNOWN
+      player_id: UNKNOWN
+      player_code: UNKNOWN
+      team_code: UNKNOWN
+      web_name: UNKNOWN
+      position: UNKNOWN
+      competition: UNKNOWN
+      is_league: UNKNOWN
+      kickoff_utc: TIMESTAMPTZ
+      fixture_seq: UNKNOWN
+      fixtures_in_gw: UNKNOWN
+      is_double_gw: UNKNOWN
+      is_gw_primary: UNKNOWN
+      minutes: UNKNOWN
+      start_min: UNKNOWN
+      finish_min: UNKNOWN
+      goals: UNKNOWN
+      assists: UNKNOWN
+      xg: UNKNOWN
+      xa: UNKNOWN
+      xgot: UNKNOWN
+      shots: UNKNOWN
+      shots_on_target: UNKNOWN
+      big_chances_missed: UNKNOWN
+      touches_opp_box: UNKNOWN
+      chances_created: UNKNOWN
+      goals_conceded_on_pitch: UNKNOWN
+      saves: UNKNOWN
+      saves_inside_box: UNKNOWN
+      goals_prevented: UNKNOWN
+      xgot_faced: UNKNOWN
+      tackles: UNKNOWN
+      interceptions: UNKNOWN
+      blocks: UNKNOWN
+      clearances: UNKNOWN
+      headed_clearances: UNKNOWN
+      recoveries: UNKNOWN
+      penalties_scored: UNKNOWN
+      penalties_missed_match: UNKNOWN
+      defensive_actions: UNKNOWN
+      gw_points: UNKNOWN
+      gw_bonus: UNKNOWN
+      gw_bps: UNKNOWN
+      gw_yellow_cards: UNKNOWN
+      gw_red_cards: UNKNOWN
+      gw_own_goals: UNKNOWN
+      gw_penalties_saved: UNKNOWN
+      gw_clean_sheets: UNKNOWN
+      gw_minutes: UNKNOWN
+      gw_price_tenths: UNKNOWN
+      gw_selected_by_percent: UNKNOWN
+      built_at: UNKNOWN
+    "model:fct_team_fixture":
+      match_id: UNKNOWN
+      season: UNKNOWN
+      gameweek: UNKNOWN
+      competition: UNKNOWN
+      is_league: UNKNOWN
+      kickoff_utc: TIMESTAMPTZ
+      team_code: UNKNOWN
+      team_name: UNKNOWN
+      team_short: UNKNOWN
+      opponent_code: UNKNOWN
+      opponent_name: UNKNOWN
+      is_home: UNKNOWN
+      goals_for: UNKNOWN
+      goals_against: UNKNOWN
+      goal_difference: UNKNOWN
+      result: UNKNOWN
+      elo: UNKNOWN
+      opponent_elo: UNKNOWN
+      elo_diff: UNKNOWN
+      days_since_last_match: UNKNOWN
+      matches_prior_14d: UNKNOWN
+      built_at: UNKNOWN
+    "model:fct_player_snapshot":
+      snapshot_id: UNKNOWN
+      season: UNKNOWN
+      gameweek: UNKNOWN
+      deadline_utc: TIMESTAMPTZ
+      snapshot_at: TIMESTAMPTZ   # transform/models/marts/fct_deadline_snapshot.sql:41 (max(captured_at)); captured_at is UTC, see below
+      hours_before_deadline: UNKNOWN
+      is_usable: UNKNOWN
+      player_id: UNKNOWN
+      player_code: UNKNOWN
+      team_code: UNKNOWN
+      web_name: UNKNOWN
+      position: UNKNOWN
+      price_tenths: UNKNOWN
+      selected_by_percent: UNKNOWN
+      status: UNKNOWN
+      news: UNKNOWN
+      chance_of_playing_next: UNKNOWN
+      removed: UNKNOWN
+      can_select: UNKNOWN
+      penalties_order: UNKNOWN
+      direct_freekicks_order: UNKNOWN
+      corners_order: UNKNOWN
+      news_added: UNKNOWN
+      hours_since_news_added: UNKNOWN
+      ep_next: UNKNOWN
+      cumulative_points: UNKNOWN
+      cumulative_minutes: UNKNOWN
+      cumulative_starts: UNKNOWN
+      maybe_prior_season_cumulative: UNKNOWN
+      built_at: UNKNOWN
+    "model:stg_fpl_players":
+      captured_at: TIMESTAMPTZ   # packages/fpl-ingestion/src/fpl_ingestion/bronze.py:15 (pl.Datetime("us", "UTC"))
+      capture_date: UNKNOWN
+      player_id: UNKNOWN
+      player_code: UNKNOWN
+      team_code: UNKNOWN
+      team_id: UNKNOWN
+      web_name: UNKNOWN
+      full_name: UNKNOWN
+      element_type: UNKNOWN
+      position: UNKNOWN
+      team_join_date: UNKNOWN
+      penalties_order: UNKNOWN
+      direct_freekicks_order: UNKNOWN
+      corners_order: UNKNOWN
+      news_added: UNKNOWN
+      removed: UNKNOWN
+      can_select: UNKNOWN
+      has_temporary_code: UNKNOWN
+      opta_code: UNKNOWN
+      price_tenths: UNKNOWN
+      selected_by_percent: UNKNOWN
+      status: UNKNOWN
+      news: UNKNOWN
+      chance_of_playing_next: UNKNOWN
+      chance_of_playing_this: UNKNOWN
+      ep_next: UNKNOWN
+      ep_this: UNKNOWN
+      cumulative_points: UNKNOWN
+      gw_points_at_capture: UNKNOWN
+      cumulative_minutes: UNKNOWN
+      cumulative_starts: UNKNOWN
+    "model:stg_gameweeks":
+      season: UNKNOWN
+      gameweek: UNKNOWN
+      gameweek_name: UNKNOWN
+      deadline_utc: TIMESTAMPTZ
+      deadline_epoch: UNKNOWN
+      is_finished: UNKNOWN
+      is_data_checked: UNKNOWN
+      average_score: UNKNOWN
+      highest_score: UNKNOWN
+      most_selected_player_id: UNKNOWN
+      most_captained_player_id: UNKNOWN
+      most_transferred_in_player_id: UNKNOWN
+      transfers_made: UNKNOWN
+      source_key: UNKNOWN
+      ingested_at: UNKNOWN
+    "model:stg_players":
+      season: UNKNOWN
+      player_code: UNKNOWN
+      player_id: UNKNOWN
+      team_code: UNKNOWN
+      first_name: UNKNOWN
+      second_name: UNKNOWN
+      web_name: UNKNOWN
+      full_name: UNKNOWN
+      position_name: UNKNOWN
+      element_type: UNKNOWN
+      position: UNKNOWN
+      source_key: UNKNOWN
+      ingested_at: UNKNOWN
+    "model:stg_teams":
+      season: UNKNOWN
+      team_code: UNKNOWN
+      team_id: UNKNOWN
+      team_name: UNKNOWN
+      team_short: UNKNOWN
+      strength: UNKNOWN
+      strength_overall_home: UNKNOWN
+      strength_overall_away: UNKNOWN
+      strength_attack_home: UNKNOWN
+      strength_attack_away: UNKNOWN
+      strength_defence_home: UNKNOWN
+      strength_defence_away: UNKNOWN
+      elo_snapshot: UNKNOWN
+      pulse_id: UNKNOWN
+      fotmob_name: UNKNOWN
+      source_key: UNKNOWN
+      ingested_at: UNKNOWN

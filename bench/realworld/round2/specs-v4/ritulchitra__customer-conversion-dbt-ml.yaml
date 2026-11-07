@@ -1,0 +1,45 @@
+# Spec for ritulchitra/customer-conversion-dbt-ml (group: round2, no license) at the pinned commit of
+# ../projects.yaml. Written from the README and the staging model's select list (the Online Retail
+# dataset columns), before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented label (README "Target definition: converted = 1 if recency_days <= 30").
+#
+# Assumptions the project does not settle:
+#   - The label `converted` is computed inside fct_customer_features from the order history, relative
+#     to the end of the dataset (max order time over all customers); no relation carries it. The only
+#     table is the order history, so it is the label table and also the history of every feature
+#     (the single-table case of the round 1 specs).
+#   - No prediction time is documented and the label's reference time is a window over all rows, not
+#     a column, so prediction_ts names a column the project does not have; the checker is expected to
+#     say the output does not carry a prediction time.
+label_table: stg_orders
+entity_keys: [customer_id]
+prediction_ts: prediction_ts
+label_columns: [converted]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [fct_customer_features]
+  meta:
+    "model:stg_orders": {role: label_spine}
+  basis: |
+    - fct_customer_features is the training table: README "Transform raw transactional data into
+      ML-ready customer features using dbt"; "Features Used for Training" lists total_orders,
+      total_spend, avg_order_value.
+    - target: README "converted = 1 if recency_days <= 30 else 0". It is derived in the model.
+    - stg_orders cleans the raw orders table (Online Retail dataset: one row per invoice line); its
+      order_timestamp is parsed from invoicedate ('MM/DD/YY HH24:MI'). The raw table is read by name
+      (not a dbt source), so the staging model is the physical table.
+  schema:
+    "model:stg_orders":
+      order_id: UNKNOWN
+      product_code: UNKNOWN
+      product_description: UNKNOWN
+      quantity: UNKNOWN
+      unit_price: DECIMAL
+      customer_id: UNKNOWN
+      country: UNKNOWN
+      order_timestamp: TIMESTAMP

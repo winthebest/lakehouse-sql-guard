@@ -1,0 +1,11 @@
+# Favorita: each store/item/day row is a prediction row and history for later days.
+label_table: train
+entity_keys: [store_nbr, item_nbr]
+prediction_ts: date               # DATE grain
+label_columns: [unit_sales]
+time_columns: {train: date}
+static_tables: []
+outcome_columns: []
+# Note: the host shipped onpromotion for the 16 test days, so inside the competition future
+# flags were given data; this spec takes the forum's deployment reading (a flag is a fact of
+# its own date).

@@ -1,0 +1,271 @@
+{
+  "run_date": "20261107",
+  "code_sha": "f8f7119",
+  "dev": true,
+  "rules_tag": null,
+  "specs_dir": "/Users/macos/orca/projects/lakehouse-sql-guard-wt-dev/bench/realworld/specs",
+  "mode": "static (no replay: no snapshot history)",
+  "summary": {
+    "new": {
+      "projects": 3,
+      "checked": 3,
+      "not_applicable": 0,
+      "models_in_projects": 22,
+      "training_models": 3,
+      "findings": 14,
+      "info_non_feature": 0,
+      "leaky_models": 2,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 2,
+      "error_models": 0,
+      "seconds": 3.588
+    },
+    "seen": {
+      "projects": 5,
+      "checked": 2,
+      "not_applicable": 3,
+      "models_in_projects": 13,
+      "training_models": 2,
+      "findings": 5,
+      "info_non_feature": 0,
+      "leaky_models": 2,
+      "unverifiable_models": 0,
+      "models_with_unchecked_parts": 1,
+      "error_models": 0,
+      "seconds": 2.13
+    }
+  },
+  "projects": [
+    {
+      "repo": "DobleL2/dbt_churn_prediction",
+      "group": "new",
+      "sha": "00b28eafc127754e68bf25d5a161d6954196f409",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 10,
+      "training_models": 1,
+      "models_inlined": 9,
+      "seconds": 2.581,
+      "models": [
+        {
+          "model": "fct_churn_features",
+          "exit_code": 1,
+          "seconds": 2.581,
+          "warnings": [],
+          "verdict": "leaky",
+          "score": 1.0,
+          "leak_types": [
+            "L2",
+            "L7"
+          ],
+          "findings": 12,
+          "info_non_feature": 0,
+          "unchecked": 1,
+          "trusted_models": [
+            "models/staging/stg_users.sql"
+          ]
+        }
+      ],
+      "findings": 12,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "novarz/dbt-feature-store",
+      "group": "new",
+      "sha": "1be33448ea5fd83cc62252c91e5de299755c185c",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 3,
+      "training_models": 1,
+      "models_inlined": 2,
+      "seconds": 0.459,
+      "models": [
+        {
+          "model": "ft_customers_transactions",
+          "exit_code": 0,
+          "seconds": 0.459,
+          "warnings": [
+            "warning: ft_customers_transactions: --spec sets label_table = fraud_transactions (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "clean",
+          "score": 0.0,
+          "leak_types": [],
+          "findings": 0,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": []
+        }
+      ],
+      "findings": 0,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "ChuquEmeka/DBT-Fraud-Detection-Data-Pipeline",
+      "group": "new",
+      "sha": "123a1111ecaf6f2a4a1f7b4dd5cfc27ea843e6bf",
+      "license": "none",
+      "publish": "aggregate_only",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 9,
+      "training_models": 1,
+      "models_inlined": 5,
+      "seconds": 0.548,
+      "models": [
+        {
+          "model": "go_predictive_model_features",
+          "exit_code": 1,
+          "seconds": 0.548,
+          "warnings": [
+            "warning: go_predictive_model_features: --spec sets label_table = transactions_staging (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 0.9975,
+          "leak_types": [
+            "L6"
+          ],
+          "findings": 2,
+          "info_non_feature": 0,
+          "unchecked": 1,
+          "trusted_models": []
+        }
+      ],
+      "findings": 2,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "mponsclo/music-streaming-churn-prediction",
+      "group": "seen",
+      "sha": "df40a47b6305af269f4855b1b49ef021c6e823ed",
+      "license": "MIT",
+      "publish": "code",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": false
+      },
+      "status": "checked",
+      "models_in_project": 7,
+      "training_models": 1,
+      "models_inlined": 3,
+      "seconds": 0.789,
+      "models": [
+        {
+          "model": "ml_churn_features",
+          "exit_code": 1,
+          "seconds": 0.789,
+          "warnings": [],
+          "verdict": "leaky",
+          "score": 0.9995,
+          "leak_types": [
+            "L1",
+            "L2"
+          ],
+          "findings": 3,
+          "info_non_feature": 0,
+          "unchecked": 2,
+          "trusted_models": [
+            "models/staging/stg_train.sql",
+            "models/staging/stg_members.sql",
+            "models/staging/stg_transactions.sql",
+            "models/staging/stg_user_logs.sql"
+          ]
+        }
+      ],
+      "findings": 3,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "SarrangTech/fraud-detection-feature-store",
+      "group": "seen",
+      "sha": "f7d8a259af379a3c39bacd36235e53fb65eb271c",
+      "license": "MIT",
+      "publish": "code",
+      "build": {
+        "compile_exit": 0,
+        "compile_tail": "",
+        "deps": true
+      },
+      "status": "checked",
+      "models_in_project": 6,
+      "training_models": 1,
+      "models_inlined": 5,
+      "seconds": 1.341,
+      "models": [
+        {
+          "model": "silver_transaction_features",
+          "exit_code": 1,
+          "seconds": 1.341,
+          "warnings": [
+            "warning: silver_transaction_features: --spec sets label_table = bronze_transactions (the dbt meta does not); this can relax a rule"
+          ],
+          "verdict": "leaky",
+          "score": 0.995,
+          "leak_types": [
+            "L1",
+            "L2"
+          ],
+          "findings": 2,
+          "info_non_feature": 0,
+          "unchecked": 0,
+          "trusted_models": []
+        }
+      ],
+      "findings": 2,
+      "info_non_feature": 0,
+      "unverifiable": 0,
+      "errors": 0
+    },
+    {
+      "repo": "manthanshah94/dbt-churn-feature-store",
+      "group": "seen",
+      "sha": "536016e1cffeb19d5671b5942c559a2e789b2b19",
+      "license": "none",
+      "publish": "aggregate_only",
+      "status": "not_applicable",
+      "reason": "no label column or table and no prediction time (README: features only; recency is measured from current_date), so the leakage spec cannot be written\n"
+    },
+    {
+      "repo": "hisato-kawaji/dbt-duckdb-demo",
+      "group": "seen",
+      "sha": "0a4ff22ae5ad81b4d6e2b03b6747cb107722a9f2",
+      "license": "MIT",
+      "publish": "code",
+      "status": "not_applicable",
+      "reason": "a dbt feature demo with no model that builds a training or scoring table; no label and no prediction time (customer_summary is a lifetime-value report)\n"
+    },
+    {
+      "repo": "dbt-labs/jaffle_shop_duckdb",
+      "group": "seen",
+      "sha": "20cc904370818ceab08cf19f8fd196e9e81def88",
+      "license": "Apache-2.0",
+      "publish": "code",
+      "status": "not_applicable",
+      "reason": "the dbt tutorial project (customers and orders reporting marts); no training or scoring table, no label and no prediction time\n"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+case,file,label,leak_type,also_matches,disputed,mode,class,score,leak_types,replay_status,rows_compared,rows_mismatched,detail,replay_reason,findings,info_non_feature
+kl03,leaky_1.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,,,1,0
+kl03,leaky_1.sql,leaky,L1,,0,replay,leaky,0.9950,L1,mismatch,24,24,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl03,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl03,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl03,leaky_2.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,,,1,0
+kl03,leaky_2.sql,leaky,L1,,0,replay,leaky,0.9950,L1,mismatch,24,24,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl03,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl03,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl03,leaky_3.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,,,1,0
+kl03,leaky_3.sql,leaky,L1,,0,replay,leaky,0.9950,L1,mismatch,24,24,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl03,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl03,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'training' had no snapshot before 2008-03-03T13:35:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl04,leaky_1.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,,,1,0
+kl04,leaky_1.sql,leaky,L1,,0,replay,leaky,0.9950,L1,mismatch,24,17,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),2,0
+kl04,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl04,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),0,0
+kl04,leaky_2.sql,leaky,L1,,0,static,leaky,0.9500,L1,,0,0,,,1,0
+kl04,leaky_2.sql,leaky,L1,,0,replay,leaky,0.9950,L1,mismatch,24,13,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),2,0
+kl04,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl04,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),0,0
+kl04,leaky_3.sql,leaky,L3,L1,0,static,leaky,0.9000,L3,,0,0,,,1,0
+kl04,leaky_3.sql,leaky,L3,L1,0,replay,leaky,0.9900,L3,mismatch,24,17,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),2,0
+kl04,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl04,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'train' had no snapshot before 2016-08-04T04:35:39 (and 23 more of the 24 point(s)); earlier rows were taken by visitstarttime instead of load time (late rows of it are not visible),0,0
+kl05,leaky_1.sql,leaky,L1,,1,static,leaky,0.9500,L1,,0,0,,,1,0
+kl05,leaky_1.sql,leaky,L1,,1,replay,leaky,0.9950,L1,mismatch,30,27,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),2,0
+kl05,clean_1.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl05,clean_1.sql,clean,,,1,replay,clean,0.0000,,pass,30,0,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),0,0
+kl05,leaky_2.sql,leaky,L1,,1,static,leaky,0.9500,L1,,0,0,,,1,0
+kl05,leaky_2.sql,leaky,L1,,1,replay,leaky,0.9950,L1,mismatch,30,22,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),2,0
+kl05,clean_2.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl05,clean_2.sql,clean,,,1,replay,clean,0.0000,,pass,30,0,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),0,0
+kl05,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9000,L3,,0,0,,,1,0
+kl05,leaky_3.sql,leaky,L3,L1,1,replay,leaky,0.9900,L3,mismatch,30,22,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),2,0
+kl05,clean_3.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl05,clean_3.sql,clean,,,1,replay,clean,0.0000,,pass,30,0,,label table 'train' had no snapshot before 2017-11-07T00:16:09 (and 23 more of the 24 point(s)); earlier rows were taken by click_time instead of load time (late rows of it are not visible),0,0
+kl06,leaky_1.sql,leaky,L6,L3,0,static,leaky,0.9998,"L3,L6",,0,0,,,3,0
+kl06,leaky_1.sql,leaky,L6,L3,0,replay,leaky,1.0000,"L3,L6",mismatch,63,62,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),4,0
+kl06,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl06,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl06,leaky_2.sql,leaky,L6,L3,0,static,leaky,0.9998,"L3,L6",,0,0,,,3,0
+kl06,leaky_2.sql,leaky,L6,L3,0,replay,leaky,1.0000,"L3,L6",mismatch,63,62,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),4,0
+kl06,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl06,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl06,leaky_3.sql,leaky,L6,L3,0,static,leaky,0.9998,"L3,L6",,0,0,,,3,0
+kl06,leaky_3.sql,leaky,L6,L3,0,replay,leaky,1.0000,"L3,L6",mismatch,63,62,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),4,0
+kl06,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl06,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl07,leaky_1.sql,leaky,L5,L6,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl07,leaky_1.sql,leaky,L5,L6,0,replay,leaky,0.9975,L6,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl07,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl07,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl07,leaky_2.sql,leaky,L5,L6,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl07,leaky_2.sql,leaky,L5,L6,0,replay,leaky,0.9975,L6,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl07,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl07,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl07,leaky_3.sql,leaky,L5,L6,0,static,leaky,0.9996,"L5,L6",,0,0,,,3,0
+kl07,leaky_3.sql,leaky,L5,L6,0,replay,leaky,0.9996,"L5,L6",pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),3,0
+kl07,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl07,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,63,0,,label table 'train' had no snapshot before 1970-01-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl08,leaky_1.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl08,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9998,L6,mismatch,71,65,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),3,0
+kl08,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl08,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,71,0,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl08,leaky_2.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl08,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9998,L6,mismatch,71,68,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),3,0
+kl08,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl08,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,71,0,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl08,leaky_3.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl08,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9950,L6,mismatch,71,65,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),2,0
+kl08,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl08,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,71,0,,label table 'train' had no snapshot before 2021-06-13T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by timestamp instead of load time (late rows of it are not visible),0,0
+kl09,leaky_1.sql,leaky,L1,,1,static,leaky,0.9500,L1,,0,0,,,1,0
+kl09,leaky_1.sql,leaky,L1,,1,replay,leaky,0.9950,L1,mismatch,956,916,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),2,0
+kl09,clean_1.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl09,clean_1.sql,clean,,,1,replay,clean,0.0000,,pass,956,0,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),0,0
+kl09,leaky_2.sql,leaky,L1,,1,static,leaky,0.9000,L2,,0,0,,,1,0
+kl09,leaky_2.sql,leaky,L1,,1,replay,leaky,0.9900,L2,mismatch,956,862,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),2,0
+kl09,clean_2.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl09,clean_2.sql,clean,,,1,replay,clean,0.0000,,pass,956,0,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),0,0
+kl09,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9000,L3,,0,0,,,1,0
+kl09,leaky_3.sql,leaky,L3,L1,1,replay,leaky,0.9900,L3,mismatch,956,915,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),2,0
+kl09,clean_3.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl09,clean_3.sql,clean,,,1,replay,clean,0.0000,,pass,956,0,,label table 'train' had no snapshot before 2017-03-02T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),0,0
+kl10,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl10,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),1,0
+kl10,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl10,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),0,0
+kl10,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl10,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),1,0
+kl10,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl10,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),0,0
+kl10,leaky_3.sql,leaky,L6,,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl10,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9975,L6,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),2,0
+kl10,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl10,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,68,0,,label table 'train_users' had no snapshot before 2012-02-05T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date_account_created instead of load time (late rows of it are not visible),0,0
+kl11,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl11,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),1,0
+kl11,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl11,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),0,0
+kl11,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl11,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),1,0
+kl11,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl11,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),0,0
+kl11,leaky_3.sql,leaky,L6,,0,static,leaky,0.9998,"L2,L6",,0,0,,,3,0
+kl11,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9998,"L2,L6",pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),3,0
+kl11,clean_3.sql,clean,,,0,static,leaky,0.9000,L2,,0,0,,,1,0
+kl11,clean_3.sql,clean,,,0,replay,leaky,0.9000,L2,pass,441,0,,label table 'accepted_2007_to_2018q4' had no snapshot before 2013-03-01T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by issue_d instead of load time (late rows of it are not visible),1,0
+kl12,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl12,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),1,0
+kl12,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl12,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),0,0
+kl12,leaky_2.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl12,leaky_2.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),1,0
+kl12,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl12,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),0,0
+kl12,leaky_3.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl12,leaky_3.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),1,0
+kl12,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl12,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,51,0,,label table 'flights' had no snapshot before 2018-01-03T11:15:00 (and 23 more of the 24 point(s)); earlier rows were taken by crs_dep_ts instead of load time (late rows of it are not visible),0,0
+kl14,leaky_1.sql,leaky,L3,L1,1,static,leaky,0.9000,L3,,0,0,,,1,0
+kl14,leaky_1.sql,leaky,L3,L1,1,replay,leaky,0.9900,L3,mismatch,24,20,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),2,0
+kl14,clean_1.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl14,clean_1.sql,clean,,,1,replay,clean,0.0000,,pass,24,0,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),0,0
+kl14,leaky_2.sql,leaky,L6,L3,1,static,leaky,0.9998,"L2,L6",,0,0,,,3,0
+kl14,leaky_2.sql,leaky,L6,L3,1,replay,leaky,1.0000,"L2,L6",mismatch,24,19,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),4,0
+kl14,clean_2.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl14,clean_2.sql,clean,,,1,replay,clean,0.0000,,pass,24,0,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),0,0
+kl14,leaky_3.sql,leaky,L3,L1,1,static,leaky,0.9000,L2,,0,0,,,1,0
+kl14,leaky_3.sql,leaky,L3,L1,1,replay,leaky,0.9900,L2,mismatch,24,20,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),2,0
+kl14,clean_3.sql,clean,,,1,static,clean,0.0000,,,0,0,,,0,0
+kl14,clean_3.sql,clean,,,1,replay,clean,0.0000,,pass,24,0,,label table 'train_transaction' had no snapshot before 1970-01-13T07:38:24 (and 23 more of the 24 point(s)); earlier rows were taken by transactiondt instead of load time (late rows of it are not visible),0,0
+kl15,leaky_1.sql,leaky,L6,L5,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl15,leaky_1.sql,leaky,L6,L5,0,replay,leaky,0.9975,L6,pass,185,0,,label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),2,0
+kl15,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl15,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,185,0,,label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),0,0
+kl15,leaky_2.sql,leaky,L6,L1,0,static,leaky,0.9999,"L1,L6",,0,0,,,3,0
+kl15,leaky_2.sql,leaky,L6,L1,0,replay,leaky,1.0000,"L1,L6",mismatch,185,184,,label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),4,0
+kl15,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl15,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,185,0,,label table 'act_train' had no snapshot before 2022-09-16T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by date instead of load time (late rows of it are not visible),0,0
+kl16,leaky_1.sql,leaky,L6,L3,0,static,leaky,0.9998,"L3,L6",,0,0,,,3,0
+kl16,leaky_1.sql,leaky,L6,L3,0,replay,leaky,1.0000,"L3,L6",mismatch,24,23,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),4,0
+kl16,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl16,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),0,0
+kl16,leaky_2.sql,leaky,L5,L6,0,static,leaky,0.9975,L6,,0,0,,,2,0
+kl16,leaky_2.sql,leaky,L5,L6,0,replay,leaky,0.9975,L6,pass,24,0,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),2,0
+kl16,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl16,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),0,0
+kl16,leaky_3.sql,leaky,L5,L6,0,static,leaky,0.9996,"L5,L6",,0,0,,,3,0
+kl16,leaky_3.sql,leaky,L5,L6,0,replay,leaky,0.9996,"L5,L6",pass,24,0,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),3,0
+kl16,clean_3.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl16,clean_3.sql,clean,,,0,replay,clean,0.0000,,pass,24,0,,label table 'data' had no snapshot before 2000-11-03T00:00:00 (and 23 more of the 24 point(s)); earlier rows were taken by game_date instead of load time (late rows of it are not visible),0,0
+kl17,leaky_1.sql,leaky,L6,,0,static,leaky,0.9500,L6,,0,0,,,1,0
+kl17,leaky_1.sql,leaky,L6,,0,replay,leaky,0.9500,L6,pass,25,0,,label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible),1,0
+kl17,clean_1.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl17,clean_1.sql,clean,,,0,replay,clean,0.0000,,pass,25,0,,label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible),0,0
+kl17,leaky_2.sql,leaky,L1,L3,0,static,leaky,0.9000,L3,,0,0,,,1,0
+kl17,leaky_2.sql,leaky,L1,L3,0,replay,leaky,0.9900,L3,mismatch,25,19,,label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible),2,0
+kl17,clean_2.sql,clean,,,0,static,clean,0.0000,,,0,0,,,0,0
+kl17,clean_2.sql,clean,,,0,replay,clean,0.0000,,pass,25,0,,label table 'page_views' had no snapshot before 2000-01-31T19:05:17 (and 23 more of the 24 point(s)); earlier rows were taken by request_time instead of load time (late rows of it are not visible),0,0

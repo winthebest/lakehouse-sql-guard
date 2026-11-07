@@ -1,0 +1,10 @@
+# KDD Cup 2000 (as described by Kohavi et al., cited by Kaufman et al.): predict, at each page
+# view, whether the visitor leaves or views another page.
+label_table: page_views
+entity_keys: [session_id]
+prediction_ts: request_time
+label_columns: [leaves_site]
+time_columns: {page_views: request_time}
+static_tables: []
+outcome_columns:
+  - page_views.session_length    # added to each record at the end of the session

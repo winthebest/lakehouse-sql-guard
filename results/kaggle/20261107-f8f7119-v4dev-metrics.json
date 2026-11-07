@@ -1,0 +1,52 @@
+{
+  "dev": true,
+  "source": "20261107-f8f7119-v4dev.csv",
+  "static": {
+    "tp": 40,
+    "fp": 5,
+    "tn": 35,
+    "fn": 0,
+    "recall": 1.0,
+    "fpr": 0.125,
+    "mcc": 0.8819,
+    "youden_j": 0.875,
+    "precision_at_prevalence": {
+      "1%": 0.0748,
+      "5%": 0.2963,
+      "10%": 0.4706,
+      "20%": 0.6667
+    },
+    "fpr_upper_95_one_sided": 0.245,
+    "recall_lower_95_one_sided": 0.9278
+  },
+  "replay": {
+    "tp": 40,
+    "fp": 5,
+    "tn": 35,
+    "fn": 0,
+    "recall": 1.0,
+    "fpr": 0.125,
+    "mcc": 0.8819,
+    "youden_j": 0.875,
+    "precision_at_prevalence": {
+      "1%": 0.0748,
+      "5%": 0.2963,
+      "10%": 0.4706,
+      "20%": 0.6667
+    },
+    "fpr_upper_95_one_sided": 0.245,
+    "recall_lower_95_one_sided": 0.9278,
+    "auprc_replay_score": 0.65
+  },
+  "pairs": {
+    "told_apart": 35,
+    "pairs": 40,
+    "not_told_apart": [
+      "kl08/1",
+      "kl08/2",
+      "kl08/3",
+      "kl11/3",
+      "kl14/2"
+    ]
+  }
+}

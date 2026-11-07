@@ -1,0 +1,65 @@
+# Spec for clementlemon02/crypto-macd-screener, dbt/ subdirectory (group: round2, no license) at the
+# pinned commit of ../projects.yaml. Written from the README, dbt/models/sources.yml, the model header
+# comments, schemas/candle.avsc and warehouse/ddl/timescale.sql, before the checker ran on any round 2
+# project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (per-candle features are backward-only; labels are forward returns
+# at horizons of 1, 5, 10 and 20 candles).
+#
+# Assumptions the project does not settle:
+#   - The features and the labels are separate dbt models; the training set is assembled outside dbt
+#     (ml/dataset.py joins them on symbol, interval, open_time, horizon). gold_ml_features therefore
+#     does not read the label table, and the checker is expected to say so.
+#   - entity_keys is (symbol, interval), the series a candle belongs to; the row grain is
+#     (symbol, interval, open_time) per sources.yml.
+label_table: gold_ml_labels
+entity_keys: [symbol, interval]
+prediction_ts: open_time
+label_columns: [forward_return, label_up]
+time_columns:
+  candles: open_time
+  candles_macd: open_time
+
+realworld:
+  training_sets: [gold_ml_features]
+  meta:
+    "model:gold_ml_labels": {role: label_spine}
+  basis: |
+    - gold_ml_features is the feature table of the ML extension: model header "per-candle ML feature
+      table", README "Per-candle features and labels are dbt models on the lakehouse".
+    - label: gold_ml_labels, "one row per (candle, horizon)"; header: "labels look into the future by
+      construction ... must never be joined into the feature table". Documented time of a label row:
+      the candle's open_time (README: the model predicts whether price rises over the next N candles).
+    - event times: sources bronze.candles and silver.candles_macd, open_time ("Candle start, unix
+      seconds", schemas/candle.avsc; BIGINT in warehouse/ddl/timescale.sql).
+    - no availability column or ingestion delay is documented.
+  not_training:
+    gold_signals, gold_screener_latest: rule-based signals and serving marts
+    silver_candles_macd: view over the silver source
+  schema:
+    "model:gold_ml_labels":
+      symbol: VARCHAR
+      interval: INTEGER
+      open_time: BIGINT
+      horizon: INTEGER
+      entry_close: DOUBLE
+      exit_close: DOUBLE
+      forward_return: DOUBLE
+      label_up: UNKNOWN
+    "source:bronze.candles":
+      symbol: VARCHAR
+      interval: INTEGER
+      open_time: BIGINT
+      open: DOUBLE
+      high: DOUBLE
+      low: DOUBLE
+      close: DOUBLE
+      volume: DOUBLE
+    "source:silver.candles_macd":
+      symbol: VARCHAR
+      interval: INTEGER
+      open_time: BIGINT
+      close: DOUBLE
+      macd: DOUBLE
+      signal: DOUBLE
+      hist: DOUBLE

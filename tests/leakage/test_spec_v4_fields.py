@@ -47,6 +47,8 @@ def test_a_spec_without_the_new_fields_loads_to_the_object_it_always_did(path):
     loaded = plain(asdict(LeakageSpec.from_yaml(ROOT / path)))
     assert loaded.pop("time_units") == {}
     assert loaded.pop("output_roles") == {"label": [], "metadata": [], "features": None}
+    assert loaded.pop("validity_end_columns") == {}
+    assert loaded.pop("unique_keys") == {}
     assert loaded == expected
 
 

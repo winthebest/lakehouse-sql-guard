@@ -1,0 +1,88 @@
+# Spec for theo-lyd/predictive-ltv-survival-pipeline (group: round2, MIT) at the pinned commit of
+# ../projects.yaml. Written from the README, models/schema.yml, models/sources.yml, the project's
+# Silver data dictionary (docs/PHASE_2_SILVER_DATA_DICTIONARY.md) and docs/AUDIT_FINDINGS_AND_CORRECTIONS.md,
+# before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (dbt var observation_date, default 2024-12-31; see below).
+#
+# Assumptions the project does not settle:
+#   - The documented cutoff is the dbt variable `observation_date`, not a column of any relation, so
+#     it cannot be the spec's prediction_ts. By the spec rules the time of the labelled outcome is
+#     used: churn_ts of the label spine (NULL for customers who did not churn).
+#   - stg_billing and stg_promotions carry ingested_at_utc (the dictionary lists it as a core field of
+#     stg_promotions) but nowhere is it described as the time a row became available, so no
+#     availability column or delay is declared.
+#   - The raw sources (raw.churn, raw.promotions, raw.billing) declare no columns, so the staging
+#     models, which clean them, are the physical tables.
+#
+# v4 additions: output_roles.features, the model's own feature list, cited below.
+label_table: stg_customers
+entity_keys: [customer_id]
+prediction_ts: churn_ts
+label_columns: [is_churned]
+output_roles:
+  # The training script lists the complete model feature list: `model_columns`
+  # (models/marts/fct_churn_scores.py:28-36). Every other column of fct_gold_customer_features
+  # (is_churned, state_transition, model_built_at, ...) is not a model feature; the script derives
+  # the target from state_transition (fct_churn_scores.py:23-25) and the schema says features
+  # "should NOT use wall-clock timestamps" (models/schema.yml:117).
+  features:
+    - customer_tenure_months
+    - monthly_recurring_revenue
+    - discount_intensity_index
+    - contributed_margin_monthly
+    - invoice_count
+    - avg_invoice_amount
+    - max_discount_percent
+time_columns:
+  stg_billing: invoice_ts
+  stg_promotions: promotion_start_ts
+
+realworld:
+  training_sets: [fct_gold_customer_features]
+  meta:
+    "model:stg_customers": {role: label_spine}
+    "model:stg_billing": {time_column: invoice_ts}
+    "model:stg_promotions": {time_column: promotion_start_ts}
+  basis: |
+    - fct_gold_customer_features is the training table: models/schema.yml "Gold-layer customer
+      feature table for survival and churn modeling", with the observation_date contract ("reproducible,
+      time-locked feature sets for backtesting").
+    - target: is_churned (dictionary: stg_customers core fields signup_ts, churn_ts nullable,
+      monthly_recurring_revenue, is_churned boolean), so stg_customers is the label spine.
+    - event times: stg_billing.invoice_ts ("UTC"), stg_promotions.promotion_start_ts ("UTC normalized
+      from mixed source formats"). Types are the ones the dictionary gives; the others are not documented.
+  not_training:
+    fct_churn_scores: Python model, churn probabilities scored from the Gold features
+    fct_survival_curves: Python model, Kaplan-Meier curves
+    fct_customer_ltv, fct_model_drift_baseline, fct_model_quality_diagnostics, fct_survival_cohort_summary: marts and monitoring
+    stg_*, int_*: staging and intermediate
+  schema:
+    "model:stg_customers":
+      customer_id: UNKNOWN
+      subscription_id: UNKNOWN
+      signup_ts: TIMESTAMP
+      churn_ts: TIMESTAMP
+      region: UNKNOWN
+      product_tier: UNKNOWN
+      monthly_recurring_revenue: DECIMAL
+      is_churned: BOOLEAN
+    "model:stg_billing":
+      customer_id: UNKNOWN
+      invoice_id: UNKNOWN
+      invoice_ts: TIMESTAMP
+      invoice_amount: DECIMAL
+      currency: UNKNOWN
+      payment_status: UNKNOWN
+      ingestion_run_id: UNKNOWN
+      ingested_at_utc: UNKNOWN
+    "model:stg_promotions":
+      promotion_id: UNKNOWN
+      customer_id: UNKNOWN
+      discount_type: UNKNOWN
+      discount_percent: UNKNOWN
+      promotion_start_ts: TIMESTAMP
+      promotion_channel: UNKNOWN
+      ingested_at_utc: UNKNOWN
+      promotion_identity_key: UNKNOWN
+      is_heavy_promotion: BOOLEAN
