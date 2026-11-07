@@ -2,8 +2,9 @@
 
     uv run python -m bench.realworld.run [--projects OWNER/REPO ...] [--date YYYYMMDD]
 
-Round 2 uses the same code with its own files: `--projects-file bench/realworld/round2/projects.yaml
---specs-dir bench/realworld/round2/specs --out results/realworld/round2 --full-csv <git-ignored csv>`.
+Round 2 uses the same code with its own files:
+`--projects-file bench/realworld/round2/projects.yaml --specs-dir bench/realworld/round2/specs
+--out results/realworld/round2 --full-csv <git-ignored csv>`.
 
 Per project: clone at the pinned commit, compile with dbt-duckdb into `build_<slug>`, apply the
 spec's `realworld:` block to a copy of the manifest, then run the checker exactly as a user would
