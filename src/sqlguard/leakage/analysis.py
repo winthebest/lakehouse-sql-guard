@@ -3009,7 +3009,29 @@ class _PastWindows:
         if not any(isinstance(a, exp.AggFunc) for a in _ancestors(column, projection)):
             return False
         readers = self._readers(scope, projection.alias)
-        return bool(readers) and all(self.holds(c) for c in readers)
+        return bool(readers) and all(self.holds(c) or self._is_label_output(c) for c in readers)
+
+    def _is_label_output(self, column: exp.Column, depth: int = 0) -> bool:
+        """Does this read of a label sum only carry it, unchanged, to an output column the spec
+        declares a label (through any number of CTEs that merely select it)?"""
+        scope = self.resolver.scope_of(column)
+        select = scope.expression if scope is not None else None
+        if not isinstance(select, exp.Select) or depth > 8:
+            return False
+        projection = column.parent if isinstance(column.parent, exp.Alias) else column
+        if projection.parent is not select or projection not in select.expressions:
+            return False  # a filter, a calculation, a join key: not a plain projection
+        name = projection.alias_or_name
+        if id(scope) in self.analysis.output_scopes:
+            return name.lower() in self.spec.output_roles.label
+        if not (scope.is_cte or scope.is_derived_table) or isinstance(
+            select.parent, exp.SetOperation
+        ):
+            return False
+        readers = self._readers(scope, name)
+        return bool(readers) and all(
+            self.holds(r) or self._is_label_output(r, depth + 1) for r in readers
+        )
 
     def rows_of(self, scope: Scope) -> TableRef | None:
         """The label reference when `scope` is one row per (entity keys, prediction time) of it."""
@@ -3025,7 +3047,10 @@ class _PastWindows:
         if len(scope.selected_sources) != 1 or select.find(exp.Window, *_ROW_MULTIPLIERS):
             return None
         ((_, source),) = scope.selected_sources.values()
-        ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+        if isinstance(source, exp.Table):
+            ref = self.resolver.refs.get(id(source))
+        else:
+            ref = self._label_rows(source)
         if ref is None or not self._spine_only(ref):
             return None
         wanted = {self.spec.prediction_ts, *self.spec.entity_keys}
@@ -3036,6 +3061,63 @@ class _PastWindows:
                 return None
             grouped |= {g.column for g in got}
         return ref if grouped == wanted else None
+
+    def _label_rows(self, source: Scope | exp.Table, depth: int = 0) -> TableRef | None:
+        """The label reference when the rows of `source` are label rows and nothing else: the
+        label table read directly, or a SELECT (or a chain of them, each a CTE or derived table)
+        that filters them and joins tables of static attributes, without grouping, windows or
+        row-multiplying sources. Static rows may repeat or drop a label row, but never move it in
+        time or bring in what happened later."""
+        if depth > _MAX_DEPTH:
+            return None
+        if isinstance(source, exp.Table):
+            ref = self.resolver.refs.get(id(source))
+            return ref if ref is not None and ref.kind == "label" else None
+        select = source.expression
+        if not isinstance(select, exp.Select) or isinstance(select.parent, exp.SetOperation):
+            return None
+        if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
+            return None
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
+            return None
+        label = None
+        for _, part in source.selected_sources.values():
+            if isinstance(part, exp.Table):
+                ref = self.resolver.refs.get(id(part))
+                if ref is None:
+                    return None
+                if ref.kind == "label":
+                    found = ref
+                elif ref.kind == "static":
+                    continue
+                else:
+                    return None
+            else:
+                found = self._label_rows(part, depth + 1)
+                if found is None:
+                    if self._static_only(part, depth + 1):
+                        continue
+                    return None
+            if label is not None and found is not label:
+                return None
+            label = found
+        return label
+
+    def _static_only(self, source: Scope, depth: int = 0) -> bool:
+        """Does `source` read nothing but tables of static attributes?"""
+        if depth > _MAX_DEPTH or isinstance(source.expression.parent, exp.SetOperation):
+            return False
+        parts = list(source.selected_sources.values())
+        if not parts:
+            return False
+        for _, part in parts:
+            if isinstance(part, exp.Table):
+                ref = self.resolver.refs.get(id(part))
+                if ref is None or ref.kind != "static":
+                    return False
+            elif not self._static_only(part, depth + 1):
+                return False
+        return True
 
     def _plain_rows(self, scope: Scope) -> TableRef | None:
         """The label reference when `scope` selects (and filters) rows of it without regrouping."""
