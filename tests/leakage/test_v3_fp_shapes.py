@@ -437,3 +437,56 @@ def test_an_except_whose_removed_side_reads_unbounded_facts_is_flagged():
         "JOIN events e ON e.user_id = l.user_id) k"
     )
     assert rules(future)
+
+
+# --- a timeline of facts and spine rows read through a named window -----------------------------
+
+
+def timeline(
+    frame: str = "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING",
+    kinds: tuple[int, int] = (1, 0),
+    fact_time: str = "ingested_at",
+    extra: str = "",
+    named: bool = True,
+) -> str:
+    over, definition = (
+        ("w", "WINDOW w AS (PARTITION BY user_id ORDER BY ts, kind {frame})")
+        if (named)
+        else ("(PARTITION BY user_id ORDER BY ts, kind {frame})", "")
+    )
+    return f"""WITH timeline AS (
+  SELECT user_id, {fact_time} AS ts, {kinds[0]} AS kind, amount,
+         CAST(NULL AS TIMESTAMP) AS label_ts, CAST(NULL AS BIGINT) AS churned
+  FROM events
+  UNION ALL
+  SELECT user_id, label_ts AS ts, {kinds[1]} AS kind, CAST(NULL AS DOUBLE) AS amount,
+         label_ts, churned
+  FROM labels
+),
+scored AS (
+  SELECT *, SUM(amount) OVER {over.format(frame=frame)} AS spend,
+         COUNT(amount) OVER {over.format(frame=frame)} AS n{extra}
+  FROM timeline
+  {definition.format(frame=frame)}
+)
+SELECT user_id, label_ts, churned, spend, n FROM scored WHERE kind = {kinds[1]}"""
+
+
+def test_a_named_window_over_a_timeline_ends_before_the_spine_row():
+    assert rules(timeline()) == set()
+    assert rules(timeline(named=False)) == set()
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        {"frame": "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING"},
+        {"frame": "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"},
+        {"kinds": (0, 1)},  # facts sort ahead of the spine row they tie with
+        {"fact_time": "event_ts"},  # ordered by event time, not by when the fact was known
+        {"extra": ", SUM(amount) OVER (PARTITION BY user_id) AS lifetime"},
+    ],
+)
+def test_the_same_named_window_with_one_thing_wrong_is_still_flagged(variant):
+    for named in (True, False):
+        assert rules(timeline(named=named, **variant)), (variant, named)

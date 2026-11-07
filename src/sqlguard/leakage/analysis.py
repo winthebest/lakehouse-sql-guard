@@ -1968,6 +1968,11 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                     )
 
 
+def _is_definition(window: exp.Window) -> bool:
+    """Is this node the definition in a WINDOW clause rather than a function evaluated over one?"""
+    return isinstance(window.this, exp.Identifier)
+
+
 def _frame_stops_at_current_row(frame: exp.Expression | None, func: exp.Expression) -> bool:
     """Does the window frame end at the current row or before it (and so never look ahead)?
 
@@ -2052,7 +2057,8 @@ def _record_timelines(analysis: QueryAnalysis, resolver: _Resolver) -> None:
     is a constant that sorts the spine first, otherwise inclusively (`<=`, which L5 reports).
     """
     spec = analysis.spec
-    windows = list(analysis.qualified.find_all(exp.Window))
+    # `WINDOW w AS (...)` defines a window; only the functions that use it (`SUM(x) OVER w`) run
+    windows = [w for w in analysis.qualified.find_all(exp.Window) if not _is_definition(w)]
     earning = []
     for window in windows:
         parts = _window_parts(window)
@@ -2144,6 +2150,8 @@ def _timeline_is_only_carried(
                 continue
             if isinstance(node, exp.AggFunc) and node.find_ancestor(exp.Window) is not None:
                 continue  # the function of a window, judged with the window
+            if isinstance(node, exp.Window) and _is_definition(node):
+                continue  # a WINDOW clause only names a frame
             if not (other is scope and any(node is w for w in mine)):
                 return False
     return True
