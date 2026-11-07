@@ -1,0 +1,31 @@
+catalog_id: kl11
+competition: LendingClub loan data (Kaggle copy; not a competition)
+source_urls:
+  - https://dev.to/tywmick/building-a-neural-network-to-predict-loan-risk-3k1f
+  - https://daniellecrumley.github.io/LendingClubProject/Data-Cleaning.html
+source_kind: [blog, blog]
+leak_type: L6
+description: >
+  Two independent write-ups that model loan outcomes from the LendingClub data both remove
+  the fields that only exist once a loan has been running: payments received to date,
+  principal received, post-charge-off recoveries, last payment date and amount, last credit
+  pull date, hardship and settlement fields. The first author says he keeps only features
+  available at the point of application to avoid data leakage. Using these fields to predict
+  default at origination uses data recorded after the outcome.
+fidelity:
+  level: adapted
+  note: >
+    One table with real LendingClub column names (18 of 151); month strings are stored as
+    first-of-month dates. Each clean twin is a feature of the same kind built from
+    application-time columns: scheduled instead of actual repayment ratio, credit-history
+    length instead of payment-history length, and an affordability flag and credit-line age
+    instead of the recovery/settlement flag and credit-pull age.
+check:
+  spine_key: [id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L6, pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

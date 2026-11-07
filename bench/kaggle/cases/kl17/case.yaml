@@ -1,0 +1,26 @@
+catalog_id: kl17
+competition: KDD Cup 2000 (Blue Martini / Gazelle web store)
+source_urls:
+  - https://www.cs.umb.edu/~ding/history/470_670_fall_2011/papers/cs670_Tran_PreferredPaper_LeakingInDataMining.pdf
+source_kind: [paper]
+leak_type: L6
+description: >
+  Kaufman et al. summarise the KDD Cup 2000 organisers' report: for each page view the
+  target was whether the visitor would leave or view another page, and a "session length"
+  attribute (total pages viewed in the visit) had been added to every page-view record at
+  the end of the session, so it gives the answer away. The fix they quote is to replace it
+  with the page number in the session, i.e. the session length up to the current page.
+fidelity:
+  level: adapted
+  note: >
+    Second-hand account (the organisers' report and the data were not opened), so the table
+    and column names are descriptive stand-ins for page-view records. The leak and its fix
+    are taken as stated: reading the end-of-session attribute, or recomputing it over the
+    whole session, versus counting the pages up to the current one.
+check:
+  spine_key: [session_id, request_seq]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L1, also_matches: [L3], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}

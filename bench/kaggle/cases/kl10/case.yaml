@@ -1,0 +1,31 @@
+catalog_id: kl10
+competition: Airbnb New User Bookings (2015)
+source_urls:
+  - https://www.kaggle.com/competitions/airbnb-recruiting-new-user-bookings/discussion/17595
+  - https://haochen23.github.io/2018/10/user-booking-prediction.html
+  - https://www.kaggle.com/competitions/airbnb-recruiting-new-user-bookings/data
+source_kind: [discussion, blog, host]
+leak_type: L6
+description: >
+  date_first_booking is filled only for users who made a booking, and it is empty for every
+  user in the test file. A participant noticed the empty values, another found no test row
+  with a value, and a third submitted a benchmark built only on whether the field is empty.
+  So the field encodes the outcome (no date means no booking). A later blog drops it for
+  this reason and derives its date features from account creation and first activity.
+fidelity:
+  level: adapted
+  note: >
+    One table with the data page's train_users columns. A column-level leak has no
+    point-in-time version of the same field, so each clean twin is the substitute the blog
+    uses or an analogous pre-outcome field: the lag from first activity to account creation,
+    the missing-age flag instead of the missing-booking-date flag, and calendar parts of the
+    creation date instead of the booking date.
+check:
+  spine_key: [id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L6, pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

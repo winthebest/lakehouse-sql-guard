@@ -1,0 +1,19 @@
+# Page-view records of one web store, as the account describes them (one record per page
+# viewed, with a session-length attribute added at the end of the session). The organisers'
+# data dictionary was not available, so table and column names are descriptive, not real.
+tables:
+  page_views:
+    columns:
+      session_id: BIGINT
+      request_seq: INTEGER
+      request_time: TIMESTAMP
+      page_template: VARCHAR
+      session_length: INTEGER    # total pages in the visit, written when the session ends
+      leaves_site: TINYINT       # 1 if the visitor left after this page
+    event_time: request_time
+    availability_time: null
+spine:
+  table: page_views
+  entity_keys: [session_id]
+  prediction_time: request_time
+  label_columns: [leaves_site]

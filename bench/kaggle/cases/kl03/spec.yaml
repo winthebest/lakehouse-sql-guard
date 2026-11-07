@@ -1,0 +1,13 @@
+# INFORMS 2010: one row per 5-minute bar; the row is both the prediction and history.
+label_table: training
+entity_keys: []                   # a single time series, no entity key
+prediction_ts: Timestamp
+label_columns: [TargetVariable]
+time_columns: {training: Timestamp}
+static_tables: []
+outcome_columns: []
+# Contest chair (thread 33): "Variables are at time t and are known at time t", and values
+# from t-5, t-10, ... may be used; so a variable stamped at the prediction time is known.
+boundary: inclusive
+# Contest chair (thread 33): the target is built from data at t+60 minutes.
+label_known_after: 60 minutes

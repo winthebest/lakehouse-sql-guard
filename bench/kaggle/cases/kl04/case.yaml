@@ -1,0 +1,31 @@
+catalog_id: kl04
+competition: Google Analytics Customer Revenue Prediction (2018)
+source_urls:
+  - https://www.kaggle.com/competitions/ga-customer-revenue-prediction/discussion/67207
+  - https://www.kaggle.com/competitions/ga-customer-revenue-prediction/data
+source_kind: [discussion, host]
+leak_type: L1
+description: >
+  In the original framing the test file held every visit of the forecast window. A
+  participant argued that this builds temporal leakage into the competition: when predicting
+  a visitor's spending, knowing whether and when the visitor comes back later is very useful,
+  but a real deployment would not have that future traffic. A reply proposes using only
+  features available up to the date of each sample. The hosts later reframed the competition
+  to predict a future window that is not in the files.
+fidelity:
+  level: adapted
+  note: >
+    One visit-level table with the data page's field names (fullVisitorId, visitId,
+    visitNumber, visitStartTime as POSIX seconds, date); the nested totals JSON is flattened
+    to totals_transactionRevenue and the other JSON blobs are dropped. The features (time to
+    the adjacent visit, visits within 30 days, total visit count) are the kind of
+    return-visit signal the thread describes; the thread names no exact formula.
+check:
+  spine_key: [fullVisitorId, visitId]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L1, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L1, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L3, also_matches: [L1], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

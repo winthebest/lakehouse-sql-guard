@@ -1,0 +1,17 @@
+# train.csv as on the data page (stores, items, oil, holidays, transactions files omitted).
+tables:
+  train:
+    columns:
+      id: BIGINT
+      date: DATE
+      store_nbr: SMALLINT
+      item_nbr: INTEGER
+      unit_sales: DOUBLE
+      onpromotion: BOOLEAN    # about 16% missing in the real file
+    event_time: date
+    availability_time: null
+spine:
+  table: train
+  entity_keys: [store_nbr, item_nbr]
+  prediction_time: date
+  label_columns: [unit_sales]

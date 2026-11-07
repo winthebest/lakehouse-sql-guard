@@ -1,0 +1,30 @@
+catalog_id: kl09
+competition: Corporacion Favorita Grocery Sales Forecasting (2017)
+source_urls:
+  - https://www.kaggle.com/competitions/favorita-grocery-sales-forecasting/discussion/47545
+  - https://www.kaggle.com/competitions/favorita-grocery-sales-forecasting/data
+source_kind: [discussion, host]
+leak_type: L1
+description: >
+  A participant described a leak from the future: the retailer tends to put an item on
+  promotion after it has sold badly for a few days, to clear stock. So knowing the promotion
+  flag of later days helps predict sales of earlier days, and public kernels exploited it.
+  A well-known participant replied that this explained why adding future promotion status had
+  helped his model.
+fidelity:
+  level: direct
+  note: >
+    train.csv with the data page's columns, zero-sales days absent and some missing
+    onpromotion values. The features (promotion days in the next 14 days, the flag a week
+    later, the share of promoted days over the whole history) are the look-ahead promotion
+    features the post describes; the post gives no exact formula. Within the competition the
+    host supplied the test window's promotion flags, so the leaky label reflects deployment.
+check:
+  spine_key: [id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L1, pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L1, pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L3, also_matches: [L1], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

@@ -1,0 +1,14 @@
+# Red Hat Business Value: each activity is a prediction row; activities of the same group are history.
+label_table: act_train
+entity_keys: [people_id]
+prediction_ts: date               # DATE grain
+label_columns: [outcome]
+time_columns: {act_train: date}
+# The data page describes the people file as one row of characteristics per person; its date
+# column is not used as an event time here.
+static_tables: [people]
+outcome_columns: []
+# Data page: the outcome says whether the person completed the outcome "within a fixed window
+# of time after each unique activity". The window length is not published; 30 days is an
+# assumption.
+label_known_after: 30 days

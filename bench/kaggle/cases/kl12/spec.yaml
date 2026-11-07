@@ -1,0 +1,24 @@
+# BTS flights: each flight is a prediction row; earlier legs of the same aircraft are history.
+label_table: flights
+entity_keys: [Tail_Number]
+# The paper predicts before departure and calls its schedule features "knowable at the time
+# of scheduled departure"; crs_dep_ts is that moment.
+prediction_ts: crs_dep_ts
+label_columns: [ArrDel15]
+time_columns: {flights: crs_dep_ts}
+static_tables: []
+# The paper's exclusion set L (recorded only after the flight operated) plus DepTime/ArrTime,
+# which it lists as post-departure operational data.
+outcome_columns:
+  - flights.DepDelay
+  - flights.ArrDelay
+  - flights.CarrierDelay
+  - flights.WeatherDelay
+  - flights.NASDelay
+  - flights.SecurityDelay
+  - flights.LateAircraftDelay
+  - flights.DepTime
+  - flights.ArrTime
+  # Assumption, not from the paper: BTS AirTime is actual airborne minutes (the paper treats
+  # it as a schedule feature).
+  - flights.AirTime

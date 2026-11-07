@@ -1,0 +1,31 @@
+catalog_id: kl15
+competition: Predicting Red Hat Business Value (2016)
+source_urls:
+  - https://www.kaggle.com/competitions/predicting-red-hat-business-value/discussion/23544
+  - https://www.kaggle.com/competitions/predicting-red-hat-business-value/discussion/23779
+  - https://www.kaggle.com/competitions/predicting-red-hat-business-value/data
+source_kind: [discussion, discussion, host]
+leak_type: L6
+description: >
+  Asked to explain the leak, a participant answered that people in the same group_1 on the
+  same date have consistent outcomes, and pointed to public "group_1 and date" kernels. In
+  a second thread another participant described the train and test sets as overlapping in
+  groups and dates, so the task became filling in missing labels in a group-by-day grid
+  from neighbouring known labels. A feature that copies outcomes of other activities of the
+  same group on the same or a later date uses labels that are not known when the activity
+  happens.
+fidelity:
+  level: adapted
+  note: >
+    people and act_train with data-page column names, most char_* columns dropped. The data
+    page says the outcome is decided within a fixed window after the activity but not how
+    long it is, so the clean twins assume 30 days (stated in spec.yaml). The group_1 ordered-id
+    part of the forum account is an ID-order leak and is not modelled. The leak only pays off
+    with the competition's random split over shared groups and dates.
+check:
+  spine_key: [activity_id]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L6, also_matches: [L5], pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, also_matches: [L1], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}

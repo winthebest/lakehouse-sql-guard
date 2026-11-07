@@ -1,0 +1,23 @@
+# train_transaction.csv cut to the columns the uid recipe uses (V, C, M, id_* columns and the
+# identity file are left out).
+tables:
+  train_transaction:
+    columns:
+      TransactionID: BIGINT
+      isFraud: TINYINT
+      TransactionDT: BIGINT     # seconds from an undisclosed reference datetime
+      TransactionAmt: DOUBLE
+      ProductCD: VARCHAR
+      card1: INTEGER
+      card2: DOUBLE
+      addr1: DOUBLE
+      P_emaildomain: VARCHAR
+      D1: DOUBLE                # days since an earlier event of the card (host: a timedelta)
+    event_time: TransactionDT
+    time_unit: s
+    availability_time: null
+spine:
+  table: train_transaction
+  entity_keys: [card1]
+  prediction_time: TransactionDT
+  label_columns: [isFraud]

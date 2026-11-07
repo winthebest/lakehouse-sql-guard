@@ -1,0 +1,25 @@
+# train_users.csv with the data page's columns (affiliate_provider, first_affiliate_tracked,
+# first_browser dropped). sessions.csv is left out: it has no timestamp and the leak is not in it.
+tables:
+  train_users:
+    columns:
+      id: VARCHAR
+      date_account_created: DATE
+      timestamp_first_active: BIGINT   # YYYYMMDDhhmmss as a number, as in the real file
+      date_first_booking: DATE         # empty for users who never booked
+      gender: VARCHAR
+      age: DOUBLE
+      signup_method: VARCHAR
+      signup_flow: INTEGER
+      language: VARCHAR
+      affiliate_channel: VARCHAR
+      signup_app: VARCHAR
+      first_device_type: VARCHAR
+      country_destination: VARCHAR     # NDF = no booking
+    event_time: date_account_created
+    availability_time: null
+spine:
+  table: train_users
+  entity_keys: [id]
+  prediction_time: date_account_created
+  label_columns: [country_destination]

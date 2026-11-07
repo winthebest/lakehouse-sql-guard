@@ -1,0 +1,26 @@
+# people.csv and act_train.csv as on the data page, cut to the columns the leak uses
+# (people char_1..char_37 and activity char_1..char_9 dropped).
+tables:
+  people:
+    columns:
+      people_id: VARCHAR
+      group_1: VARCHAR
+      date: DATE
+      char_38: INTEGER
+    event_time: null           # treated as a static person attribute table
+    availability_time: null
+  act_train:
+    columns:
+      people_id: VARCHAR
+      activity_id: VARCHAR
+      date: DATE
+      activity_category: VARCHAR
+      char_10: VARCHAR
+      outcome: TINYINT
+    event_time: date
+    availability_time: null
+spine:
+  table: act_train
+  entity_keys: [people_id]
+  prediction_time: date
+  label_columns: [outcome]

@@ -1,0 +1,34 @@
+catalog_id: kl14
+competition: IEEE-CIS Fraud Detection (2019)
+source_urls:
+  - https://www.kaggle.com/competitions/ieee-fraud-detection/discussion/111157
+  - https://www.kaggle.com/competitions/ieee-fraud-detection/discussion/111190
+  - https://www.kaggle.com/competitions/ieee-fraud-detection/data
+source_kind: [discussion, discussion, host]
+leak_type: L3
+description: >
+  After the competition, top participants explained that the D columns grow by one per day
+  for the same card, so subtracting the transaction day from D1 gives a constant that,
+  combined with card and address fields, rebuilds a card or user id. They then aggregated
+  over each rebuilt id across train and test, and one team marked all of a user's test
+  transactions as fraud once the user had a fraud in train. A well-known participant quoted
+  the host's labelling rule: a reported chargeback marks the card's transaction and later
+  linked ones as fraud, and a transaction counts as legit only after 120 days without a
+  report. Participants disagreed whether this is a leak; at prediction time, later
+  transactions and labels younger than 120 days are not known.
+fidelity:
+  level: adapted
+  note: >
+    train_transaction columns from the data page and host post, cut to those the uid recipe
+    needs; uid = card1 + addr1 + (transaction day - D1), a simplified version of the posted
+    recipe. Aggregates over the whole id (pairs 1 and 3) and label propagation across the id
+    (pair 2) follow the thread; the exact aggregate set of any team was not published.
+check:
+  spine_key: [TransactionID]
+queries:
+  - {file: leaky_1.sql, label: leaky, leak_type: L3, also_matches: [L1], pair: 1}
+  - {file: clean_1.sql, label: clean, pair: 1}
+  - {file: leaky_2.sql, label: leaky, leak_type: L6, also_matches: [L3], pair: 2}
+  - {file: clean_2.sql, label: clean, pair: 2}
+  - {file: leaky_3.sql, label: leaky, leak_type: L3, also_matches: [L1], pair: 3}
+  - {file: clean_3.sql, label: clean, pair: 3}

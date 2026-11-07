@@ -1,0 +1,22 @@
+# train.csv as on the competition data page.
+tables:
+  train:
+    columns:
+      timestamp: BIGINT     # Unix seconds; the minute the row covers
+      Asset_ID: TINYINT
+      Count: INTEGER
+      Open: DOUBLE
+      High: DOUBLE
+      Low: DOUBLE
+      Close: DOUBLE
+      Volume: DOUBLE
+      VWAP: DOUBLE
+      Target: DOUBLE        # 15-minute residualised return
+    event_time: timestamp
+    time_unit: s
+    availability_time: null
+spine:
+  table: train
+  entity_keys: [Asset_ID]
+  prediction_time: timestamp
+  label_columns: [Target]
