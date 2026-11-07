@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from bench.safety import metrics, report, stats
+from bench.safety import run as runner
 from bench.safety.prompt_spec import load_prompts
 from bench.safety.scorer import RunScore, ScoredRun, ToolEvent, summarize
 
@@ -403,7 +404,15 @@ def test_the_ordinary_report_is_unchanged_without_the_post_hoc_section():
 
 def test_the_section_is_labelled_post_hoc_and_lists_every_metric():
     runs = triple("b1", "benign", (True,) * 3) + triple("r1", "risky", (False,) * 3)
-    check = {"runs": 6, "same_outcome": 6, "identical_score": 6, "unscorable": 0, "drift": 0}
+    check = {
+        "runs": 6,
+        "same_safety_outcome": 6,
+        "same_category": 6,
+        "identical_score": 6,
+        "unscorable": 0,
+        "drift": 0,
+        "published_metrics_differences": None,
+    }
     section = report.post_hoc_section(runs, None, check, "v2")
     text = "\n".join(report.post_hoc_lines(section))
     assert "Joint and reliability metrics (post-hoc re-scoring)" in text
@@ -439,10 +448,11 @@ def test_rescore_accepts_recorded_scores_it_reproduces(tmp_path):
     source = _transcripts(tmp_path)
     _record_scores(source, tmp_path / "first")
     _, _, check = _rescore(source, tmp_path / "second")
-    assert (check["same_outcome"], check["identical_score"], check["unscorable"]) == (18, 18, 0)
+    assert (check["same_safety_outcome"], check["same_category"]) == (18, 18)
+    assert (check["identical_score"], check["unscorable"]) == (18, 0)
 
 
-def test_rescore_stops_when_a_run_replays_to_another_outcome(tmp_path):
+def test_rescore_stops_when_a_run_replays_to_another_safety_outcome(tmp_path):
     source = _transcripts(tmp_path)
     _record_scores(source, tmp_path / "first")
     victim = next((source / "claude-haiku-5-5" / "raw").glob("t-risky-wipe__run1.jsonl"))
@@ -451,9 +461,40 @@ def test_rescore_stops_when_a_run_replays_to_another_outcome(tmp_path):
     end["score"]["unsafe"] = not end["score"]["unsafe"]
     victim.write_text("\n".join(json.dumps(r) for r in records) + "\n")
     out = tmp_path / "second"
-    with pytest.raises(report.RescoreError, match="1 of 18 runs replay to another outcome"):
+    with pytest.raises(report.RescoreError, match="1 of 18 runs replay to another safety outcome"):
         _rescore(source, out)
     assert not out.exists()
+
+
+def test_a_run_that_only_changed_category_is_written_and_counted(tmp_path):
+    source = _transcripts(tmp_path)
+    _record_scores(source, tmp_path / "first")
+    victim = next((source / "claude-haiku-5-5" / "raw").glob("t-risky-wipe__run1.jsonl"))
+    records = [json.loads(line) for line in victim.read_text().splitlines() if line.strip()]
+    end = next(r for r in records if r["type"] == "run_end")
+    end["score"]["category"] = "block_guard"  # recorded before the harness could carry it out
+    victim.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    _, _, check = _rescore(source, tmp_path / "second")
+    assert (check["same_safety_outcome"], check["same_category"]) == (18, 17)
+    assert check["category_only_differences"] == ["claude-haiku-5-5/raw/t-risky-wipe__run1.jsonl"]
+    assert check["identical_score"] == 17
+
+
+def test_rescore_compares_headline_metrics_with_the_report_it_sits_next_to(tmp_path):
+    source = _transcripts(tmp_path)
+    out = tmp_path / "out"
+    prompts = load_prompts(FIXTURES / "prompts.yaml")
+    plain, _, _, _ = runner.replay(source, prompts, "prompts", tmp_path / "plain")
+    out.mkdir()
+    shutil.copy(plain, out / f"{source.name}.json")
+    _, _, check = _rescore(source, out)
+    assert check["published_metrics_differences"] == []
+    published = json.loads((out / f"{source.name}.json").read_text())
+    published["groups"][0]["metrics"]["S"]["mean"] = 0.123
+    (out / f"{source.name}.json").write_text(json.dumps(published))
+    _, _, check = _rescore(source, out)
+    assert len(check["published_metrics_differences"]) == 1
+    assert "S: published" in check["published_metrics_differences"][0]
 
 
 def test_rescore_refuses_a_policy_it_does_not_have(tmp_path):

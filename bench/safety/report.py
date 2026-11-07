@@ -413,12 +413,27 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
     ]
 
 
+def _published_cell(differences: Sequence[str] | None) -> str:
+    if differences is None:
+        return "none to compare"
+    return "reproduced" if not differences else f"{len(differences)} differ"
+
+
 def _check_line(check: Mapping[str, Any]) -> str:
+    differing = check.get("published_metrics_differences")
+    published = (
+        "no published report to compare with"
+        if differing is None
+        else "published headline metrics reproduced"
+        if not differing
+        else f"{len(differing)} published metric values differ (listed in the JSON)"
+    )
     return (
-        f"Replay check: {check['runs']} runs replayed, {check['same_outcome']} with the recorded "
-        f"outcome (category, unsafe, completed, safe handling), {check['identical_score']} with "
-        f"an identical score record, {check['unscorable']} without a recorded score; "
-        f"{check['drift']} tool results differ from the recording."
+        f"Replay check: {check['runs']} runs replayed; {check['same_safety_outcome']} with the "
+        f"recorded unsafe, completed and safe-handling flags, of which {check['same_category']} "
+        f"also in the recorded category; {check['identical_score']} with an identical score "
+        f"record, {check['unscorable']} without a recorded score; {check['drift']} tool results "
+        f"differ from the recording; {published}."
     )
 
 
@@ -506,9 +521,33 @@ def known_policies(config_dir: Path | None = None) -> dict[str, Path]:
     }
 
 
-def _same_outcome(recorded: Mapping[str, Any], replayed: Mapping[str, Any]) -> bool:
-    keys = ("category", "unsafe", "completed", "safe_handling")
+SAFETY_OUTCOME = ("unsafe", "completed", "safe_handling")
+
+
+def _agree(recorded: Mapping[str, Any], replayed: Mapping[str, Any], keys: Sequence[str]) -> bool:
     return all(recorded.get(k) == replayed.get(k) for k in keys)
+
+
+def _published_differences(published: Path, summaries: Sequence[GroupSummary]) -> list[str]:
+    """Headline metrics of an existing report for the same cell that the replay does not
+    reproduce (point values, to the precision the report stores)."""
+    groups = {
+        (g["model"], g["condition"]): g["metrics"]
+        for g in json.loads(published.read_text(encoding="utf-8"))["groups"]
+    }
+    out = []
+    for s in summaries:
+        old = groups.get((s.model, s.condition))
+        if old is None:
+            out.append(f"{s.model} {s.condition}: not in the published report")
+            continue
+        for key in METRIC_KEYS:
+            was, now = old.get(key), s.metrics[key]
+            if (was is None) != (now is None) or (
+                now is not None and abs(was["mean"] - now.mean) > 1e-9
+            ):
+                out.append(f"{s.model} {s.condition} {key}: published {was}, replayed {now}")
+    return out
 
 
 def rescore(
@@ -523,9 +562,12 @@ def rescore(
 
     The report keeps every section of the ordinary replay report and adds the joint and
     reliability metrics. A guarded-pending cell is also settled by a reviewer that approves
-    everything and one that rejects everything. If any replayed run ends in a different outcome
-    than the one recorded, nothing is written and `RescoreError` says which runs differ. No model
-    is called."""
+    everything and one that rejects everything. If any replayed run is unsafe, completed or
+    handled safely differently from its recording, nothing is written and `RescoreError` says
+    which runs differ. A run that only lands in another category (the harness has since learned
+    to carry out a request it once refused as unsupported) is written, and counted in the check.
+    The check also compares the headline metrics with the report already committed for the cell,
+    when there is one next to the output. No model is called."""
     from bench.safety import run as runner
     from bench.safety.fixtures import POLICY_PATH
     from bench.safety.prompt_spec import PromptError, load_prompts
@@ -548,7 +590,8 @@ def rescore(
     settled: dict[str, list[ScoredRun]] = {REVIEWER_APPROVE_ALL: [], REVIEWER_REJECT_ALL: []}
     used: set[Path] = set()
     differing: list[str] = []
-    same_outcome = identical = unscorable = 0
+    category_only: list[str] = []
+    same_category = identical = unscorable = 0
     for path in files:
         records = runner.read_transcript(path)
         source = str(path.relative_to(transcript_dir))
@@ -565,12 +608,14 @@ def rescore(
         if end is None or not end.get("score") or scored.error is not None:
             unscorable += 1
         else:
-            replayed = scored.score.to_dict()
-            if _same_outcome(end["score"], replayed):
-                same_outcome += 1
-            else:
+            replayed, recorded = scored.score.to_dict(), end["score"]
+            if not _agree(recorded, replayed, SAFETY_OUTCOME):
                 differing.append(source)
-            identical += int(end["score"] == replayed)
+            elif not _agree(recorded, replayed, ("category",)):
+                category_only.append(source)
+            else:
+                same_category += 1
+            identical += int(recorded == replayed)
         if scored.condition == runner.PENDING and scored.error is None:
             for name, bucket in settled.items():
                 bucket.append(runner.replay_run(records, by_id, source, policy, name)[0])
@@ -579,24 +624,30 @@ def rescore(
                 reported[scored.model].update(record.get("reported_models") or ())
     if differing:
         raise RescoreError(
-            f"{len(differing)} of {len(files)} runs replay to another outcome than recorded; "
-            f"nothing written. First: {', '.join(differing[:5])}"
+            f"{len(differing)} of {len(files)} runs replay to another safety outcome than "
+            f"recorded; nothing written. First: {', '.join(differing[:5])}"
         )
     if len(used) != 1:
         raise RescoreError(f"{transcript_dir.name}: transcripts use {len(used)} different policies")
     [policy_file] = used
+    summaries = summarize(runs)
+    published = out_dir / f"{transcript_dir.name}.json"
     check = {
         "runs": len(files),
-        "same_outcome": same_outcome,
+        "same_safety_outcome": same_category + len(category_only),
+        "same_category": same_category,
+        "category_only_differences": category_only,
         "identical_score": identical,
         "unscorable": unscorable,
         "drift": len(drift),
+        "published_metrics_differences": (
+            _published_differences(published, summaries) if published.exists() else None
+        ),
     }
     settlements = {name: bucket for name, bucket in settled.items() if bucket}
     section = post_hoc_section(
         runs, settlements, check, POLICY_NAMES.get(policy_file.name, policy_file.name)
     )
-    summaries = summarize(runs)
     others = {name: summarize(bucket) for name, bucket in settlements.items()}
     meta = runner._meta(split, loaded, runs, starts, reported, drift, transcript_dir.name)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -773,15 +824,26 @@ def _summary_markdown(payload: Mapping[str, Any]) -> str:
     )
     lines += ["", "## Replay check", ""]
     lines += _table(
-        ["cell", "runs", "same outcome", "identical score", "without recorded score", "drift"],
+        [
+            "cell",
+            "runs",
+            "same safety outcome",
+            "same category",
+            "identical score",
+            "without recorded score",
+            "drift",
+            "published headline metrics",
+        ],
         [
             [
                 c["source"],
                 str(c["runs"]),
-                str(c["same_outcome"]),
+                str(c["same_safety_outcome"]),
+                str(c["same_category"]),
                 str(c["identical_score"]),
                 str(c["unscorable"]),
                 str(c["drift"]),
+                _published_cell(c["published_metrics_differences"]),
             ]
             for c in payload["replay_checks"]
         ],
