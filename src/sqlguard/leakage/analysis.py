@@ -39,6 +39,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 
+from sqlglot import errors as sqlglot_errors
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
@@ -126,6 +127,12 @@ _CLOCK_FUNCTIONS = {
 }
 # seconds in one unit of an integer time column (`time_units` of the spec)
 _UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
+# Casting a timestamp to an integer gives the epoch in seconds in these engines. In the others it is
+# an error or another number: the cast still orders rows like the timestamp does, but its unit is
+# unknown, so it bounds nothing.
+_EPOCH_CAST_DIALECTS = {"spark", "databricks", "hive"}
+# Only a 64-bit integer holds the epoch: a narrower cast overflows (and wraps, with ANSI mode off).
+_INTEGER_TYPES = {exp.DataType.Type.BIGINT}
 MATURED_LABELS = "__matured_labels"
 # the only aggregates a time-split cutoff may be made of
 _CUTOFF_AGGREGATES = (
@@ -606,19 +613,56 @@ class _Peeled:
     epoch: bool = False  # went through epoch(): seconds since 1970
     # a bare number added to the column, in the column's own unit (see `time_units`)
     pending: float = 0.0
+    # seconds in one unit of the epoch number (1e-3 for milliseconds); 0.0 when the unit is unknown
+    epoch_scale: float = 1.0
+    # the conversion (a cast to an integer, unix_timestamp, epoch_ms) means "epoch" only for a
+    # timestamp column: on a number it is something else, so the column's type must be checked
+    stamp_only: bool = False
 
 
-def _peel(node: exp.Expression) -> _Peeled | None:
+def _epoch_form(node: exp.Expression, dialect: str) -> tuple[exp.Expression, float, float] | None:
+    """`(timestamp expression, seconds per unit, truncation seconds)` when `node` converts a
+    timestamp to a number since 1970 in a way only a timestamp column can mean, else None.
+
+    Spark and Databricks: `CAST(ts AS BIGINT)`, `unix_timestamp(ts)`, `unix_seconds(ts)`,
+    `unix_millis(ts)`. DuckDB: `epoch_ms(ts)`. A cast to an integer is seconds only where the
+    engine says so (`_EPOCH_CAST_DIALECTS`); elsewhere its unit is 0.0, unknown.
+    """
+    if isinstance(node, exp.Cast | exp.TryCast):
+        target = node.to.this if node.to else None
+        if target in _INTEGER_TYPES:
+            return node.this, (1.0 if dialect in _EPOCH_CAST_DIALECTS else 0.0), 1.0
+    elif isinstance(node, exp.StrToUnix | exp.UnixSeconds):
+        return node.this, 1.0, 1.0
+    elif isinstance(node, exp.UnixMillis):
+        return node.this, 1e-3, 1e-3
+    elif isinstance(node, exp.UnixToTime) and dialect == "duckdb":
+        scale = node.args.get("scale")
+        if isinstance(scale, exp.Literal) and scale.name == str(exp.UnixToTime.MILLIS):
+            return node.this, 1e-3, 1e-3
+    return None
+
+
+def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     """Strip casts, truncation, epoch(), and +/- intervals.
 
     Returns the base column with the net offset and truncation, or None when the expression has
     a shape we cannot reason about (callers then treat it as no bound).
     """
     offset = trunc = up = down = pending = 0.0
-    epoch = False
+    epoch = stamp_only = False
+    scale = 1.0
     while True:
         if isinstance(node, exp.Paren):
             node = node.this
+        elif (form := _epoch_form(node, dialect)) is not None:
+            if epoch:
+                return None  # an epoch number converted to an epoch number again
+            node, scale, cut = form
+            trunc = max(trunc, cut)
+            epoch = stamp_only = True
+            offset += pending * scale
+            pending = 0.0
         elif isinstance(node, exp.Cast | exp.TryCast):
             target = node.to.this if node.to else None
             if target in _TIMESTAMP_TYPES:
@@ -663,7 +707,9 @@ def _peel(node: exp.Expression) -> _Peeled | None:
             break
     if not isinstance(node, exp.Column):
         return None
-    return _Peeled(node, offset, trunc, up, down, epoch, 0.0 if epoch else pending)
+    return _Peeled(
+        node, offset, trunc, up, down, epoch, 0.0 if epoch else pending, scale, stamp_only
+    )
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -688,6 +734,7 @@ class Resolved:
     up: float = 0.0  # the true offset is at most offset + up (see TimeBound.slack_up)
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False
+    epoch_scale: float = 1.0  # as in `_Peeled`, when `epoch`
 
     @property
     def exact(self) -> bool:
@@ -703,7 +750,9 @@ class _Resolver:
         spec: LeakageSpec,
         paths: dict[int, list[Chain]],
         dead: set[int],
+        schema: Schema | None = None,
     ) -> None:
+        self.schema = schema or {}
         self.by_expression = {id(s.expression): s for s in scopes}
         self.refs = refs
         self.spec = spec
@@ -764,7 +813,7 @@ class _Resolver:
         With `keyed`, a projection that is a surrogate key of the spine row (see `_row_key`)
         resolves to the prediction_ts it contains: the key stands for the prediction.
         """
-        peeled = _peel(node)
+        peeled = _peel(node, self.spec.dialect)
         if peeled is None or scope is None or depth > _MAX_DEPTH:
             return None
         column = peeled.column
@@ -780,7 +829,7 @@ class _Resolver:
             if ref is None:
                 return None
             shift = self.pending_seconds(peeled.pending, ref)
-            if shift is None:
+            if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
             return [
                 Resolved(
@@ -795,6 +844,7 @@ class _Resolver:
                     peeled.up,
                     peeled.down,
                     peeled.epoch,
+                    peeled.epoch_scale,
                 )
             ]
         if not isinstance(source, Scope):
@@ -828,7 +878,7 @@ class _Resolver:
                 return None
             for g in got:
                 shift = self.pending_seconds(peeled.pending, g.ref)
-                if shift is None:
+                if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
                 resolved.append(
                     Resolved(
@@ -843,6 +893,7 @@ class _Resolver:
                         peeled.up + g.up,
                         peeled.down + g.down,
                         peeled.epoch or g.epoch,
+                        peeled.epoch_scale if peeled.epoch else g.epoch_scale,
                     )
                 )
         return resolved
@@ -857,6 +908,16 @@ class _Resolver:
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
+
+    def is_timestamp(self, ref: TableRef, column: str) -> bool:
+        """Is the column of `ref`'s table declared a timestamp in the schema? (Unknown: no.)"""
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return False
+        try:
+            return exp.DataType.build(declared, dialect=self.spec.dialect).this in _TIMESTAMP_TYPES
+        except (ValueError, sqlglot_errors.ParseError):
+            return False
 
     def _row_key(self, expression: exp.Expression, scope: Scope) -> exp.Column | None:
         """The prediction_ts column of a surrogate key of one label row, or None.
@@ -1389,7 +1450,7 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         ref.paths = paths[id(ref.scope)]
 
     dead = {id(s) for s in every_scope} - live
-    resolver = _Resolver(every_scope, refs, spec, paths, dead)
+    resolver = _Resolver(every_scope, refs, spec, paths, dead, schema)
     analysis = QueryAnalysis(spec, schema, qualified, list(refs.values()), resolver=resolver)
     _check_spec(analysis)
     root = scopes[-1] if scopes else None
@@ -1630,8 +1691,11 @@ def _record(
             continue
         scale = 1.0
         resolved = features + labels
+        scales = {r.epoch_scale for r in resolved if r.epoch}
+        if len(scales) > 1 or 0.0 in scales:
+            continue  # numbers in different or unknown units (seconds, milliseconds) say nothing
         if needs_epoch and all(r.epoch for r in resolved):
-            pass  # both sides went through epoch(): the constant is in seconds
+            scale = scales.pop()  # both sides are epoch numbers: the constant is in their unit
         elif not any(r.epoch for r in resolved) or needs_epoch:
             # integer columns are compared in their own unit: columns of different units do not
             # bound each other, and a bare constant means that unit
