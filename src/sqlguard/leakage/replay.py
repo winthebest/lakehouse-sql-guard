@@ -323,8 +323,9 @@ class Replayer:
     def _table_at(self, table: str, ts: datetime, before: datetime, late: dict[str, str]):
         """The rows of `table` as they stood just before `ts` (see the module docstring)."""
         snapshot = self.catalog.snapshot_as_of(table, before, strict_history=True)
-        # an outcome table is unknown before the outcome by definition: empty is the right answer
-        starts_late = snapshot is None and table not in self.spec.outcome_tables
+        # a table of outcomes alone is unknown before the outcome by definition: empty is the right
+        # answer. A table that also holds facts has a history like any other.
+        starts_late = snapshot is None and table not in self.spec.outcome_only_tables
         if starts_late and self.catalog.table(table).current_snapshot() is not None:
             if table in self.spec.static_tables:
                 return self._current_data(table)  # no history to check the declaration against
@@ -335,7 +336,7 @@ class Replayer:
         """Does `ts` come before the first snapshot of `table` that a replay may rely on?"""
         if (
             table == self.spec.label_table
-            or table in self.spec.outcome_tables
+            or table in self.spec.outcome_only_tables
             or table in self.spec.static_tables
         ):
             return False  # empty-before-it-exists, read as it is now, or the label spine
@@ -411,7 +412,7 @@ class Replayer:
                     for t in self.tables
                     if t != self.spec.label_table
                 }
-                data[self.spec.label_table] = self._pinned_labels(ts, history)
+                data[self.spec.label_table] = self._pinned_labels(ts, history, before)
                 data[FULL_LABELS] = self.labels
                 self._late[key] = late
                 self._pinned_data[key] = data
@@ -492,13 +493,26 @@ class Replayer:
             )
         return self._counts[key]
 
-    def _pinned_labels(self, ts: datetime, history: bool) -> pa.Table:
+    def _earlier_source(self, before: datetime) -> pa.Table:
+        """The label table the earlier rows come from: when it is also event history (listed in
+        `time_columns`) and was committed before `before`, the snapshot visible then, so rows that
+        reached the table late are absent as they were; else the table as it is now."""
+        label_table = self.spec.label_table
+        if label_table in self.spec.time_columns:
+            snapshot = self.catalog.snapshot_as_of(label_table, before, strict_history=True)
+            if snapshot is not None:
+                return self._read(label_table, snapshot)
+        return self.labels
+
+    def _pinned_labels(self, ts: datetime, history: bool, before: datetime) -> pa.Table:
         stamp_name = _column(self.labels, self.spec.prediction_ts)
         column = self.labels.column(stamp_name)
         at = self.labels.filter(pc.equal(column, pa.scalar(ts, type=column.type)))
         if not history:
             return at
-        earlier = self.labels.filter(pc.less(column, pa.scalar(ts, type=column.type)))
+        source = self._earlier_source(before)
+        column = source.column(_column(source, self.spec.prediction_ts))
+        earlier = source.filter(pc.less(column, pa.scalar(ts, type=column.type)))
         if self.spec.label_known_after:
             cutoff = pa.scalar(ts - timedelta(seconds=self.spec.label_known_after), column.type)
             stamped = earlier.column(stamp_name)
