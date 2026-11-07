@@ -801,9 +801,14 @@ class Replayer:
                 reason=f"output must include {missing} to align rows for replay",
             )
         key_cols = [names[c] for c in spec.key_columns]
-        # Every non-key column is compared, labels included: a "label" that changes between
-        # runs is not the label.
-        value_cols = [c for c in full.column_names if c not in key_cols]
+        # Every non-key column is compared, the label columns of the spec included: a "label" that
+        # changes between runs is not the label. The exception is a column the spec declares, in
+        # `output_roles`, a label or metadata of the query (or leaves out of the feature list):
+        # it is not a feature, so a difference confined to it is no leakage into one. Rows that
+        # exist in only one run, and every feature column, are still compared.
+        value_cols = [
+            c for c in full.column_names if c not in key_cols and not spec.is_non_feature_output(c)
+        ]
         tolerances = _tolerances(full, value_cols)
         full_by_ts: dict[datetime, dict[tuple, list[tuple]]] = defaultdict(dict)
         # rows keep their own key (the value as the query printed it); only the choice of the
