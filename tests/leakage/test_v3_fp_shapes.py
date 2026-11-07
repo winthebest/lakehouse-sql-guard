@@ -661,3 +661,27 @@ def test_the_version_valid_at_the_prediction_time_chosen_in_qualify():
 )
 def test_the_same_filter_with_one_thing_wrong_is_still_flagged(variant):
     assert rules(as_of(**{"qualify": VALID_AT, **variant})), variant
+
+
+# --- an approximate distinct count beside the filtered aggregates ---------------------------------
+
+
+def filtered_sum(other: str, *, filtered: bool = True) -> str:
+    bound = "FILTER (WHERE e.ingested_at < l.label_ts)" if filtered else ""
+    return f"""SELECT {KEYS}, SUM(e.amount) {bound} AS spend, {other} AS other
+FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
+GROUP BY 1, 2, 3"""
+
+
+@pytest.mark.parametrize("name", ["approx_count_distinct", "approx_distinct"])
+def test_an_approximate_distinct_count_of_the_spine_ignores_how_many_rows_were_joined(name):
+    assert_pair(
+        filtered_sum(f"{name}(l.user_id)"),
+        filtered_sum(f"{name}(l.user_id)", filtered=False),
+        "L3",
+    )
+
+
+@pytest.mark.parametrize("name", ["approx_count_distinct", "approx_distinct"])
+def test_an_approximate_distinct_count_of_the_joined_table_is_a_use_of_all_its_rows(name):
+    assert "L3" in rules(filtered_sum(f"{name}(e.user_id)"))
