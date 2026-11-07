@@ -17,7 +17,13 @@ from sqlguard.leakage.spec import LeakageSpec
 ROUND2 = Path(__file__).resolve().parents[2] / "bench" / "realworld" / "round2"
 V3, V4 = ROUND2 / "specs", ROUND2 / "specs-v4"
 CITATION = re.compile(r"[\w./-]+\.(?:sql|md|yml|yaml|py|ipynb|json|toml):\d+")
-CITED_FIELDS = ("output_roles", "label_known_after", "validity_end_columns", "unique_keys")
+CITED_FIELDS = (
+    "output_roles",
+    "label_known_after",
+    "validity_end_columns",
+    "unique_keys",
+    "availability_columns",
+)
 # a field that v4 may add or change in a spec; anything else must equal the old spec
 V4_FIELDS = {"output_roles", "label_known_after", "time_columns", "label_columns", "realworld"}
 PROJECTS = load_projects(ROUND2 / "projects.yaml")
@@ -83,3 +89,17 @@ def test_the_gate_rejects_a_role_without_a_citation(tmp_path):
     good = tmp_path / "g.yaml"
     good.write_text("label_table: t\n# models/a.sql:12 says so\noutput_roles:\n  label: [y]\n")
     assert cited(good, "output_roles")
+
+
+def test_the_control_v4_spec_changes_only_what_it_cites():
+    base = ROUND2.parent
+    name = "SarrangTech__fraud-detection-feature-store"
+    old = yaml.safe_load((base / "specs" / f"{name}.yaml").read_text(encoding="utf-8"))
+    path = base / "round1-specs-v4" / f"{name}.yaml"
+    new = yaml.safe_load(path.read_text(encoding="utf-8"))
+    LeakageSpec.from_dict(new)
+    changed = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
+    assert changed == {"time_columns", "availability_columns", "unique_keys"}
+    for field in ("availability_columns", "unique_keys"):
+        assert cited(path, field), field
+    assert old["realworld"] == new["realworld"]
