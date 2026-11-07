@@ -241,6 +241,8 @@ class TableRef:
     # (the output rows) and a temporal row along the others; other tables are temporal along all.
     time_column: str | None = None
     availability_column: str | None = None
+    # the column that closes a version of a row, when the spec declares one (see the spec)
+    validity_end_column: str | None = None
     spine_paths: set[Chain] = field(default_factory=set)
     # an uncorrelated scan of the label table that only yields a cutoff time (see _global_scans)
     global_scan: bool = False
@@ -904,6 +906,11 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
+            if keyed and raw and self._unique_key(ref, column.name):
+                # a column that never repeats names one row of the label table: it stands for the
+                # prediction_ts of that row, as a surrogate key built from the whole identity does
+                column = exp.column(self.spec.prediction_ts, table=column.table)
+                peeled = replace(peeled, column=column)
             shift = self.pending_seconds(peeled.pending, ref, column.name)
             if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
@@ -1016,6 +1023,12 @@ class _Resolver:
             return amount * 86_400
         factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
         return None if factor is None else amount * factor
+
+    def _unique_key(self, ref: TableRef, column: str) -> bool:
+        """Is `column` alone a declared unique key of the label table `ref` reads?"""
+        return ref.kind == "label" and any(
+            key == (column.lower(),) for key in self.spec.unique_keys.get(ref.table, ())
+        )
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
@@ -1625,10 +1638,12 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         if ref.kind == "temporal":
             ref.time_column = spec.time_columns[ref.table]
             ref.availability_column = spec.availability_columns.get(ref.table)
+            ref.validity_end_column = spec.validity_end_columns.get(ref.table)
         elif ref.kind == "label":
             # a label table that doubles as event history is bounded by its own time column
             ref.time_column = spec.time_columns.get(ref.table, spec.prediction_ts)
             ref.availability_column = spec.availability_columns.get(ref.table)
+            ref.validity_end_column = spec.validity_end_columns.get(ref.table)
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
@@ -1683,12 +1698,16 @@ def _check_spec(analysis: QueryAnalysis) -> None:
             needed = [spec.time_columns[ref.table]]
             if ref.table in spec.availability_columns:
                 needed.append(spec.availability_columns[ref.table])
+            if ref.table in spec.validity_end_columns:
+                needed.append(spec.validity_end_columns[ref.table])
         elif ref.kind == "label":
             needed = [spec.prediction_ts, *spec.label_columns]
             if ref.table in spec.time_columns:
                 needed.append(spec.time_columns[ref.table])
             if ref.table in spec.availability_columns:
                 needed.append(spec.availability_columns[ref.table])
+            if ref.table in spec.validity_end_columns:
+                needed.append(spec.validity_end_columns[ref.table])
         for column in needed:
             if column not in columns:
                 analysis.spec_errors.append(f"spec column {ref.table}.{column} not in schema")
@@ -1991,6 +2010,10 @@ def _record(
                 role = "time"
             elif feature.column == ref.availability_column:
                 role = "availability"
+            elif feature.column == ref.validity_end_column and upper:
+                # the row was closed no later than this: an upper bound on it caps what was known
+                # like one on the time column (a lower bound on a value that changes says nothing)
+                role = "time"
             else:
                 continue
             if context.aggregate_filter is not None and not upper:

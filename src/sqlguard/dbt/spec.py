@@ -7,9 +7,10 @@ The settings come from `meta.leakage` of the nodes the inlined query reads:
   (the training model wins, then the spine) and the optional `boundary` and `label_known_after`
   (`0` when labels are final as soon as they are stamped);
 - a physical table declares what it is: `role: static`, `time_column` (+ `availability_column`,
-  `max_ingest_delay`, `time_unit` for an integer time column) for a temporal table,
-  `outcome_columns` for facts known after the outcome. A label spine with a `time_column` is the
-  label table and also event history.
+  `max_ingest_delay`, `time_unit` for an integer time column, `validity_end_column` for the column
+  that closes a version of a row) for a temporal table, `outcome_columns` for facts known after
+  the outcome, `unique_keys` for columns that name one row. A label spine with a `time_column` is
+  the label table and also event history.
 
 Tables are named as the catalog names them: a relation `"db"."raw"."orders"` is the table `orders`
 (or the table `iceberg_table` names), and the spec's `relations` maps the SQL name to it, so the
@@ -44,6 +45,8 @@ _MAPPING_KEYS = (
     "availability_columns",
     "max_ingest_delay",
     "time_units",
+    "validity_end_columns",
+    "unique_keys",
     "relations",
 )
 # --spec fields that can only make a check more lenient than the dbt meta alone
@@ -55,6 +58,8 @@ _RELAXING = (
     "label_table",
     "relations",
     "output_roles",
+    "validity_end_columns",
+    "unique_keys",
 )
 
 
@@ -170,6 +175,8 @@ def derive_spec(
     available: dict[str, str] = {}
     delay: dict[str, Any] = {}
     units: dict[str, Any] = {}
+    validity: dict[str, Any] = {}
+    unique: dict[str, Any] = {}
     static: list[str] = []
     outcomes: list[str] = []
     for node in boundaries:
@@ -189,6 +196,12 @@ def derive_spec(
             if "time_column" not in leak:
                 raise SpecError(f"{node.unique_id}: time_unit needs a time_column")
             units[name] = leak["time_unit"]
+        if "validity_end_column" in leak:
+            if "time_column" not in leak:
+                raise SpecError(f"{node.unique_id}: validity_end_column needs a time_column")
+            validity[name] = leak["validity_end_column"]
+        if "unique_keys" in leak:
+            unique[name] = leak["unique_keys"]
         if leak.get("role") == "static":
             static.append(name)
         columns = leak.get("outcome_columns") or []
@@ -200,6 +213,8 @@ def derive_spec(
         ("availability_columns", available),
         ("max_ingest_delay", delay),
         ("time_units", units),
+        ("validity_end_columns", validity),
+        ("unique_keys", unique),
         ("relations", relations),
     ):
         if value:
@@ -296,6 +311,7 @@ def build_schema(
         (spec.label_table, spec.prediction_ts),
         *spec.time_columns.items(),
         *spec.availability_columns.items(),
+        *spec.validity_end_columns.items(),
     }
     tables = physical_tables(inlined, dialect, remap)
     for node in inlined.boundaries.values():
