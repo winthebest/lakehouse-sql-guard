@@ -185,8 +185,11 @@ class TimeBound:
     instances: frozenset[Chain] = frozenset()
     direct: bool = True
     label_refs: frozenset[int] = frozenset()  # id() of the label TableRefs compared against
-    # the true offset is at most offset_seconds + slack_up (month and year lengths vary)
+    # the true offset is at most offset_seconds + slack_up (month and year lengths vary). For an
+    # upper bound the offset already is the largest it can be and this is 0: the rules read the
+    # offset alone. `inexact` says the offset was made so by a shift known only within a range.
     slack_up: float = 0.0
+    inexact: bool = False
     inclusive: bool = False  # the spec lets facts stamped exactly at prediction_ts through
     # written in QUALIFY: window functions of the same query already saw the unfiltered rows
     post_window: bool = False
@@ -1474,13 +1477,13 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         scope = resolver.scope_of(node)
         if isinstance(node, exp.Between):
             terms = [
-                (node.this, ">=", node.args["low"], 0.0, False),
-                (node.this, "<=", node.args["high"], 0.0, False),
+                (node.this, ">=", node.args["low"], 0.0, False, (0.0, 0.0)),
+                (node.this, "<=", node.args["high"], 0.0, False, (0.0, 0.0)),
             ]
         else:
             terms = _comparison_terms(node)
-        for left, op, right, shift, needs_epoch in terms:
-            _record(left, op, right, scope, context, resolver, node, shift, needs_epoch)
+        for left, op, right, shift, needs_epoch, slack in terms:
+            _record(left, op, right, scope, context, resolver, node, shift, needs_epoch, slack)
     _record_latest_row(analysis, resolver)
     _record_timelines(analysis, resolver)
     _apply_filter_bounds(analysis, resolver)
@@ -1617,20 +1620,32 @@ def _unparen(node: exp.Expression) -> exp.Expression:
     return node
 
 
-def _difference_seconds(bound: exp.Expression) -> tuple[float, bool] | None:
-    """(seconds, needs_epoch) of the constant a difference is compared with.
+Slack = tuple[float, float]  # (up, down): the true shift is at most / at least this far from it
 
-    An INTERVAL is exact. A bare number only means seconds when both sides went through epoch();
-    zero is the same in every unit.
+
+def _slack_sides(seconds: float, slack: float) -> Slack:
+    """The calendar slack of a shift of `seconds` (`_amount_seconds`: the real length may be
+    `slack` shorter), as how far above and below the nominal shift the true one can lie."""
+    return (slack, 0.0) if seconds <= 0 else (0.0, slack)
+
+
+def _difference_seconds(bound: exp.Expression) -> tuple[float, bool, Slack] | None:
+    """(seconds, needs_epoch, slack) of the constant a difference is compared with.
+
+    An INTERVAL is exact for fixed units; a month, quarter or year counts as its longest length
+    with the shortest as slack (a unitless one has no known length). A bare number only means
+    seconds when both sides went through epoch(); zero is the same in every unit.
     """
     bound = _unparen(bound)
     if isinstance(bound, exp.Interval):
         got = _amount_seconds(bound, None)
-        return (got[0], False) if got is not None and got[1] == 0 else None
+        if got is None or not math.isfinite(got[1]):
+            return None
+        return got[0], False, _slack_sides(*got)
     value = _constant(bound)
     if value is None:
         return None
-    return (0.0, False) if value == 0 else (value, True)
+    return (0.0, False, (0.0, 0.0)) if value == 0 else (value, True, (0.0, 0.0))
 
 
 def _datediff_terms(diff: exp.Expression, bound: exp.Expression, op: str) -> list:
@@ -1638,49 +1653,66 @@ def _datediff_terms(diff: exp.Expression, bound: exp.Expression, op: str) -> lis
 
     d = number of unit boundaries between start and end, so d > k means start lies before the
     unit that started k units before `end`: start < end - k*unit, and so on for the other three.
+    A calendar unit counts as its longest length, with the shortest as slack.
     """
     name = _unit_name(diff.args.get("unit"))
     k = _constant(_unparen(bound))
-    if name not in _FIXED_UNITS or k is None or k != int(k):
+    if (name not in _FIXED_UNITS and name not in _UNIT_SLACK) or k is None:
         return []
-    unit = _UNIT_SECONDS[name]
-    start, end = diff.expression, diff.this
+    if not math.isfinite(k) or k != int(k):
+        return []
+    unit, start, end = _UNIT_SECONDS[name], diff.expression, diff.this
     if op == ">":
-        return [(start, "<", end, -k * unit, False)]
-    if op == ">=":
-        return [(start, "<", end, (1 - k) * unit, False)]
-    if op == "<":
-        return [(start, ">", end, -k * unit, False)]
-    return [(start, ">", end, -(k + 1) * unit, False)]
+        units, flipped = -k, "<"
+    elif op == ">=":
+        units, flipped = 1 - k, "<"
+    elif op == "<":
+        units, flipped = -k, ">"
+    else:
+        units, flipped = -(k + 1), ">"
+    seconds = units * unit
+    slack = abs(units) * _UNIT_SLACK.get(name, 0.0)
+    return [(start, flipped, end, seconds, False, _slack_sides(seconds, slack))]
 
 
 def _comparison_terms(node: exp.Expression) -> list:
-    """Readings `(left, op, right, shift, needs_epoch)` of a comparison: `left OP right + shift`.
+    """Readings `(left, op, right, shift, needs_epoch, slack)` of a comparison:
+    `left OP right + shift`.
 
     The comparison itself, and when one side is a difference of two time expressions or a
     date_diff, the equivalent comparison of the two expressions.
     """
     op = _OPS[type(node)]
-    terms = [(node.left, op, node.right, 0.0, False)]
+    terms = [(node.left, op, node.right, 0.0, False, (0.0, 0.0))]
     for diff, other, flipped in ((node.left, node.right, op), (node.right, node.left, _FLIP[op])):
         diff = _unparen(diff)
         if isinstance(diff, exp.Sub) and not isinstance(diff.expression, exp.Interval):
             got = _difference_seconds(other)
             if got is not None:  # X - Y OP c  ->  X OP Y + c
-                terms.append((diff.this, flipped, diff.expression, got[0], got[1]))
+                terms.append((diff.this, flipped, diff.expression, got[0], got[1], got[2]))
         elif isinstance(diff, exp.DateDiff | exp.TsOrDsDiff):
             terms += _datediff_terms(diff, other, flipped)
     return terms
 
 
 def _record(
-    left, op, right, scope, context, resolver, node, shift: float = 0.0, needs_epoch: bool = False
+    left,
+    op,
+    right,
+    scope,
+    context,
+    resolver,
+    node,
+    shift: float = 0.0,
+    needs_epoch: bool = False,
+    slack: Slack = (0.0, 0.0),
 ) -> None:
     """Record `left OP right + shift` as a bound when one side is a feature time column and the
-    other a label prediction_ts on the spine."""
+    other a label prediction_ts on the spine. `slack` is how far the true shift may lie above and
+    below `shift` (the length of a month is not fixed); turned around with the shift."""
     spec = resolver.spec
-    orientations = ((left, right, op, shift), (right, left, _FLIP[op], -shift))
-    for feature_node, label_node, normalized, signed in orientations:
+    orientations = ((left, right, op, shift, slack[0]), (right, left, _FLIP[op], -shift, slack[1]))
+    for feature_node, label_node, normalized, signed, extra_up in orientations:
         features = resolver.resolve_all(feature_node, scope, local=True)
         if not features:
             features = resolver.equated_times(feature_node, scope)
@@ -1734,6 +1766,14 @@ def _record(
             label_trunc = min(lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts
+            slack_up = max(lab.up for lab in labels) + feature.down + extra_up
+            inexact = False
+            if upper and slack_up:
+                inexact = True
+                if math.isfinite(slack_up):
+                    # the rules see the offset alone: it must be the largest the true one can be
+                    offset, slack_up = offset + slack_up, 0.0
+                # else the size is unknown (a unitless interval): the bound covers no delay
             bound = TimeBound(
                 feature.column,
                 role,
@@ -1744,7 +1784,8 @@ def _record(
                 instances=instances,
                 direct=not feature.chain,
                 label_refs=frozenset(id(lab.ref) for lab in labels),
-                slack_up=max(lab.up for lab in labels) + feature.down,
+                slack_up=slack_up,
+                inexact=inexact,
                 inclusive=spec.boundary == "inclusive",
                 post_window=context.kind == "qualify",
                 node=node,
@@ -1824,6 +1865,7 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                             direct=not feature.chain,
                             label_refs=bound.label_refs,
                             slack_up=bound.slack_up,
+                            inexact=bound.inexact,
                             inclusive=bound.inclusive,
                             node=node,
                         )

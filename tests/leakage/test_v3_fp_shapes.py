@@ -125,3 +125,67 @@ FROM labels l LEFT JOIN user_stats s ON s.user_id = l.user_id
   AND CAST(s.n_orders AS BIGINT) < CAST(l.label_ts AS BIGINT)
 GROUP BY 1, 2, 3"""
     assert rules(query, **SPARK) != set()
+
+
+# --- months, quarters and years in a difference or a date_diff -----------------------------------
+
+
+def stats_where(condition: str) -> str:
+    return f"""SELECT {KEYS}, SUM(s.total_spend) AS spend
+FROM labels l LEFT JOIN user_stats s ON s.user_id = l.user_id AND {condition}
+GROUP BY 1, 2, 3"""
+
+
+@pytest.mark.parametrize("unit", ["MONTH", "QUARTER", "YEAR"])
+def test_a_calendar_interval_in_a_difference_is_a_bound(unit):
+    assert_pair(
+        stats_where(f"l.label_ts - s.updated_at > INTERVAL 1 {unit}"),
+        stats_where(f"s.updated_at - l.label_ts > INTERVAL 1 {unit}"),
+        "L1",
+    )
+
+
+@pytest.mark.parametrize("unit", ["month", "quarter", "year"])
+def test_date_diff_in_calendar_units_is_a_bound(unit):
+    assert_pair(
+        stats_where(f"date_diff('{unit}', s.updated_at, l.label_ts) >= 1"),
+        stats_where(f"date_diff('{unit}', s.updated_at, l.label_ts) >= 0"),
+        "L1",
+    )
+    assert_pair(
+        stats_where(f"date_diff('{unit}', s.updated_at, l.label_ts) > 0"),
+        stats_where(f"date_diff('{unit}', l.label_ts, s.updated_at) > 0"),
+    )
+
+
+def test_date_diff_with_the_wrong_comparison_leaves_the_table_unbounded():
+    # fewer than one month apart is a lower bound on the fact's time, not an upper one
+    assert "L3" in rules(stats_where("date_diff('month', s.updated_at, l.label_ts) < 1"))
+
+
+def events_where(condition: str) -> str:
+    return f"""SELECT {KEYS}, SUM(e.amount) AS spend
+FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND {condition}
+GROUP BY 1, 2, 3"""
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "l.label_ts - e.event_ts > INTERVAL 1 MONTH",
+        "date_diff('month', e.event_ts, l.label_ts) > 1",
+    ],
+)
+def test_a_month_counts_as_its_shortest_length_when_a_delay_is_declared(condition):
+    # a month is 28 to 31 days: it covers a 20 day delay for sure, not a 30 day one
+    assert rules(events_where(condition), max_ingest_delay={"events": "20 days"}) == set()
+    assert "L4" in rules(events_where(condition), max_ingest_delay={"events": "30 days"})
+
+
+def test_the_same_condition_in_days_covers_the_delay_it_names():
+    exact = events_where("l.label_ts - e.event_ts > INTERVAL 31 DAY")
+    assert rules(exact, max_ingest_delay={"events": "30 days"}) == set()
+    assert "L4" in rules(
+        events_where("l.label_ts - e.event_ts > INTERVAL 29 DAY"),
+        max_ingest_delay={"events": "30 days"},
+    )

@@ -899,7 +899,7 @@ def tighten(ctx: Context, ref: TableRef) -> Edit | None:
     nodes: dict[int, tuple[TimeBound, exp.Expression]] = {}
     for bound in loose_bounds(ref.bound_groups()[0]):
         node = ctx.orig(bound.node)
-        if node is None or bound.slack_up:
+        if node is None or bound.slack_up or bound.inexact:
             return None
         nodes[id(node)] = (bound, node)
     if not nodes:
@@ -1037,7 +1037,7 @@ def mirror(ctx: Context, ref: TableRef) -> Edit | None:
         far = [b for b in mine if b.is_upper and b.offset_seconds >= DAY]
         ends = [b for b in mine if b.is_upper and b.offset_seconds > 0]
         removed = lowers + (ends if lowers else far)
-        if any(b.slack_up or b.node is None for b in removed):
+        if any(b.slack_up or b.inexact or b.node is None for b in removed):
             return None
         nodes = list({id(n): n for n in (ctx.orig(b.node) for b in removed)}.values())
         if any(n is None or isinstance(n, exp.Between) for n in nodes):
