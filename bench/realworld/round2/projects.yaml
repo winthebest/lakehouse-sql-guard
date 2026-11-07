@@ -1,4 +1,4 @@
-# Projects of the second search (round 2), pinned at screening. Selected by the pre-registered
+# Projects of the second search (round 2), pinned at screening; the six after screening_order 51 were added by the amendment of the pre-registration. Selected by the pre-registered
 # search in search-prereg.yaml (screening.csv); nobody looked at these projects while the rules were
 # developed. Same fields as ../projects.yaml, group `round2`. Clones go in the git-ignored
 # `.realworld/` directory like round 1; the loader is bench/realworld/checkout.py `load_projects`.
@@ -110,4 +110,54 @@ projects:
     publish: aggregate_only
     dbt_subdir: "dbt_project"
     screening_order: 51
+    flags: [no_documented_cutoff]
+  - repo: gusdiaso/lh_nautical_athena
+    group: round2
+    sha: a411a72e7b1b6bc8b722cb66164ac03d2728ab4b
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 53
+  - repo: sadelcarpio/steam_games_recommender
+    group: round2
+    sha: 5767ec60247501f25de5f317382f8ac55400f41a
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt"
+    screening_order: 55
+  - repo: KenImade/fpl-data-platform
+    group: round2
+    sha: 21916d10313bb5a001ca8400cf3decf289d2dc3f
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "transform"
+    screening_order: 69
+  - repo: Helooeverybody/AI-thuc-chien
+    group: round2
+    sha: 578938ba3b910a3363f822096f3cd91340cefe3e
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "Track02_Day17_Data-Pipeline-Engineering/dbt"
+    screening_order: 70
+    flags: [no_documented_cutoff]
+  - repo: justinlawee/instacart-reorder-prediction
+    group: round2
+    sha: 2817efb6be725470147ea3e8b63077623075e8ad
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 112
+  - repo: nathandxn/dbt_credit_risk_model
+    group: round2
+    sha: bbc8b9a8f4eaa6f6a9df3039b55bff70b5c7971b
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 135
     flags: [no_documented_cutoff]
