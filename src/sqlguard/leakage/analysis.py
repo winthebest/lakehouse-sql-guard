@@ -559,7 +559,8 @@ def _amount_seconds(
     amount: exp.Expression, unit: exp.Expression | None
 ) -> tuple[float, float] | None:
     """(seconds, slack) of an interval amount: slack is how much shorter the real length may be
-    (months and years vary; a unitless INTERVAL '5' means seconds in DuckDB, so it is unbounded)."""
+    (months and years vary). An interval without a unit (`INTERVAL '5'`: five seconds in DuckDB, an
+    error elsewhere) has no length to rely on, so it is None, like every shape that is not read."""
     if isinstance(amount, exp.Interval):
         inner, sign = amount.this, 1.0
         while isinstance(inner, exp.Paren | exp.Neg):
@@ -584,11 +585,11 @@ def _amount_seconds(
             value = float(text)
         except (TypeError, ValueError):
             return None
-        per = _unit_seconds(unit)
+        per = _unit_seconds(unit) if amount.unit is not None else None
         if per is None:
             return None
         slack = _UNIT_SLACK.get(_unit_name(unit), 0.0) * abs(value)
-        return sign * value * per, math.inf if amount.unit is None else slack
+        return sign * value * per, slack
     value = _constant(amount)
     per = _unit_seconds(unit)
     if value is None or per is None:
