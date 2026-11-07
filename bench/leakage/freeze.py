@@ -19,6 +19,8 @@ import subprocess
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from bench.leakage.metrics import clopper_pearson_one_sided
+
 ROOT = Path(__file__).resolve().parents[2]
 FROZEN_GLOBS = (
     "src/sqlguard/**/*",
@@ -26,6 +28,9 @@ FROZEN_GLOBS = (
     "bench/leakage/*.py",
     "bench/leakage/**/*.yaml",
     "bench/briefs/*.md",
+    # the registered searches for the held-out sets from real projects and documented leaks
+    "bench/realworld/round3/search-prereg.yaml",
+    "bench/docleaks/search-prereg.yaml",
     # the environment the verdicts were computed in: sqlglot and duckdb versions decide them
     "uv.lock",
     "pyproject.toml",
@@ -136,3 +141,76 @@ def digest(hashes: Mapping[str, str]) -> str:
     """One SHA-256 over a split's `{file: sha256}` list, for a header line."""
     joined = "\n".join(f"{name} {sha}" for name, sha in sorted(hashes.items()))
     return hashlib.sha256(joined.encode()).hexdigest()
+
+
+# --- targets on one-sided exact bounds ------------------------------------------------------------
+# A target is judged on the 95% one-sided Clopper-Pearson bound, not on the point estimate: a
+# false positive rate (`fpr`) target is met when the upper bound is at most the target, a `recall`
+# or `precision` target when the lower bound is at least the target. `errors` are the false
+# positives (fpr, precision) or the misses (recall); `n` is the clean units, the leaky units, or
+# the flagged units. The bound is compared unrounded.
+
+TARGET_KINDS = ("fpr", "recall", "precision")
+_SEARCH_LIMIT = 100_000
+
+
+def _check_target(kind: str, threshold: float, level: float) -> None:
+    if kind not in TARGET_KINDS:
+        raise ValueError(f"target kind must be one of {TARGET_KINDS}, got {kind!r}")
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"target threshold must lie strictly between 0 and 1, got {threshold}")
+    if not 0.0 < level < 1.0:
+        raise ValueError(f"level must lie strictly between 0 and 1, got {level}")
+
+
+def target_met(kind: str, errors: int, n: int, threshold: float, level: float = 0.95) -> bool:
+    """Whether `errors` among `n` units meet the target on the one-sided exact bound."""
+    _check_target(kind, threshold, level)
+    if n <= 0:
+        return False
+    if kind == "fpr":
+        return clopper_pearson_one_sided(errors, n, level, "upper") <= threshold
+    return clopper_pearson_one_sided(n - errors, n, level, "lower") >= threshold
+
+
+def max_errors_allowed(kind: str, n: int, threshold: float, level: float = 0.95) -> int:
+    """The most errors `n` units can contain and still meet the target; -1 if none would."""
+    _check_target(kind, threshold, level)
+    if n < 0:
+        raise ValueError(f"n must not be negative, got {n}")
+    allowed = -1
+    for errors in range(n + 1):
+        if not target_met(kind, errors, n, threshold, level):
+            break  # the bound only worsens as errors grow
+        allowed = errors
+    return allowed
+
+
+def min_sample_size(kind: str, errors: int, threshold: float, level: float = 0.95) -> int:
+    """The smallest number of units for which `errors` errors still meet the target."""
+    _check_target(kind, threshold, level)
+    if errors < 0:
+        raise ValueError(f"errors must not be negative, got {errors}")
+    for n in range(max(errors, 1), _SEARCH_LIMIT):
+        if target_met(kind, errors, n, threshold, level):
+            return n
+    raise ValueError(f"no sample size up to {_SEARCH_LIMIT} meets {kind} {threshold}")
+
+
+def describe_target(
+    kind: str, n: int, threshold: float, level: float = 0.95, *, errors_listed: int = 3
+) -> dict:
+    """What a pre-registration records for a target: the bound, the size, the errors it allows
+    and the smallest size for 0..`errors_listed` errors."""
+    _check_target(kind, threshold, level)
+    return {
+        "kind": kind,
+        "threshold": threshold,
+        "bound": "upper" if kind == "fpr" else "lower",
+        "level": level,
+        "n": n,
+        "max_errors": max_errors_allowed(kind, n, threshold, level),
+        "min_n_by_errors": {
+            str(k): min_sample_size(kind, k, threshold, level) for k in range(errors_listed + 1)
+        },
+    }
