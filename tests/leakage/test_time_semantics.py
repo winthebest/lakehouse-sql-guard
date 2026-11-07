@@ -176,3 +176,115 @@ def test_a_positive_delay_keeps_recent_labels_unknown():
     assert check(too_recent, with_delay("1 hour"), PLAYS_SCHEMA)[1] == {"L6"}
 
 
+# --- a single series: no entity key --------------------------------------------------------
+
+SERIES_SPEC = {
+    "label_table": "bars",
+    "entity_keys": [],
+    "prediction_ts": "ts",
+    "label_columns": ["target"],
+    "time_columns": {"bars": "ts", "ticks": "tick_ts"},
+    "static_tables": [],
+}
+SERIES_SCHEMA = {
+    "bars": {"ts": "TIMESTAMP", "close": "DOUBLE", "target": "DOUBLE"},
+    "ticks": {"tick_ts": "TIMESTAMP", "price": "DOUBLE"},
+}
+SERIES_CLEAN = {
+    "trailing average that stops before the current row": (
+        "SELECT ts, target, AVG(close) OVER (ORDER BY ts "
+        "ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING) AS ma FROM bars"
+    ),
+    "previous close": "SELECT ts, target, LAG(close, 1) OVER (ORDER BY ts) AS prev FROM bars",
+    "ticks before the bar": (
+        "SELECT b.ts, b.target, (SELECT SUM(t.price) FROM ticks t WHERE t.tick_ts < b.ts) AS vol "
+        "FROM bars b"
+    ),
+    "ticks joined before the bar": (
+        "SELECT b.ts, b.target, COUNT(t.price) AS n FROM bars b "
+        "LEFT JOIN ticks t ON t.tick_ts < b.ts GROUP BY b.ts, b.target"
+    ),
+}
+SERIES_LEAKY = {
+    "next close": ("SELECT ts, target, LEAD(close) OVER (ORDER BY ts) AS nxt FROM bars", "L1"),
+    "average over the whole series": (
+        "SELECT ts, target, AVG(close) OVER () AS m FROM bars",
+        "L3",
+    ),
+    "ticks with no bound": (
+        "SELECT b.ts, b.target, (SELECT SUM(t.price) FROM ticks t) AS vol FROM bars b",
+        "L3",
+    ),
+    "ticks up to and including the bar": (
+        "SELECT b.ts, b.target, COUNT(t.price) AS n FROM bars b "
+        "LEFT JOIN ticks t ON t.tick_ts <= b.ts GROUP BY b.ts, b.target",
+        "L5",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", SERIES_CLEAN)
+def test_a_series_without_entity_keys_passes_when_every_read_stays_before_the_row(name):
+    assert check(SERIES_CLEAN[name], SERIES_SPEC, SERIES_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("name", SERIES_LEAKY)
+def test_a_series_without_entity_keys_is_still_checked(name):
+    sql, rule = SERIES_LEAKY[name]
+    verdict, rules = check(sql, SERIES_SPEC, SERIES_SCHEMA)
+    assert verdict == "leaky" and rule in rules
+
+
+KEYED_SERIES = """WITH sp AS (SELECT ts, target, {key} AS sk FROM bars),
+pit AS (
+  SELECT sp.sk, t.price FROM sp JOIN ticks t ON t.tick_ts < sp.ts
+  QUALIFY row_number() OVER (PARTITION BY {part} ORDER BY t.tick_ts DESC) = 1)
+SELECT sp.ts, sp.target, pit.price FROM sp LEFT JOIN pit ON pit.sk = sp.sk"""
+
+
+def test_the_prediction_time_alone_is_the_row_key_of_a_series():
+    sql = KEYED_SERIES.format(key="md5(CAST(ts AS VARCHAR))", part="sp.sk")
+    assert check(sql, SERIES_SPEC, SERIES_SCHEMA) == ("clean", set())
+
+
+def test_a_key_that_only_names_the_day_is_not_the_row_key_of_a_series():
+    sql = KEYED_SERIES.format(key="md5(CAST(CAST(ts AS DATE) AS VARCHAR))", part="sp.sk")
+    assert check(sql, SERIES_SPEC, SERIES_SCHEMA)[0] == "leaky"
+
+
+FIX_SPEC = {**SERIES_SPEC, "availability_columns": {"ticks": "loaded_at"}}
+FIX_SCHEMA = {
+    **SERIES_SCHEMA,
+    "ticks": {"tick_ts": "TIMESTAMP", "loaded_at": "TIMESTAMP", "price": "DOUBLE"},
+}
+SERIES_FIXES = {
+    "aggregate with no bound": (
+        "SELECT b.ts, b.target, (SELECT SUM(t.price) FROM ticks t) AS vol FROM bars b",
+        ["WHERE t.tick_ts < b.ts AND t.loaded_at < b.ts"],
+    ),
+    "latest tick is ranked per prediction time alone": (
+        "SELECT b.ts, b.target, t.price FROM bars b LEFT JOIN (SELECT * FROM ticks "
+        "QUALIFY row_number() OVER (ORDER BY tick_ts DESC) = 1) t ON TRUE",
+        [
+            "PARTITION BY b.ts ORDER BY t.tick_ts DESC, t.loaded_at DESC",
+            "rows are ranked per (ts) of the spine",
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", SERIES_FIXES)
+def test_the_fix_for_a_series_ranks_and_bounds_without_an_entity_key(name):
+    import re
+
+    from sqlguard.leakage.fixes import Verification, suggest_fix
+    from sqlguard.leakage.validator import static_findings
+
+    sql, expected = SERIES_FIXES[name]
+    spec = LeakageSpec.from_dict(FIX_SPEC)
+    fix = suggest_fix(sql, spec, schema=FIX_SCHEMA)[-1]
+    assert fix.after_sql is not None and fix.verification is Verification.STATIC_ONLY
+    assert static_findings(fix.after_sql, spec, FIX_SCHEMA) == []
+    text = " ".join([re.sub(r"\s+", " ", fix.after_sql), *fix.caveats])
+    for snippet in expected:
+        assert snippet in text, (snippet, text)

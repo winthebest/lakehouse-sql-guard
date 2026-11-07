@@ -476,7 +476,12 @@ class Replayer:
         current = self.labels if table == self.spec.label_table else self._current_data(table)
         pinned = self._pinned_data[(ts, True)][table]
         keys = list(self.spec.entity_keys)
-        if entities is None or not all(_column(current, k) in current.column_names for k in keys):
+        # a single series has no entity to narrow to: the whole table counts
+        if (
+            not keys
+            or entities is None
+            or not all(_column(current, k) in current.column_names for k in keys)
+        ):
             return max(current.num_rows - pinned.num_rows, 0)
         now = self._entity_counts(("current", table), current, keys)
         then = self._entity_counts((ts, table), pinned, keys)

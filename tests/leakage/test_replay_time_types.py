@@ -347,3 +347,100 @@ def test_a_positive_delay_hides_the_labels_stamped_inside_it(plays):
     assert set(replay.mismatched_columns) == {"prior_rate"}
 
 
+# --- a single series: no entity key ------------------------------------------------------------
+
+
+def series_tables() -> tuple[pa.Table, pa.Table]:
+    """Hourly points from 12:00 to 23:00 on days 3 to 8; one event a day, loaded an hour later."""
+    moments = [
+        START + timedelta(days=d, hours=h)
+        for d in range(FIRST_LABEL_DAY, DAYS)
+        for h in range(12, 24)
+    ]
+    series = pa.table(
+        {
+            "label_ts": pa.array(moments, pa.timestamp("us")),
+            "y": pa.array([i % 3 for i in range(len(moments))], pa.int64()),
+        }
+    )
+    happened = [START + timedelta(days=d, hours=1) for d in range(DAYS)]
+    events = pa.table(
+        {
+            "event_ts": pa.array(happened, pa.timestamp("us")),
+            "ingested_at": pa.array([m + timedelta(hours=1) for m in happened], pa.timestamp("us")),
+            "amount": pa.array([5.0] * DAYS, pa.float64()),
+        }
+    )
+    return series, events
+
+
+SERIES = """SELECT l.label_ts, l.y, SUM(e.amount) AS total
+FROM series l LEFT JOIN events e ON {bound} GROUP BY l.label_ts, l.y"""
+
+
+@pytest.fixture(scope="module")
+def single_series(tmp_path_factory):
+    catalog = LakehouseCatalog.local(tmp_path_factory.mktemp("series"))
+    series, events = series_tables()
+    catalog.create_table("series", series)
+    catalog.create_empty("events", events.schema)
+    for i in range(DAYS):
+        catalog.table("events").append(
+            events.slice(i, 1),
+            snapshot_properties={
+                LOGICAL_TS_PROPERTY: events.column("ingested_at")[i].as_py().isoformat()
+            },
+        )
+    return catalog
+
+
+def series_spec() -> LeakageSpec:
+    return LeakageSpec.from_dict(
+        {
+            "label_table": "series",
+            "entity_keys": [],
+            "prediction_ts": "label_ts",
+            "label_columns": ["y"],
+            "time_columns": {"events": "event_ts"},
+            "availability_columns": {"events": "ingested_at"},
+            "static_tables": [],
+        }
+    )
+
+
+def test_a_series_without_entity_keys_replays_clean_and_counts_what_it_hid(single_series):
+    replay = Replayer(single_series, series_spec()).run(
+        SERIES.format(bound="e.event_ts < l.label_ts")
+    )
+    assert replay.status is ReplayStatus.PASS, replay.reason
+    assert replay.exposure["events"] > 0  # the whole table counts: there is no entity to narrow to
+    assert replay.exposed_points["events"] > 0
+
+
+def test_a_series_without_entity_keys_still_catches_a_read_of_later_rows(single_series):
+    replay = Replayer(single_series, series_spec()).run(
+        SERIES.format(bound="e.event_ts <= l.label_ts + INTERVAL 1 DAY")
+    )
+    assert replay.status is ReplayStatus.MISMATCH
+    assert set(replay.mismatched_columns) == {"total"}
+
+
+def test_rows_in_flight_are_scored_over_the_whole_table_when_there_is_no_key():
+    from sqlguard.core.catalog import naive_utc
+    from sqlguard.leakage.replay import flight_scores
+
+    happened = [START + timedelta(days=d, hours=11, minutes=30) for d in range(DAYS)]
+    events = pa.table(
+        {
+            "event_ts": pa.array(happened, pa.timestamp("us")),
+            "ingested_at": pa.array([m + timedelta(hours=1) for m in happened], pa.timestamp("us")),
+        }
+    )
+    series, _ = series_tables()
+    stamps = {naive_utc(t): t for t in series.column("label_ts").to_pylist()}
+    scores = flight_scores(events, "event_ts", "ingested_at", None, series, "label_ts", stamps)
+    # the event of day d is in flight at 12:00 of that day (happened, not yet loaded) and at no
+    # other label time
+    assert set(scores) == {
+        START + timedelta(days=d, hours=12) for d in range(FIRST_LABEL_DAY, DAYS)
+    }
