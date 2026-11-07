@@ -804,3 +804,53 @@ def test_the_forms_that_do_not_cap_the_row_are_still_flagged(condition):
 def test_the_mirrored_comparison_is_the_same_bound():
     assert rules(latest(f"{newest_before()} >= s.updated_at")) == set()
     assert rules(latest(f"{newest_before()} > s.updated_at")) == set()
+
+
+# --- the prediction time shown in a time zone west of UTC ---------------------------------------
+
+
+def zoned(expression: str, feature: str = "e.ingested_at") -> str:
+    return f"""SELECT {KEYS}, COUNT(e.event_id) AS n
+FROM labels l LEFT JOIN events e ON e.user_id = l.user_id AND {feature} < {expression}
+GROUP BY 1, 2, 3"""
+
+
+def utc_shown_in(zone: str) -> str:
+    return f"timezone('{zone}', timezone('UTC', l.label_ts))"
+
+
+@pytest.mark.parametrize("zone", ["America/New_York", "America/Los_Angeles", "Pacific/Honolulu"])
+def test_a_zone_west_of_utc_only_moves_the_bound_earlier(zone):
+    assert rules(zoned(utc_shown_in(zone))) == set()
+    assert rules(zoned(f"(l.label_ts AT TIME ZONE 'UTC') AT TIME ZONE '{zone}'")) == set()
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        utc_shown_in("Asia/Tokyo"),  # east of UTC: the bound moves later
+        utc_shown_in("Europe/London"),  # on UTC in winter, east of it in summer
+        utc_shown_in("Africa/Casablanca"),  # sometimes one side, sometimes the other
+        utc_shown_in("Not/AZone"),
+        # the time is read as local time of the zone, which is a later instant
+        "timezone('America/New_York', l.label_ts)",
+        # shown in a zone but not turned back to a plain timestamp
+        "timezone('UTC', l.label_ts)",
+        f"{utc_shown_in('America/New_York')} + INTERVAL 6 HOUR",
+    ],
+)
+def test_a_zone_that_may_move_the_bound_later_is_still_flagged(expression):
+    assert rules(zoned(expression)), expression
+
+
+def test_the_time_zone_shift_counts_at_its_least_favourable_size_against_a_declared_delay():
+    # New York is 4 or 5 hours behind UTC; an event-time bound of 8 days less 4 hours is not 8 days
+    on_event_time = """SELECT {keys}, COUNT(e.event_id) AS n
+FROM labels l LEFT JOIN events e ON e.user_id = l.user_id
+  AND e.event_ts < {expression}
+GROUP BY 1, 2, 3"""
+    delay = {"max_ingest_delay": {"events": "8 days"}}
+    exact = f"{utc_shown_in('America/New_York')} - INTERVAL 8 DAY"
+    short = f"{utc_shown_in('America/New_York')} - INTERVAL 7 DAY"
+    assert rules(on_event_time.format(keys=KEYS, expression=exact), **delay) == set()
+    assert "L4" in rules(on_event_time.format(keys=KEYS, expression=short), **delay)

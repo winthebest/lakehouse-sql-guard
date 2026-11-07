@@ -39,6 +39,9 @@ import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlglot import errors as sqlglot_errors
 from sqlglot import exp
@@ -132,6 +135,10 @@ _UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
 # an error or another number: the cast still orders rows like the timestamp does, but its unit is
 # unknown, so it bounds nothing.
 _EPOCH_CAST_DIALECTS = {"spark", "databricks", "hive"}
+# Engines where `x AT TIME ZONE zone` and `timezone(zone, x)` turn a plain timestamp (read as local
+# time of the zone) into an instant and an instant into the local time of the zone. Elsewhere the
+# same words mean other things (Trino keeps the instant), so they are not read.
+_ZONE_DIALECTS = {"duckdb", "postgres", "redshift"}
 # engines where `date - 7` is not "seven days earlier" (MySQL reads the date as a number)
 _NO_DATE_ARITHMETIC = {"mysql", "starrocks", "doris", "tidb", "singlestore"}
 # Only a 64-bit integer holds the epoch: a narrower cast overflows (and wraps, with ANSI mode off).
@@ -624,6 +631,46 @@ class _Peeled:
     # the conversion (a cast to an integer, unix_timestamp, epoch_ms) means "epoch" only for a
     # timestamp column: on a number it is something else, so the column's type must be checked
     stamp_only: bool = False
+    # time zone conversions applied to the column, innermost first (names of zones)
+    zones: tuple[str, ...] = ()
+    # a cast to a timestamp type or DATE was peeled: it can turn a plain timestamp into an instant
+    # (in the session's zone) or the reverse, which the zone arithmetic cannot follow
+    retyped: bool = False
+
+
+@lru_cache(maxsize=256)
+def _zone_offsets(zone: str) -> tuple[float, float] | None:
+    """(smallest, largest) offset of a time zone from UTC in seconds, east positive, over the
+    years 1970 to 2040 (weekly samples), or None for a name that is not a zone."""
+    try:
+        info = ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+    start = datetime(1970, 1, 1, tzinfo=UTC)
+    offsets = {
+        (start + timedelta(weeks=week)).astimezone(info).utcoffset().total_seconds()  # type: ignore[union-attr]
+        for week in range(71 * 53)
+    }
+    return min(offsets), max(offsets)
+
+
+def _zone_conversion(node: exp.Expression, dialect: str) -> tuple[exp.Expression, str] | None:
+    """`(inner, zone)` for `inner AT TIME ZONE 'zone'` and `timezone('zone', inner)`."""
+    if dialect not in _ZONE_DIALECTS:
+        return None
+    if isinstance(node, exp.AtTimeZone):
+        zone, inner = node.args.get("zone"), node.this
+    elif (
+        isinstance(node, exp.Anonymous)
+        and str(node.this).lower() == "timezone"
+        and len(node.expressions) == 2
+    ):
+        zone, inner = node.expressions
+    else:
+        return None
+    if isinstance(zone, exp.Literal) and zone.is_string and inner is not None:
+        return inner, zone.name
+    return None
 
 
 def _epoch_form(node: exp.Expression, dialect: str) -> tuple[exp.Expression, float, float] | None:
@@ -658,9 +705,14 @@ def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     offset = trunc = up = down = pending = 0.0
     epoch = stamp_only = False
     scale = 1.0
+    zones: list[str] = []
+    retyped = False
     while True:
         if isinstance(node, exp.Paren):
             node = node.this
+        elif (zone := _zone_conversion(node, dialect)) is not None:
+            node, name = zone
+            zones.append(name)
         elif (form := _epoch_form(node, dialect)) is not None:
             if epoch:
                 return None  # an epoch number converted to an epoch number again
@@ -673,9 +725,11 @@ def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
             target = node.to.this if node.to else None
             if target in _TIMESTAMP_TYPES:
                 node = node.this
+                retyped = True
             elif target == exp.DataType.Type.DATE:
                 trunc = max(trunc, 86_400)
                 node = node.this
+                retyped = True
             else:
                 return None
         elif isinstance(node, exp.DateTrunc | exp.TimestampTrunc):
@@ -714,7 +768,17 @@ def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     if not isinstance(node, exp.Column):
         return None
     return _Peeled(
-        node, offset, trunc, up, down, epoch, 0.0 if epoch else pending, scale, stamp_only
+        node,
+        offset,
+        trunc,
+        up,
+        down,
+        epoch,
+        0.0 if epoch else pending,
+        scale,
+        stamp_only,
+        tuple(reversed(zones)),
+        retyped,
     )
 
 
@@ -741,6 +805,11 @@ class Resolved:
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False
     epoch_scale: float = 1.0  # as in `_Peeled`, when `epoch`
+    # a time zone conversion is on the path: then `aware` says whether the value is an instant
+    # (True) or a plain local timestamp (False)
+    zoned: bool = False
+    aware: bool | None = None
+    retyped: bool = False  # a cast to a timestamp type was peeled on the path
 
     @property
     def exact(self) -> bool:
@@ -837,20 +906,34 @@ class _Resolver:
             shift = self.pending_seconds(peeled.pending, ref, column.name)
             if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
+            offset, up, down = peeled.offset + shift, peeled.up, peeled.down
+            aware = None
+            if peeled.zones:
+                if peeled.retyped:
+                    return None
+                shifted = self._through_zones(
+                    peeled.zones, offset, up, down, self.is_aware(ref, column.name)
+                )
+                if shifted is None:
+                    return None
+                offset, up, down, aware = shifted
             return [
                 Resolved(
                     ref,
                     column.name.lower(),
                     (),
-                    peeled.offset + shift,
+                    offset,
                     peeled.trunc,
                     raw,
                     column.table,
                     id(owner),
-                    peeled.up,
-                    peeled.down,
+                    up,
+                    down,
                     peeled.epoch,
                     peeled.epoch_scale,
+                    bool(peeled.zones),
+                    aware,
+                    peeled.retyped,
                 )
             ]
         if not isinstance(source, Scope):
@@ -886,20 +969,38 @@ class _Resolver:
                 shift = self.pending_seconds(peeled.pending, g.ref, g.column)
                 if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
+                offset, up, down = (
+                    peeled.offset + shift + g.offset,
+                    peeled.up + g.up,
+                    peeled.down + g.down,
+                )
+                zoned, aware = g.zoned, g.aware
+                if (peeled.retyped and (peeled.zones or g.zoned)) or (peeled.zones and g.retyped):
+                    return None  # a cast changed what the value is between two conversions
+                if peeled.zones:
+                    start = g.aware if g.zoned else self.is_aware(g.ref, g.column)
+                    shifted = self._through_zones(peeled.zones, offset, up, down, start)
+                    if shifted is None:
+                        return None
+                    offset, up, down, aware = shifted
+                    zoned = True
                 resolved.append(
                     Resolved(
                         g.ref,
                         g.column,
                         ((id(owner), column.table), *g.chain),
-                        peeled.offset + shift + g.offset,
+                        offset,
                         max(peeled.trunc, g.trunc),
                         raw and g.raw,
                         column.table,
                         id(owner),
-                        peeled.up + g.up,
-                        peeled.down + g.down,
+                        up,
+                        down,
                         peeled.epoch or g.epoch,
                         peeled.epoch_scale if peeled.epoch else g.epoch_scale,
+                        zoned,
+                        aware,
+                        peeled.retyped or g.retyped,
                     )
                 )
         return resolved
@@ -917,6 +1018,48 @@ class _Resolver:
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
+
+    def is_aware(self, ref: TableRef, column: str) -> bool | None:
+        """Is the column declared a timestamp with a time zone (an instant)? None when unknown."""
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return None
+        try:
+            kind = exp.DataType.build(declared, dialect=self.spec.dialect).this
+        except (ValueError, sqlglot_errors.ParseError):
+            return None
+        if kind in (exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ):
+            return True
+        return False if kind in _TIMESTAMP_TYPES else None
+
+    @staticmethod
+    def _through_zones(
+        zones: tuple[str, ...], offset: float, up: float, down: float, aware: bool | None
+    ) -> tuple[float, float, float, bool] | None:
+        """The shift, as (offset, up, down), after converting through `zones` (innermost first),
+        and whether the result is an instant; None when it is not known or may go either way.
+
+        A plain timestamp is read as local time of the zone (the instant is earlier by the zone's
+        offset), an instant is shown as local time (later by it). The offsets of a zone vary, so
+        the shift is a range; it must lie on one side of zero for the bound to mean anything.
+        """
+        if aware is None:
+            return None
+        low, high = offset - down, offset + up
+        for zone in zones:
+            span = _zone_offsets(zone)
+            if span is None:
+                return None
+            if aware:
+                low, high = low + span[0], high + span[1]
+            else:
+                low, high = low - span[1], high - span[0]
+            aware = not aware
+        if high <= 0:  # never later: the largest magnitude is the nominal shift
+            return low, high - low, 0.0, aware
+        if low >= 0:
+            return high, 0.0, high - low, aware
+        return None
 
     def is_date(self, ref: TableRef, column: str) -> bool:
         declared = self.schema.get(ref.table, {}).get(column.lower())
@@ -1818,6 +1961,12 @@ def _record(
             continue
         scale = 1.0
         resolved = features + labels
+        if any(r.zoned for r in resolved):
+            # a converted time is only comparable with a column of the same kind (a plain
+            # timestamp against an instant is read in the session's zone, which we do not know)
+            kinds = {r.aware if r.zoned else resolver.is_aware(r.ref, r.column) for r in resolved}
+            if len(kinds) != 1 or None in kinds:
+                continue
         scales = {r.epoch_scale for r in resolved if r.epoch}
         if len(scales) > 1 or 0.0 in scales:
             continue  # numbers in different or unknown units (seconds, milliseconds) say nothing
