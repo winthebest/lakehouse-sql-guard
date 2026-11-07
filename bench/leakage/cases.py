@@ -38,15 +38,21 @@ import random
 import re
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from bench.leakage.splits import load_splits
-from sqlguard.leakage.spec import OUTPUT_ROLES, LeakageSpec, OutputRoles, SpecError
+
+if TYPE_CHECKING:  # the label audit imports this module and must load no detector code
+    from sqlguard.leakage.spec import LeakageSpec
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SPLITS = tuple(load_splits())
 DEFAULT_SPLITS = tuple(name for name, split in load_splits().items() if split.seen)
 LEAK_TYPES = ("clean", "L1", "L2", "L3", "L4", "L5", "L6", "L7")
 _HEADER = re.compile(r"^--\s*(leak|output_roles|param\s+(\w+))\s*:\s*(.*)$")
+# The roles of an output column (the same names as `sqlguard.leakage.spec.OUTPUT_ROLES`, which a
+# test compares: importing that module here would load detector code into the label audit).
+OUTPUT_ROLES = ("label", "metadata", "features")
 _COLUMN = re.compile(r"^[A-Za-z_]\w*$")
 
 
@@ -109,6 +115,8 @@ def spec_for_case(spec: LeakageSpec, case: LeakCase) -> LeakageSpec:
     """The spec a case is checked with: the split's spec, with the roles its template declared."""
     if not case.output_roles:
         return spec
+    from sqlguard.leakage.spec import OutputRoles, SpecError
+
     declared = {
         "label": spec.output_roles.label,
         "metadata": spec.output_roles.metadata,

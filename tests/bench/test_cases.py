@@ -177,3 +177,10 @@ def test_roles_survive_the_jsonl_roundtrip(tmp_path):
     write_jsonl(render(template), path)
     [case] = read_jsonl(path)
     assert isinstance(case, LeakCase) and case.output_roles == {"label": ["a"]}
+
+
+def test_the_role_names_are_the_ones_the_spec_knows():
+    from bench.leakage.cases import OUTPUT_ROLES
+    from sqlguard.leakage import spec
+
+    assert OUTPUT_ROLES == spec.OUTPUT_ROLES
