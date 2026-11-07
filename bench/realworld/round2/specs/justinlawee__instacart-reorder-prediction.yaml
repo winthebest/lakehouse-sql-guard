@@ -1,0 +1,19 @@
+# Spec for justinlawee/instacart-reorder-prediction (group: round2, no license) at the pinned commit of
+# ../projects.yaml. Written from the README and the header comment of fct_reorder_training_data,
+# before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (the label is whether a product was reordered in the user's most
+# recent order, the `train` order; the `prior` orders are the history).
+#
+# Not applicable: the project documents the label (reordered_label) and its timing in terms of order
+# sequence (prior, train and test orders from the Instacart dataset's eval_set) but none of the
+# documented tables has an event-time or prediction-time column: the Instacart orders carry order
+# numbers and days since the previous order, not timestamps. The checker needs a time column on a
+# source table, so a spec cannot be written without inventing one (same reading as Gamebot).
+
+realworld:
+  applicable: false
+  reason: >
+    documented label and train/prior order split, but no event-time or prediction-time column in any
+    documented source table (orders are sequenced by order number), so the leakage spec cannot be
+    written

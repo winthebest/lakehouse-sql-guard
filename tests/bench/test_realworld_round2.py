@@ -63,7 +63,13 @@ def test_round2_excludes_round1_screening_and_the_registered_exclusions():
             assert row["verdict"] != "excluded", row["repo"]
 
 
-def test_screening_follows_the_registered_stopping_rule():
+def _applicable(repo: str) -> bool:
+    path = ROUND2 / "specs" / f"{repo.replace('/', '__')}.yaml"
+    block = yaml.safe_load(path.read_text(encoding="utf-8"))["realworld"]
+    return block.get("applicable") is not False
+
+
+def test_screening_follows_the_registered_stopping_rule_and_its_amendment():
     rows = _screening()
     repos = [r["repo"] for r in rows]
     assert len(repos) == len(set(repos))
@@ -76,12 +82,25 @@ def test_screening_follows_the_registered_stopping_rule():
             assert row["pinned_sha"] == "" or len(row["pinned_sha"]) == 40
     screened = [r for r in rows if r["verdict"] in {"qualified", "rejected", "duplicate"}]
     qualified = [r for r in rows if r["verdict"] == "qualified"]
-    assert len(qualified) <= STOP_QUALIFIED and len(screened) <= STOP_SCREENED
-    assert len(qualified) == STOP_QUALIFIED or len(screened) == STOP_SCREENED
-    # nothing is screened after the stop, and the stop is the last qualifier (or the 150th)
+    runnable = [r for r in qualified if _applicable(r["repo"])]
+    assert len(screened) <= STOP_SCREENED
+    # first rule: 12 qualifiers by candidate 51; amendment: continue until 12 projects can run
+    first_twelve = qualified[:STOP_QUALIFIED]
+    assert len(first_twelve) == STOP_QUALIFIED and int(first_twelve[-1]["order"]) == 51
+    assert len(runnable) == STOP_QUALIFIED or len(screened) == STOP_SCREENED
+    # nothing is screened after the stop, which is the last runnable qualifier (or the 150th)
     stop = max(int(r["order"]) for r in screened)
+    if len(runnable) == STOP_QUALIFIED:
+        assert stop == int(runnable[-1]["order"])
     assert all(r["verdict"] in {"not_screened", "excluded"} for r in rows if int(r["order"]) > stop)
     assert all(r["verdict"] != "not_screened" for r in rows if int(r["order"]) <= stop)
+
+
+def test_the_amendment_is_registered_before_the_continued_screening():
+    amendment = PREREG["amendments"][0]
+    assert "before the checker was run" in amendment["decided"]
+    assert "#52" in amendment["change"] and "12 projects" in amendment["change"]
+    assert "none is deleted" in amendment["unchanged"]
 
 
 def test_the_projects_are_exactly_the_qualified_candidates_with_their_pins():
