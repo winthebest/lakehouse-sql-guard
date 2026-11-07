@@ -29,6 +29,7 @@ PREFIX = "dbt_model__"  # CTE names of inlined models
 MAX_DEPTH = 64  # models between the training model and the deepest one inlined
 STOP_KINDS = ("source", "seed", "snapshot")
 STOP_ROLES = ("label_spine", "static")
+EXTERNAL = "__external__"  # first part of the key of a relation that is a file read, not a name
 
 
 class InlineError(ValueError):
@@ -51,12 +52,29 @@ def is_boundary(node: Node) -> bool:
 
 
 def relation_key(relation_name: str, dialect: str) -> tuple[str, ...]:
-    """Lowercase (catalog, schema, name) parts of a dbt relation name, as SQL spells them."""
-    table = exp.to_table(relation_name, dialect=dialect)
-    return tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
+    """Key of a dbt relation name, as the SQL that reads it spells it.
+
+    A named relation is its lowercase (catalog, schema, name) parts. A source that dbt-duckdb reads
+    from files (`external_location`) has the table function call as its relation name, such as
+    `read_parquet('data/events.parquet')`, which has no name parts: its key is `EXTERNAL` and the
+    call written canonically, so the manifest and the compiled SQL agree however they space it.
+    An empty key means the name stands for no table.
+    """
+    return _table_key(exp.to_table(relation_name, dialect=dialect), dialect)
 
 
-def _table_key(table: exp.Table) -> tuple[str, ...]:
+def _table_function(table: exp.Table) -> exp.Func | None:
+    """The call a `FROM read_parquet('...')` reads, when `table` is a table function call."""
+    return table.this if isinstance(table.this, exp.Func) else None
+
+
+def _table_key(table: exp.Table, dialect: str) -> tuple[str, ...]:
+    call = _table_function(table)
+    if call is not None:
+        call = call.copy()
+        if isinstance(call, exp.Anonymous) and isinstance(call.this, str):
+            call.set("this", call.this.lower())
+        return (EXTERNAL, call.sql(dialect=dialect))
     return tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
 
 
@@ -132,17 +150,28 @@ def inline(manifest: Manifest, root: Node, max_depth: int = MAX_DEPTH) -> Inline
         # A dependency missing from the manifest, or without a relation, never matches a table;
         # one that does but is not a dbt node's relation stays a physical table the spec must
         # classify.
-        upstream = {
-            relation_key(dep.relation_name, dialect): dep
-            for dep in (manifest.nodes.get(d) for d in (*node.depends_on, *_reads(ephemeral)))
-            if dep is not None and dep.relation_name
-        }
+        upstream: dict[tuple[str, ...], Node] = {}
+        for dep in (manifest.nodes.get(d) for d in (*node.depends_on, *_reads(ephemeral))):
+            if dep is None or not dep.relation_name:
+                continue
+            key = relation_key(dep.relation_name, dialect)
+            other = upstream.get(key)
+            if key[:1] == (EXTERNAL,) and other is not None and other.unique_id != dep.unique_id:
+                raise InlineError(
+                    f"{other.unique_id} and {dep.unique_id} both read {key[1]}, so a reference "
+                    "to it cannot be told apart; point one of them at its own file"
+                )
+            upstream[key] = dep
         for table in list(tree.find_all(exp.Table)):
-            dep = upstream.get(_table_key(table))
+            key = _table_key(table, dialect)
+            dep = upstream.get(key)
             if dep is None:
                 continue  # a physical table not built from a dbt node: the spec must classify it
             if is_boundary(dep):
                 boundaries[dep.unique_id] = dep
+                if key[:1] == (EXTERNAL,):
+                    # the spec names a table, not a file read: the query says `events`
+                    table.set("this", exp.to_identifier(dep.name))
                 continue
             name = use(dep, (*path, node.unique_id))
             used = table.name

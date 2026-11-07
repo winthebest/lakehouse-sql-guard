@@ -1,0 +1,7 @@
+# Compile only: nothing reads the parquet files named by the sources.
+external_lake:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ":memory:"
