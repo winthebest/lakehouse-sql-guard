@@ -38,7 +38,7 @@ from bisect import bisect_left
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 
 import duckdb
@@ -64,6 +64,9 @@ MIN_POINTS = 3
 # outweigh a single old one. A row of half the longest delay weighs 0.06, one at 90% weighs 0.66.
 TAIL_EXPONENT = 4.0
 _ROW = "<row>"  # pseudo-column for rows present in only one of the two runs
+_EPOCH = datetime(1970, 1, 1)
+# microseconds in one unit of an integer time column (`time_units` of the spec)
+_UNIT_MICROS = {"seconds": 1_000_000, "milliseconds": 1_000, "microseconds": 1}
 
 
 class RelationError(LookupError):
@@ -121,6 +124,26 @@ class ReplayResult:
         return self.rows_mismatched / self.rows_compared if self.rows_compared else 0.0
 
 
+def to_instant(value: object, unit: str | None = None) -> datetime | None:
+    """The moment a prediction time stands for, as a naive-UTC datetime, or None.
+
+    The one place where the representations of a prediction time are reconciled: a timestamp
+    (a time zone is taken to UTC), a DATE (midnight UTC of that day), and an integer with a
+    declared `unit` (the Unix epoch plus the value in that unit). Anything else, an integer with
+    no unit among them, is not a time the replay can place.
+    """
+    if isinstance(value, datetime):
+        return naive_utc(value)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, int) and not isinstance(value, bool) and unit in _UNIT_MICROS:
+        try:
+            return _EPOCH + timedelta(microseconds=value * _UNIT_MICROS[unit])
+        except OverflowError:
+            return None
+    return None
+
+
 def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
@@ -169,15 +192,19 @@ def sample_points(
 MAX_FLIGHT_TIMES = 1024  # label times scored for rows in flight; more are thinned evenly
 
 
-def _naive_micros(column: pa.ChunkedArray) -> pa.ChunkedArray:
-    """A DATE or timestamp column (any unit, with or without a time zone) as naive-UTC
-    `timestamp[us]`; anything else is not a time and raises."""
+def _naive_micros(column: pa.ChunkedArray, unit: str | None = None) -> pa.ChunkedArray:
+    """A DATE or timestamp column (any unit, with or without a time zone), or an integer column
+    whose `unit` is declared, as naive-UTC `timestamp[us]`; anything else is not a time and
+    raises."""
     kind = column.type
+    if pa.types.is_integer(kind) and unit in _UNIT_MICROS:
+        micros = pc.multiply_checked(column.cast(pa.int64()), pa.scalar(_UNIT_MICROS[unit]))
+        return micros.cast(pa.timestamp("us"))
     if not (pa.types.is_date(kind) or pa.types.is_timestamp(kind)):
         raise TypeError(f"cannot read {kind} as a time")
     if pa.types.is_timestamp(kind) and kind.tz is not None:
         column = column.cast(pa.timestamp(kind.unit))  # the UTC wall time
-    return column.cast(pa.timestamp("us"))
+    return column.cast(pa.timestamp("us"), safe=False)
 
 
 def flight_scores(
@@ -187,23 +214,25 @@ def flight_scores(
     key: str | None,
     labels: pa.Table,
     prediction_ts: str,
-    stamps: Mapping[datetime, datetime],
+    stamps: Mapping[datetime, object],
     max_times: int = MAX_FLIGHT_TIMES,
+    unit: str | None = None,
 ) -> dict[datetime, float]:
     """Weight, per label time, of the rows in flight then (see `Replayer._in_flight`).
 
-    `stamps` maps each naive-UTC label time to the label column's own representation of it. At
-    most `max_times` times are scored (an even, deterministic thinning of the sorted times). The
-    rows are sorted by time once; a row in flight at `t` happened in `[t - longest delay, t)`, so
-    each time looks at that slice only, found by binary search: the cost is O(n log n) once and
-    O(log n + rows in the window) per time, not O(times x rows).
+    `stamps` maps each naive-UTC label time to the label column's own representation of it (a
+    datetime, a date or an integer). `unit` is the unit of the table's time columns when they are
+    integers. At most `max_times` times are scored (an even, deterministic thinning of the sorted
+    times). The rows are sorted by time once; a row in flight at `t` happened in
+    `[t - longest delay, t)`, so each time looks at that slice only, found by binary search: the
+    cost is O(n log n) once and O(log n + rows in the window) per time, not O(times x rows).
     """
     if data.num_rows == 0:
         return {}
     # both columns in one unit (microseconds, naive UTC), whatever their arrow types
     happened_all, loaded_all = (
-        _naive_micros(data.column(_column(data, time_column))),
-        _naive_micros(data.column(_column(data, availability))),
+        _naive_micros(data.column(_column(data, time_column)), unit),
+        _naive_micros(data.column(_column(data, availability)), unit),
     )
     order = pc.sort_indices(happened_all)
     happened = happened_all.take(order).combine_chunks()
@@ -281,9 +310,15 @@ class Replayer:
         self.min_rows, self.min_points = min_rows, min_points
         self.tables = catalog.table_names()
         self.labels = catalog.read(spec.label_table)
-        counts = Counter(self.labels.column(_column(self.labels, spec.prediction_ts)).to_pylist())
-        # every label timestamp, in the label column's own representation, by naive-UTC value
-        self._label_stamps = {naive_utc(ts): ts for ts in counts if isinstance(ts, datetime)}
+        stamp_column = self.labels.column(_column(self.labels, spec.prediction_ts))
+        self._time_unit = spec.time_units.get(spec.label_table)
+        # why the prediction times cannot be placed in time, when they cannot
+        self._time_error = self._unplaceable(stamp_column.type)
+        counts = Counter(stamp_column.to_pylist())
+        # every label time, in the label column's own representation, by naive-UTC value
+        self._label_stamps = {
+            instant: ts for ts in counts if (instant := to_instant(ts, self._time_unit))
+        }
         # a query-independent sample over all labels (the point set `run` draws from its output)
         self.points: list[datetime] = sample_points(counts, max_points, seed)
         self._current: duckdb.DuckDBPyConnection | None = None
@@ -298,6 +333,26 @@ class Replayer:
         self._flight_errors: dict[str, str] = {}  # why a table's in-flight scoring was skipped
         self._counts: dict[tuple, dict[tuple, int]] = {}
         self._bound: dict[int, set[tuple[str, ...]]] = defaultdict(set)  # views made per connection
+
+    def _unplaceable(self, kind: pa.DataType) -> str:
+        """Why prediction times of this Arrow type cannot be put on the clock ('' when they can)."""
+        if pa.types.is_date(kind) or pa.types.is_timestamp(kind):
+            return ""
+        if pa.types.is_integer(kind):
+            if self._time_unit in _UNIT_MICROS:
+                return ""
+            return (
+                f"integer prediction time without a declared unit (time_units): say whether "
+                f"{self.spec.label_table}.{self.spec.prediction_ts} counts seconds, milliseconds "
+                "or microseconds since the Unix epoch"
+            )
+        return f"prediction time of type {kind} is not a time (date, timestamp or integer)"
+
+    def _instant(self, ts: object) -> datetime:
+        instant = to_instant(ts, self._time_unit)
+        if instant is None:
+            raise ValueError(f"{ts!r} is not a prediction time of this spec")
+        return instant
 
     def _read(self, table: str, snapshot_id: int | None) -> pa.Table:
         key = (table, snapshot_id)
@@ -401,11 +456,12 @@ class Replayer:
         identically, while one that reads an earlier label's value does not. Labels that the
         spec's `label_known_after` says were final before `ts` keep their values.
         """
+        ts = self._instant(ts)
         key = (ts, history)
         if key not in self._pinned:
             try:
                 inclusive = self.spec.boundary == "inclusive"
-                before = naive_utc(ts) - (timedelta(0) if inclusive else _STRICT)
+                before = ts - (timedelta(0) if inclusive else _STRICT)
                 late: dict[str, str] = {}
                 data = {
                     t: self._table_at(t, ts, before, late)
@@ -446,7 +502,7 @@ class Replayer:
                     and data is not None
                     and {time_column, availability} <= {c.lower() for c in data.column_names}
                 ):
-                    scores = self._flight_scores(data, time_column, availability, key)
+                    scores = self._flight_scores(data, time_column, availability, key, table)
             except Exception as err:  # noqa: BLE001 - sampling help must never abort a replay
                 self._flight_errors[table] = f"{type(err).__name__}: {err}"
                 scores = {}
@@ -454,7 +510,7 @@ class Replayer:
         return self._flying[table]
 
     def _flight_scores(
-        self, data: pa.Table, time_column: str, availability: str, key: str | None
+        self, data: pa.Table, time_column: str, availability: str, key: str | None, table: str
     ) -> dict[datetime, float]:
         return flight_scores(
             data,
@@ -464,6 +520,7 @@ class Replayer:
             self.labels,
             self.spec.prediction_ts,
             self._label_stamps,
+            unit=self.spec.time_units.get(table),
         )
 
     def _exposed(self, table: str, ts: datetime, entities: set[tuple] | None) -> int:
@@ -474,7 +531,7 @@ class Replayer:
         later rows only. A row that is stamped late but present in the pinned read is not hidden.
         """
         current = self.labels if table == self.spec.label_table else self._current_data(table)
-        pinned = self._pinned_data[(ts, True)][table]
+        pinned = self._pinned_data[(self._instant(ts), True)][table]
         keys = list(self.spec.entity_keys)
         # a single series has no entity to narrow to: the whole table counts
         if (
@@ -484,7 +541,7 @@ class Replayer:
         ):
             return max(current.num_rows - pinned.num_rows, 0)
         now = self._entity_counts(("current", table), current, keys)
-        then = self._entity_counts((ts, table), pinned, keys)
+        then = self._entity_counts((self._instant(ts), table), pinned, keys)
         return sum(max(now.get(e, 0) - then.get(e, 0), 0) for e in entities)
 
     def _entity_counts(self, key: tuple, table: pa.Table, keys: list[str]) -> dict[tuple, int]:
@@ -509,18 +566,24 @@ class Replayer:
                 return self._read(label_table, snapshot)
         return self.labels
 
+    def _instants(self, table: pa.Table) -> pa.ChunkedArray:
+        """The prediction times of `table` as naive-UTC `timestamp[us]` (one clock for dates,
+        timestamps and integers with a unit)."""
+        column = table.column(_column(table, self.spec.prediction_ts))
+        return _naive_micros(column, self._time_unit)
+
     def _pinned_labels(self, ts: datetime, history: bool, before: datetime) -> pa.Table:
-        stamp_name = _column(self.labels, self.spec.prediction_ts)
-        column = self.labels.column(stamp_name)
-        at = self.labels.filter(pc.equal(column, pa.scalar(ts, type=column.type)))
+        now = pa.scalar(ts, pa.timestamp("us"))
+        at = self.labels.filter(pc.equal(self._instants(self.labels), now))
         if not history:
             return at
         source = self._earlier_source(before)
-        column = source.column(_column(source, self.spec.prediction_ts))
-        earlier = source.filter(pc.less(column, pa.scalar(ts, type=column.type)))
+        earlier = source.filter(pc.less(self._instants(source), now))
         if self.spec.label_known_after is not None:
-            cutoff = pa.scalar(ts - timedelta(seconds=self.spec.label_known_after), column.type)
-            stamped = earlier.column(stamp_name)
+            cutoff = pa.scalar(
+                ts - timedelta(seconds=self.spec.label_known_after), pa.timestamp("us")
+            )
+            stamped = self._instants(earlier)
             # final once label_ts + known_after is before ts (at ts too, when inclusive)
             inclusive = self.spec.boundary == "inclusive"
             unknown = (
@@ -641,6 +704,10 @@ class Replayer:
         read = set(relations.values())
         if spec.label_table not in read:
             return ReplayResult(ReplayStatus.UNVERIFIABLE, reason="label table not referenced")
+        if self._time_error:
+            return ReplayResult(
+                ReplayStatus.UNVERIFIABLE, reason=self._time_error, insufficient_evidence=True
+            )
         sql = self._keep_label_cutoffs(sql)
         try:
             self._bind(self.current(), relations)
@@ -659,9 +726,12 @@ class Replayer:
         # runs is not the label.
         value_cols = [c for c in full.column_names if c not in key_cols]
         full_by_ts: dict[datetime, dict[tuple, list[tuple]]] = defaultdict(dict)
+        # rows keep their own key (the value as the query printed it); only the choice of the
+        # snapshot and the cutoff go by the instant that value stands for
         for key, rows in self._rows_by_key(full, key_cols, value_cols).items():
-            if isinstance(key[-1], datetime):
-                full_by_ts[naive_utc(key[-1])][key] = rows
+            instant = to_instant(key[-1], self._time_unit)
+            if instant is not None:
+                full_by_ts[instant][key] = rows
 
         # Replay the prediction times the query actually produced, not arbitrary label times.
         produced = Counter(
@@ -679,10 +749,7 @@ class Replayer:
                 flight_notes.append(
                     f"in-flight sampling skipped for {table!r}: {self._flight_errors[table]}"
                 )
-        points = [
-            self._label_stamps[ts]
-            for ts in sample_points(usable, self.max_points, self.seed, flying)
-        ]
+        points = sample_points(usable, self.max_points, self.seed, flying)
         if not points:
             return ReplayResult(
                 ReplayStatus.UNVERIFIABLE,
@@ -712,9 +779,9 @@ class Replayer:
             past_rows = {
                 key: rows
                 for key, rows in self._rows_by_key(replayed, key_cols, value_cols).items()
-                if isinstance(key[-1], datetime) and naive_utc(key[-1]) == naive_utc(ts)
+                if to_instant(key[-1], self._time_unit) == ts
             }
-            now_rows = full_by_ts.get(naive_utc(ts), {})
+            now_rows = full_by_ts.get(ts, {})
             keys = now_rows.keys() | past_rows.keys()
             timestamps += bool(keys)
             if keys:

@@ -74,11 +74,13 @@ def events_table(kind: str) -> pa.Table:
     )
 
 
-def build_catalog(path, kind: str, *, labels: pa.Table | None = None) -> LakehouseCatalog:
+def build_catalog(
+    path, kind: str, *, labels: pa.Table | None = None, events_kind: str | None = None
+) -> LakehouseCatalog:
     """Labels loaded in one commit; events committed a day at a time, each loaded at 02:00."""
     catalog = LakehouseCatalog.local(path)
     catalog.create_table("labels", labels if labels is not None else labels_table(kind))
-    events = events_table(kind)
+    events = events_table(events_kind or kind)
     catalog.create_empty("events", events.schema)
     day_of = events.column("event_id").to_pylist()
     for d in range(DAYS):
@@ -282,7 +284,7 @@ def test_a_temporal_table_with_an_outcome_column_is_replayed_like_any_temporal_t
 # --- labels that are final the moment they are stamped ----------------------------------------
 
 
-def plays_table() -> pa.Table:
+def plays_table(kind: str = "timestamp") -> pa.Table:
     rows = [
         (u, START + timedelta(days=d, hours=12), (u + d) % 2)
         for u in range(1, USERS + 1)
@@ -292,15 +294,18 @@ def plays_table() -> pa.Table:
     return pa.table(
         {
             "user_id": pa.array(users, pa.int64()),
-            "ts": pa.array(moments, pa.timestamp("us")),
+            "ts": _array(kind, list(moments)),
             "correct": pa.array(correct, pa.int64()),
         }
     )
 
 
-def plays_spec(**extra) -> LeakageSpec:
+def plays_spec(kind: str = "timestamp", **extra) -> LeakageSpec:
+    units = {"seconds": "seconds", "milliseconds": "milliseconds"}
+    declared = {"time_units": {"plays": units[kind]}} if kind in units else {}
     return LeakageSpec.from_dict(
         {
+            **declared,
             "label_table": "plays",
             "entity_keys": ["user_id"],
             "prediction_ts": "ts",
@@ -444,3 +449,122 @@ def test_rows_in_flight_are_scored_over_the_whole_table_when_there_is_no_key():
     assert set(scores) == {
         START + timedelta(days=d, hours=12) for d in range(FIRST_LABEL_DAY, DAYS)
     }
+
+
+# --- prediction times that are dates or integers -------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_feature_read_before_the_prediction_replays_clean_in_every_time_representation(
+    worlds, kind
+):
+    replay = Replayer(worlds[kind], spec_for(kind)).run(count_before(kind, leak=False))
+    assert replay.status is ReplayStatus.PASS, replay.reason
+    assert replay.rows_compared >= 20 and replay.timestamps_compared >= 3
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_feature_read_after_the_prediction_is_a_mismatch_in_every_time_representation(
+    worlds, kind
+):
+    replay = Replayer(worlds[kind], spec_for(kind)).run(count_before(kind, leak=True))
+    assert replay.status is ReplayStatus.MISMATCH
+    assert set(replay.mismatched_columns) == {"n"}
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_every_representation_gives_the_verdict_of_the_timestamp_twin(worlds, kind):
+    twin = Replayer(worlds["timestamp"], spec_for("timestamp"))
+    mine = Replayer(worlds[kind], spec_for(kind))
+    for leak in (False, True):
+        a, b = twin.run(count_before("timestamp", leak)), mine.run(count_before(kind, leak))
+        assert (a.status, set(a.mismatched_columns)) == (b.status, set(b.mismatched_columns))
+
+
+@pytest.mark.parametrize("kind", ["seconds", "milliseconds"])
+def test_an_integer_prediction_time_without_a_unit_cannot_be_placed(worlds, kind):
+    spec = LeakageSpec.from_dict(
+        {
+            "label_table": "labels",
+            "entity_keys": ["user_id"],
+            "prediction_ts": "label_ts",
+            "label_columns": ["churned"],
+            "time_columns": {"labels": "label_ts", "events": "event_ts"},
+            "static_tables": [],
+        }
+    )
+    replay = Replayer(worlds[kind], spec).run(count_before(kind, leak=False))
+    assert replay.status is ReplayStatus.UNVERIFIABLE
+    assert "integer prediction time without a declared unit (time_units)" in replay.reason
+    assert replay.rows_compared == 0
+
+
+def test_a_prediction_time_that_is_text_cannot_be_placed(tmp_path):
+    labels = pa.table(
+        {
+            "user_id": pa.array([1, 2], pa.int64()),
+            "label_ts": pa.array(["2026-01-05", "2026-01-06"], pa.string()),
+            "churned": pa.array([0, 1], pa.int64()),
+        }
+    )
+    catalog = build_catalog(tmp_path, "timestamp", labels=labels)
+    replay = Replayer(catalog, spec_for("timestamp")).run(
+        "SELECT user_id, label_ts, churned FROM labels"
+    )
+    assert replay.status is ReplayStatus.UNVERIFIABLE
+    assert "is not a time" in replay.reason
+
+
+def test_a_date_spine_and_timestamp_features_do_not_mix_their_keys(tmp_path):
+    catalog = build_catalog(tmp_path, "date", events_kind="timestamp")
+    sql = COUNT.format(bound="e.event_ts < CAST(l.label_ts AS TIMESTAMP)")
+    replay = Replayer(catalog, spec_for("date")).run(sql)
+    assert replay.status is ReplayStatus.PASS, replay.reason
+    assert replay.rows_compared == USERS * (DAYS - FIRST_LABEL_DAY)
+    leaky = COUNT.format(bound="e.event_ts < CAST(l.label_ts AS TIMESTAMP) + INTERVAL 30 HOUR")
+    assert Replayer(catalog, spec_for("date")).run(leaky).status is ReplayStatus.MISMATCH
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_label_delay_cuts_off_at_the_same_moment_in_every_time_representation(
+    tmp_path_factory, kind
+):
+    catalog = LakehouseCatalog.local(tmp_path_factory.mktemp(f"plays-{kind}"))
+    catalog.create_table("plays", plays_table(kind))
+    known_at_once = Replayer(catalog, plays_spec(kind, label_known_after="0 seconds"))
+    assert known_at_once.run(PRIOR_RATE).status is ReplayStatus.PASS
+    # a day's labels are final half a day later: the day before is known at midnight, but the
+    # label stamped two days earlier is not known to a delay of three days
+    half_day = Replayer(catalog, plays_spec(kind, label_known_after="12 hours"))
+    assert half_day.run(PRIOR_RATE).status is ReplayStatus.PASS
+    three_days = Replayer(catalog, plays_spec(kind, label_known_after="3 days"))
+    assert three_days.run(PRIOR_RATE).status is ReplayStatus.MISMATCH
+
+
+def test_to_instant_places_each_representation_on_one_clock():
+    from datetime import UTC
+
+    from sqlguard.leakage.replay import to_instant
+
+    noon = datetime(2026, 1, 2, 12)
+    assert to_instant(noon) == noon
+    assert to_instant(noon.replace(tzinfo=UTC)) == noon
+    assert to_instant(datetime(2026, 1, 2, 14, tzinfo=timezone_plus(2))) == noon
+    assert to_instant(date(2026, 1, 2)) == datetime(2026, 1, 2)
+    seconds = int((noon - EPOCH).total_seconds())
+    assert to_instant(seconds, "seconds") == noon
+    assert to_instant(seconds * 1000, "milliseconds") == noon
+    assert to_instant(seconds * 1_000_000, "microseconds") == noon
+    assert to_instant(seconds) is None  # no unit: not a time
+    assert to_instant(seconds, "days") is None
+    assert to_instant(True, "seconds") is None
+    assert to_instant(1.5, "seconds") is None
+    assert to_instant(None, "seconds") is None
+    assert to_instant("2026-01-02", "seconds") is None
+    assert to_instant(10**30, "microseconds") is None
+
+
+def timezone_plus(hours: int):
+    from datetime import timezone
+
+    return timezone(timedelta(hours=hours))

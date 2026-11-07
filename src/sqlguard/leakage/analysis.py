@@ -118,6 +118,8 @@ _CLOCK_FUNCTIONS = {
     "statement_timestamp",
     "clock_timestamp",
 }
+# seconds in one unit of an integer time column (`time_units` of the spec)
+_UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
 MATURED_LABELS = "__matured_labels"
 # the only aggregates a time-split cutoff may be made of
 _CUTOFF_AGGREGATES = (
@@ -568,6 +570,8 @@ class _Peeled:
     up: float = 0.0  # the true offset is at most offset + up
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False  # went through epoch(): seconds since 1970
+    # a bare number added to the column, in the column's own unit (see `time_units`)
+    pending: float = 0.0
 
 
 def _peel(node: exp.Expression) -> _Peeled | None:
@@ -623,9 +627,9 @@ def _peel(node: exp.Expression) -> _Peeled | None:
             node = node.this
         else:
             break
-    if not isinstance(node, exp.Column) or (pending and not epoch):
+    if not isinstance(node, exp.Column):
         return None
-    return _Peeled(node, offset, trunc, up, down, epoch)
+    return _Peeled(node, offset, trunc, up, down, epoch, 0.0 if epoch else pending)
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -741,12 +745,15 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
+            shift = self.pending_seconds(peeled.pending, ref)
+            if shift is None:
+                return None
             return [
                 Resolved(
                     ref,
                     column.name.lower(),
                     (),
-                    peeled.offset,
+                    peeled.offset + shift,
                     peeled.trunc,
                     raw,
                     column.table,
@@ -786,12 +793,15 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
+                shift = self.pending_seconds(peeled.pending, g.ref)
+                if shift is None:
+                    return None
                 resolved.append(
                     Resolved(
                         g.ref,
                         g.column,
                         ((id(owner), column.table), *g.chain),
-                        peeled.offset + g.offset,
+                        peeled.offset + shift + g.offset,
                         max(peeled.trunc, g.trunc),
                         raw and g.raw,
                         column.table,
@@ -802,6 +812,17 @@ class _Resolver:
                     )
                 )
         return resolved
+
+    def pending_seconds(self, amount: float, ref: TableRef) -> float | None:
+        """Seconds in a bare number added to a time column of `ref`'s table, or None when the
+        table declares no unit for it (then the number means nothing we can use)."""
+        if not amount:
+            return 0.0
+        factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
+        return None if factor is None else amount * factor
+
+    def unit_of(self, ref: TableRef) -> str | None:
+        return self.spec.time_units.get(ref.table)
 
     def _row_key(self, expression: exp.Expression, scope: Scope) -> exp.Column | None:
         """The prediction_ts column of a surrogate key of one label row, or None.
@@ -1572,8 +1593,18 @@ def _record(
             continue
         if any(lab.ref.kind != "label" or lab.column != spec.prediction_ts for lab in labels):
             continue
-        if needs_epoch and not all(f.epoch for f in features + labels):
-            continue
+        scale = 1.0
+        resolved = features + labels
+        if needs_epoch and all(r.epoch for r in resolved):
+            pass  # both sides went through epoch(): the constant is in seconds
+        elif not any(r.epoch for r in resolved) or needs_epoch:
+            # integer columns are compared in their own unit: columns of different units do not
+            # bound each other, and a bare constant means that unit
+            units = {resolver.unit_of(r.ref) for r in resolved}
+            factor = _UNIT_FACTOR.get(next(iter(units)) or "") if len(units) == 1 else None
+            if len(units) > 1 or (needs_epoch and factor is None):
+                continue
+            scale = factor if needs_epoch else 1.0
         upper = normalized in ("<", "<=")
         recorded = False
         for feature in features:
@@ -1600,7 +1631,7 @@ def _record(
             # feature + f_offset OP label + l_offset + signed  ->  feature OP label + offset;
             # across several labels (UNION branches) the loosest reading counts
             pick = max if upper else min
-            offset = pick(lab.offset for lab in labels) + signed - feature.offset
+            offset = pick(lab.offset for lab in labels) + signed * scale - feature.offset
             label_trunc = min(lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts

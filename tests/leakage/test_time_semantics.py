@@ -288,3 +288,99 @@ def test_the_fix_for_a_series_ranks_and_bounds_without_an_entity_key(name):
     text = " ".join([re.sub(r"\s+", " ", fix.after_sql), *fix.caveats])
     for snippet in expected:
         assert snippet in text, (snippet, text)
+
+
+# --- integer time columns with a declared unit -----------------------------------------------
+
+MS_SPEC = {
+    "label_table": "train",
+    "entity_keys": ["user_id"],
+    "prediction_ts": "ts",
+    "label_columns": ["ans"],
+    "time_columns": {"train": "ts", "events": "event_ts"},
+    "time_units": {"train": "milliseconds", "events": "milliseconds"},
+    "static_tables": [],
+}
+MS_SCHEMA = {
+    "train": {"user_id": "BIGINT", "ts": "BIGINT", "ans": "BIGINT"},
+    "events": {"user_id": "BIGINT", "event_ts": "BIGINT", "amount": "DOUBLE"},
+}
+EVENTS_SUM = """SELECT l.user_id, l.ts, l.ans,
+  (SELECT SUM(e.amount) FROM events e WHERE e.user_id = l.user_id AND {bound}) AS spend
+FROM train l"""
+DAY_MS = 86_400_000
+
+INT_CLEAN = {
+    "a day back in milliseconds": f"e.event_ts < l.ts - {DAY_MS}",
+    "the day written as a product": "e.event_ts < l.ts - 24 * 60 * 60 * 1000",
+    "plain strict bound": "e.event_ts < l.ts",
+    "difference of the two columns": f"l.ts - e.event_ts > {DAY_MS}",
+    "difference compared the other way round": f"{DAY_MS} < l.ts - e.event_ts",
+}
+INT_LEAKY = {
+    "a second ahead": ("e.event_ts <= l.ts + 1000", "L5"),
+    "a day ahead": (f"e.event_ts < l.ts + {DAY_MS}", "L1"),
+    "inclusive": ("e.event_ts <= l.ts", "L5"),
+    "difference reaches past the prediction": (f"l.ts - e.event_ts > -{DAY_MS}", "L1"),
+    "no bound": ("e.amount > 0", "L3"),
+}
+
+
+@pytest.mark.parametrize("name", INT_CLEAN)
+def test_a_constant_added_to_an_integer_time_is_read_in_the_declared_unit(name):
+    sql = EVENTS_SUM.format(bound=INT_CLEAN[name])
+    assert check(sql, MS_SPEC, MS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("name", INT_LEAKY)
+def test_an_integer_time_bound_that_reaches_the_prediction_is_flagged(name):
+    bound, rule = INT_LEAKY[name]
+    verdict, rules = check(EVENTS_SUM.format(bound=bound), MS_SPEC, MS_SCHEMA)
+    assert verdict == "leaky" and rule in rules
+
+
+def test_a_constant_shift_of_an_integer_time_without_a_unit_is_not_read_as_a_bound():
+    spec = {k: v for k, v in MS_SPEC.items() if k != "time_units"}
+    sql = EVENTS_SUM.format(bound=f"e.event_ts < l.ts - {DAY_MS}")
+    verdict, rules = check(sql, spec, MS_SCHEMA)
+    assert verdict == "leaky" and "L3" in rules
+
+
+MIXED_UNITS = {
+    **MS_SPEC,
+    "time_units": {"train": "milliseconds", "events": "seconds"},
+}
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [f"e.event_ts < l.ts - {DAY_MS}", "e.event_ts < l.ts", f"l.ts - e.event_ts > {DAY_MS}"],
+)
+def test_two_integer_columns_in_different_units_do_not_bound_each_other(bound):
+    verdict, rules = check(EVENTS_SUM.format(bound=bound), MIXED_UNITS, MS_SCHEMA)
+    assert verdict == "leaky" and "L3" in rules
+
+
+@pytest.mark.parametrize(
+    "unit, day",
+    [("seconds", 86_400), ("milliseconds", DAY_MS), ("microseconds", DAY_MS * 1000)],
+)
+def test_each_unit_scales_the_constant_to_seconds(unit, day):
+    spec = {**MS_SPEC, "time_units": {"train": unit, "events": unit}}
+    back = EVENTS_SUM.format(bound=f"e.event_ts < l.ts - {day}")
+    ahead = EVENTS_SUM.format(bound=f"e.event_ts < l.ts + {day}")
+    assert check(back, spec, MS_SCHEMA) == ("clean", set())
+    assert check(ahead, spec, MS_SCHEMA)[1] == {"L1"}
+    one_unit = EVENTS_SUM.format(bound="e.event_ts < l.ts + 1")
+    assert check(one_unit, spec, MS_SCHEMA)[1] == {"L5"}
+
+
+def test_the_shift_is_followed_through_a_cte_that_renames_the_column():
+    sql = f"""WITH sp AS (SELECT user_id, ts AS cutoff, ans FROM train)
+SELECT sp.user_id, sp.cutoff AS ts, sp.ans,
+  (SELECT SUM(e.amount) FROM events e
+   WHERE e.user_id = sp.user_id AND e.event_ts < sp.cutoff - {DAY_MS}) AS spend
+FROM sp"""
+    assert check(sql, MS_SPEC, MS_SCHEMA) == ("clean", set())
+
+
