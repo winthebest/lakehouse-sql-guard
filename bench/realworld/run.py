@@ -2,6 +2,10 @@
 
     uv run python -m bench.realworld.run [--projects OWNER/REPO ...] [--date YYYYMMDD]
 
+Round 2 uses the same code with its own files:
+`--projects-file bench/realworld/round2/projects.yaml --specs-dir bench/realworld/round2/specs
+--out results/realworld/round2 --full-csv <git-ignored csv>`.
+
 Per project: clone at the pinned commit, compile with dbt-duckdb into `build_<slug>`, apply the
 spec's `realworld:` block to a copy of the manifest, then run the checker exactly as a user would
 (`sqlguard leakage dbt --manifest ... --spec ... --catalog-json ... --json`, static, no replay:
@@ -29,6 +33,7 @@ import yaml
 
 from bench.realworld import rows
 from bench.realworld.checkout import (
+    GROUPS,
     ROOT,
     CheckoutError,
     Project,
@@ -44,8 +49,8 @@ FULL_CSV = ROOT / ".realworld" / "adjudication" / "findings-full.csv"
 CHECK_TIMEOUT_SECONDS = 900
 
 
-def load_spec(project: Project) -> dict[str, Any]:
-    path = SPECS / f"{project.spec_name}.yaml"
+def load_spec(project: Project, specs: Path = SPECS) -> dict[str, Any]:
+    path = specs / f"{project.spec_name}.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("realworld"), dict):
         raise rows.RealworldError(f"{path}: expected a mapping with a `realworld:` block")
@@ -90,7 +95,7 @@ def run_checker(
 
 
 def check_project(
-    project: Project, spec: dict[str, Any], prepared: bool = False
+    project: Project, spec: dict[str, Any], prepared: bool = False, specs: Path = SPECS
 ) -> tuple[dict[str, Any], list, list]:
     """Result record of one project and its finding rows (full view).
 
@@ -133,7 +138,7 @@ def check_project(
         unique_id = rows.resolve_node(annotated, f"model:{name}")
         try:
             code, entries, warnings, error, took = run_checker(
-                annotated_path, SPECS / f"{project.spec_name}.yaml", catalog_path, name
+                annotated_path, specs / f"{project.spec_name}.yaml", catalog_path, name
             )
         except subprocess.TimeoutExpired:
             code, entries, warnings, error, took = -1, [], [], "timed out", CHECK_TIMEOUT_SECONDS
@@ -179,7 +184,8 @@ def check_project(
 def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Counts per group (no precision: that needs the hand adjudication)."""
     summary: dict[str, Any] = {}
-    for group in ("new", "seen"):
+    present = {r["group"] for r in records}
+    for group in ("new", "seen", *(g for g in GROUPS[2:] if g in present)):
         mine = [r for r in records if r["group"] == group]
         checked = [r for r in mine if r["status"] == "checked"]
         summary[group] = {
@@ -216,14 +222,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--projects", nargs="+", metavar="OWNER/REPO", help="only these projects")
     parser.add_argument("--date", default=date.today().strftime("%Y%m%d"))
     parser.add_argument("--out", type=Path, default=RESULTS)
+    parser.add_argument(
+        "--projects-file", type=Path, default=PROJECTS_FILE, help="projects.yaml to read"
+    )
+    parser.add_argument("--specs-dir", type=Path, default=SPECS, help="folder of the specs")
+    parser.add_argument(
+        "--full-csv", type=Path, default=FULL_CSV, help="git-ignored findings with code excerpts"
+    )
     args = parser.parse_args(argv)
 
     rows.assert_rules_frozen(ROOT)
-    projects = load_projects(PROJECTS_FILE)
+    projects = load_projects(args.projects_file)
     if args.projects:
         unknown = set(args.projects) - {p.repo for p in projects}
         if unknown:
-            parser.error(f"not in projects.yaml: {sorted(unknown)}")
+            parser.error(f"not in the projects file: {sorted(unknown)}")
         projects = [p for p in projects if p.repo in args.projects]
 
     records: list[dict[str, Any]] = []
@@ -232,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     unchecked_public: list[dict[str, Any]] = []
     for project in projects:
         try:
-            record, leaks, unchecked = check_project(project, load_spec(project))
+            record, leaks, unchecked = check_project(
+                project, load_spec(project, args.specs_dir), specs=args.specs_dir
+            )
         except (
             rows.RealworldError,
             CheckoutError,
@@ -281,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.keep_adjudication(unchecked_public, args.out / "unverifiable.csv", ran),
     )
     rows.write_csv(args.out / "models.csv", rows.model_rows(records), rows.MODEL_COLUMNS)
-    rows.write_csv(FULL_CSV, rows.keep_adjudication(full_rows, FULL_CSV, ran))
+    rows.write_csv(args.full_csv, rows.keep_adjudication(full_rows, args.full_csv, ran))
     print(json.dumps(result["summary"], indent=2))
     return 0
 

@@ -1,0 +1,163 @@
+# Projects of the second search (round 2), pinned at screening; the six after screening_order 51 were added by the amendment of the pre-registration. Selected by the pre-registered
+# search in search-prereg.yaml (screening.csv); nobody looked at these projects while the rules were
+# developed. Same fields as ../projects.yaml, group `round2`. Clones go in the git-ignored
+# `.realworld/` directory like round 1; the loader is bench/realworld/checkout.py `load_projects`.
+#
+# publish: `code` = short excerpts may be quoted with attribution (license file in the clone);
+#          `aggregate_only` = no license, so the clone is used locally and only counts and our own
+#          notes are published.
+# flags:   `no_documented_cutoff` = the project documents neither a prediction/cutoff time nor the
+#          timing of its label (criterion added in round 2; the project is still admitted).
+# compile: every project compiles with dbt-duckdb at the pinned commit, and every model the
+#          training tables read has compiled SQL (checked with bench.realworld.checkout).
+projects:
+  - repo: theo-lyd/predictive-ltv-survival-pipeline
+    group: round2
+    sha: da4041b7399bbcc75d6547cc2e70fd0d75f8dbf0
+    default_branch: master
+    license: MIT
+    publish: code
+    dbt_subdir: "."
+    screening_order: 4
+  - repo: gauthierpiarrette/dbt-features
+    group: round2
+    sha: 2fceb0b29d3996713c423850f80fa6540d4f2c19
+    default_branch: main
+    license: Apache-2.0
+    publish: code
+    dbt_subdir: "examples/jaffle_shop_features"
+    screening_order: 5
+  - repo: ritulchitra/customer-conversion-dbt-ml
+    group: round2
+    sha: 3b1a4cdee8e31f094cd4599518e87d537877d035
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 31
+  - repo: mgrody1/Gamebot
+    group: round2
+    sha: e901ae9d4a86715eb18cfc3a91dfbf178b5c891c
+    default_branch: main
+    license: MIT
+    publish: code
+    dbt_subdir: "dbt"
+    screening_order: 41
+    flags: [no_documented_cutoff]
+  - repo: clementlemon02/crypto-macd-screener
+    group: round2
+    sha: 05ddd8927cba99097b4162c619c89149c59433eb
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt"
+    screening_order: 42
+  - repo: LNshuti/soma
+    group: round2
+    sha: ad94feacdb9f2856398ea074346938603327d8c3
+    default_branch: main
+    license: Apache-2.0
+    publish: code
+    dbt_subdir: "dbt"
+    screening_order: 44
+    flags: [no_documented_cutoff]
+  - repo: PHALMenghak/car-price-prediction
+    group: round2
+    sha: e4decfc1028808d0ffdc81e7da27e927377654f9
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt"
+    screening_order: 45
+  - repo: sumanoj/hoteliq-analytics
+    group: round2
+    sha: aad52fb1ac06b1b2ea24aa8cbe0214283166bba6
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "hoteliq"
+    screening_order: 47
+    flags: [no_documented_cutoff]
+  - repo: renekomtsindi237/Stage
+    group: round2
+    sha: 7579979727c13d1de7615cbc0f5549aa6ce01274
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "pipeline/dbt"
+    screening_order: 48
+  - repo: alwyndsouza/asx_stock_analysis_using_ml
+    group: round2
+    sha: 43dcd16986979b3010c510aa9c0cbc78a3bdb260
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt_project"
+    screening_order: 49
+  - repo: smshde/NexusFlow-DataOps-Pipeline
+    group: round2
+    sha: 5823029a7c8c4296466107943bb572208d66ab9c
+    default_branch: main
+    license: MIT
+    publish: code
+    dbt_subdir: "dbt_project"
+    screening_order: 50
+  - repo: KZDNguyenThanh/africa-energy-lakehouse
+    group: round2
+    sha: 2f685d456524cb05eb07ca13c3f3e0959b40283c
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt_project"
+    screening_order: 51
+    flags: [no_documented_cutoff]
+  - repo: gusdiaso/lh_nautical_athena
+    group: round2
+    sha: a411a72e7b1b6bc8b722cb66164ac03d2728ab4b
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 53
+  - repo: sadelcarpio/steam_games_recommender
+    group: round2
+    sha: 5767ec60247501f25de5f317382f8ac55400f41a
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "dbt"
+    screening_order: 55
+  - repo: KenImade/fpl-data-platform
+    group: round2
+    sha: 21916d10313bb5a001ca8400cf3decf289d2dc3f
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "transform"
+    screening_order: 69
+  - repo: Helooeverybody/AI-thuc-chien
+    group: round2
+    sha: 578938ba3b910a3363f822096f3cd91340cefe3e
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "Track02_Day17_Data-Pipeline-Engineering/dbt"
+    screening_order: 70
+    flags: [no_documented_cutoff]
+  - repo: justinlawee/instacart-reorder-prediction
+    group: round2
+    sha: 2817efb6be725470147ea3e8b63077623075e8ad
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 112
+  - repo: nathandxn/dbt_credit_risk_model
+    group: round2
+    sha: bbc8b9a8f4eaa6f6a9df3039b55bff70b5c7971b
+    default_branch: main
+    license: none
+    publish: aggregate_only
+    dbt_subdir: "."
+    screening_order: 135
+    flags: [no_documented_cutoff]

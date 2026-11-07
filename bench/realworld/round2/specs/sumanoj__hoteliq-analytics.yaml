@@ -1,0 +1,75 @@
+# Spec for sumanoj/hoteliq-analytics, hoteliq/ subdirectory (group: round2, no license) at the pinned
+# commit of ../projects.yaml. Written from the README, models/staging/sources.yml,
+# models/staging/stg_hotel_bookings.yml and the header comment of the training model, before the
+# checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Assumptions the project does not settle:
+#   - The project documents no prediction time for a booking and no column as the time of the
+#     cancellation, so prediction_ts names a column the project does not have; the checker is expected
+#     to say the output does not carry a prediction time. (reservation_status_date exists in the raw
+#     table but the project does not describe it.)
+#   - The training table is a row-level transformation of one raw table: that table is the label table
+#     and there is no separate history (single-table case of the round 1 specs).
+#   - The raw columns below are the ones the staging model reads; the source yml documents only seven
+#     of them and gives no types.
+label_table: raw_hotel_bookings
+entity_keys: [_row_number]
+prediction_ts: prediction_ts
+label_columns: [is_canceled]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [mart_ml_features]
+  basis: |
+    - mart_ml_features is the training table: header "Feature table for cancellation prediction
+      model ... ready for model training"; README "ML | Table | Feature-engineered training dataset".
+    - label: is_canceled in raw_hotel_bookings ("Booking cancellation flag (1 = cancelled,
+      0 = not cancelled)"), exposed as target_is_canceled; _row_number is the documented surrogate row
+      identifier (the dataset has no booking id).
+    - stg_hotel_bookings.yml: lead_time_days "Number of days between booking and arrival",
+      arrival_date "Derived arrival date from year, month, and day columns".
+  not_training:
+    mart_guest_profile, mart_reservations, mart_revenue: reporting marts
+    int_*, stg_*: staging and intermediate (int_guest_stays is ephemeral)
+  schema:
+    "source:hotel_bookings_raw.raw_hotel_bookings":
+      _row_number: UNKNOWN
+      _loaded_at: UNKNOWN
+      _file_name: UNKNOWN
+      hotel: UNKNOWN
+      is_canceled: UNKNOWN
+      reservation_status: UNKNOWN
+      reservation_status_date: UNKNOWN
+      lead_time: UNKNOWN
+      arrival_date_year: UNKNOWN
+      arrival_date_month: UNKNOWN
+      arrival_date_week_number: UNKNOWN
+      arrival_date_day_of_month: UNKNOWN
+      stays_in_weekend_nights: UNKNOWN
+      stays_in_week_nights: UNKNOWN
+      adults: UNKNOWN
+      children: UNKNOWN
+      babies: UNKNOWN
+      meal: UNKNOWN
+      country: UNKNOWN
+      market_segment: UNKNOWN
+      distribution_channel: UNKNOWN
+      is_repeated_guest: UNKNOWN
+      previous_cancellations: UNKNOWN
+      previous_bookings_not_canceled: UNKNOWN
+      reserved_room_type: UNKNOWN
+      assigned_room_type: UNKNOWN
+      booking_changes: UNKNOWN
+      deposit_type: UNKNOWN
+      agent: UNKNOWN
+      company: UNKNOWN
+      days_in_waiting_list: UNKNOWN
+      customer_type: UNKNOWN
+      adr: UNKNOWN
+      required_car_parking_spaces: UNKNOWN
+      total_of_special_requests: UNKNOWN

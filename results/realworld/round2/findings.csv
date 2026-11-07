@@ -1,0 +1,994 @@
+id,project,group,training_model,rule,severity,message,location,model_file,attribution,model_score,model_verdict,evidence,compiled_sql_excerpt,controller,reviewer,final,reason
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#1,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L2,high,stg_promotions is joined without bounding promotion_start_ts before churn_ts,stg_promotions,models/intermediate/int_promotions_resolved.sql,model,1.0,leaky,"{""bounds"":[],""table"":""stg_promotions""}","-- models/intermediate/int_promotions_resolved.sql
+with source as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key
+    from ""memory"".""silver"".""stg_promotions""
+),
+
+ranked as (
+    select
+        *,
+        row_number() over (
+            partition by customer_id, promotion_identity_key
+            order by ingested_at_utc desc, promotion_id desc
+        ) as row_rank
+    from source
+),
+
+resolved as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key,
+        md5(concat_ws('||', customer_id, promotion_identity_key)) as promotion_surrogate_key
+    from ranked
+    where row_rank = 1
+)
+
+select *
+from resolved",true,false,unsure,"disagreement: A=true, B=false"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#2,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L2,high,stg_customers is joined without bounding churn_ts before churn_ts,stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_customers""}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",true,false,unsure,"disagreement: A=true, B=false"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#3,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L1,high,window over stg_promotions looks at later rows,stg_promotions,models/intermediate/int_promotions_resolved.sql,model,1.0,leaky,"{""table"":""stg_promotions"",""window"":""ROW_NUMBER() OVER (PARTITION BY \""source\"".\""customer_id\"", \""source\"".\""promotion_identity_key\"" ORDER BY \""source\"".\""ingested_at_utc\"" DESC, \""source\"".\""promotion_id\"" DESC)""}","-- models/intermediate/int_promotions_resolved.sql
+with source as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key
+    from ""memory"".""silver"".""stg_promotions""
+),
+
+ranked as (
+    select
+        *,
+        row_number() over (
+            partition by customer_id, promotion_identity_key
+            order by ingested_at_utc desc, promotion_id desc
+        ) as row_rank
+    from source
+),
+
+resolved as (
+    select
+        promotion_id,
+        customer_id,
+        discount_type,
+        discount_percent,
+        promotion_start_ts,
+        promotion_channel,
+        ingested_at_utc,
+        promotion_identity_key,
+        md5(concat_ws('||', customer_id, promotion_identity_key)) as promotion_surrogate_key
+    from ranked
+    where row_rank = 1
+)
+
+select *
+from resolved",false,false,false,"ROW_NUMBER over ingested_at_utc desc (int_promotions_resolved.sql:17-20) dedups re-ingested copies of the same promotion identity (customer, type, start date). The generator emits exact duplicate rows (synthetic.py:93-94), so the kept row reveals nothing that comes after the prediction time."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#4,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L3,high,aggregate over stg_billing has no upper bound at churn_ts; it sums the whole history,stg_billing,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_billing""}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",true,unsure,unsure,"disagreement: A=true, B=unsure"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#5,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L3,high,aggregate over stg_billing has no upper bound at churn_ts; it sums the whole history,stg_billing,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""bounds"":[],""table"":""stg_billing""}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",true,unsure,unsure,"disagreement: A=true, B=unsure"
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#6,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,high,feature 'state_transition' is derived from the target or post-outcome data,state_transition,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""sources"":[""stg_customers.is_churned""]}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",false,false,false,"state_transition is built from is_churned (int_customer_state_transitions.sql:38-44), but training uses it only to derive the target target_churned (fct_churn_scores.py:23-25). It is not in model_columns (fct_churn_scores.py:28-36), so it is a label encoding, not a feature."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#7,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,high,label column 'is_churned' is used to compute or select feature rows,stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""CASE WHEN \""c\"".\""is_churned\"" THEN 'active_to_churn' END""}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",false,false,false,"Near-duplicate of row 5: this CASE branch on is_churned builds state_transition, which is used only as the training target (fct_churn_scores.py:23-25) and is excluded from features (fct_churn_scores.py:28-36)."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#8,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,high,label column 'is_churned' is used to compute or select feature rows,stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""\""c\"".\""is_churned\"" AND NOT \""lp\"".\""latest_promotion_ts\"" IS NULL""}","-- models/intermediate/int_customer_state_transitions.sql
+with customers as (
+    select
+        customer_id,
+        signup_ts,
+        churn_ts,
+        is_churned,
+        monthly_recurring_revenue
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'",false,false,false,"Near-duplicate of row 5: this is_churned condition only defines a state_transition category, which becomes the target (fct_churn_scores.py:23-25) and is not a model feature."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#9,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L6,high,label column 'is_churned' is used to compute or select feature rows,stg_customers,"models/intermediate/int_customer_state_transitions.sql, models/marts/fct_gold_customer_features.sql",candidates,1.0,leaky,"{""expression"":""NOT \""c\"".\""is_churned\""""}","-- models/intermediate/int_customer_state_transitions.sql
+    from ""memory"".""silver"".""stg_customers""
+),
+
+latest_promotions as (
+    select
+        customer_id,
+        max(promotion_start_ts) as latest_promotion_ts,
+        max(discount_percent) as latest_discount_percent
+    from ""memory"".""silver"".""int_promotions_resolved""
+    group by customer_id
+),
+
+billing as (
+    select
+        customer_id,
+        count(*) as invoice_count,
+        sum(invoice_amount) as invoice_amount_total
+    from ""memory"".""silver"".""stg_billing""
+    group by customer_id
+)
+
+select
+    c.customer_id,
+    c.signup_ts,
+    c.churn_ts,
+    c.monthly_recurring_revenue,
+    lp.latest_promotion_ts,
+    lp.latest_discount_percent,
+    b.invoice_count,
+    b.invoice_amount_total,
+    case
+        when c.is_churned and lp.latest_promotion_ts is not null and lp.latest_promotion_ts <= c.churn_ts
+            then 'discounted_to_churn'
+        when c.is_churned then 'active_to_churn'
+        when not c.is_churned and lp.latest_promotion_ts is not null then 'active_with_discount'
+        else 'active_without_discount'
+    end as state_transition
+from customers c
+left join latest_promotions lp on c.customer_id = lp.customer_id
+left join billing b on c.customer_id = b.customer_id",false,false,false,"Near-duplicate of row 5: NOT is_churned only defines a state_transition category, which becomes the target (fct_churn_scores.py:23-25) and is not a model feature."
+theo-lyd/predictive-ltv-survival-pipeline#fct_gold_customer_features#10,theo-lyd/predictive-ltv-survival-pipeline,round2,fct_gold_customer_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,models/marts/fct_gold_customer_features.sql,model,1.0,leaky,,"-- models/marts/fct_gold_customer_features.sql
+        coalesce(b.invoice_count, 0) as invoice_count,
+        coalesce(b.invoice_total_amount, 0) as invoice_total_amount,
+        coalesce(b.avg_invoice_amount, 0) as avg_invoice_amount,
+        coalesce(t.state_transition, 'active_without_discount') as state_transition,
+        case
+            when lower(c.product_tier) = 'enterprise' then 0.72
+            when lower(c.product_tier) = 'pro' then 0.68
+            else 0.62
+        end as gross_margin_rate,
+        case
+            when lower(c.product_tier) = 'enterprise' then 2500
+            when lower(c.product_tier) = 'pro' then 1200
+            else 600
+        end as acquisition_cost
+    from customers c
+    left join promotions p on c.customer_id = p.customer_id
+    left join billing b on c.customer_id = b.customer_id
+    left join transitions t on c.customer_id = t.customer_id
+)
+
+select
+    customer_id,
+    product_tier,
+    signup_ts,
+    churn_ts,
+    is_churned,
+    customer_tenure_months,
+    monthly_recurring_revenue,
+    max_discount_percent,
+    avg_discount_percent,
+    discount_intensity_index,
+    invoice_count,
+    invoice_total_amount,
+    avg_invoice_amount,
+    state_transition,
+    gross_margin_rate,
+    acquisition_cost,
+    monthly_recurring_revenue * gross_margin_rate * (1 - discount_intensity_index) as contributed_margin_monthly,
+    current_timestamp() as model_built_at
+from assembled",false,false,false,current_timestamp() is used only as the model_built_at metadata column (fct_gold_customer_features.sql:90). That column is not in model_columns (fct_churn_scores.py:28-36). Tenure already uses the fixed observation_date var (line 51; docs/AUDIT_FINDINGS_AND_CORRECTIONS.md Finding #2).
+LNshuti/soma#demand_forecasting_features#1,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'daily_quantity' is derived from the target or post-outcome data,daily_quantity,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+WITH daily_demand AS (
+    SELECT
+        book_id,
+        sale_date,
+        SUM(quantity) AS daily_quantity,
+        SUM(total_amount) AS daily_revenue,
+        COUNT(*) AS daily_transactions
+    FROM ""memory"".""main"".""fact_sales""
+    GROUP BY book_id, sale_date
+),
+
+time_series_features AS (
+    SELECT
+        book_id,
+        sale_date,
+        daily_quantity,
+        daily_revenue,
+        daily_transactions,
+        
+        -- Date features
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (",false,false,false,daily_quantity (demand_forecasting_features.sql:7) is the label itself (docs/ml-models/demand-forecasting.md:18 'Target: Quantity sold per time period'; demand_model.py:31 target_column='daily_quantity'). It is not a feature.
+LNshuti/soma#demand_forecasting_features#2,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_lag_1' is derived from the target or post-outcome data,quantity_lag_1,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        
+        -- Date features
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             ",false,false,false,"LAG(daily_quantity,1) reads only the previous sale-date row (demand_forecasting_features.sql:31), so the value is known before the row's day. The lag is safe history of the target series."
+LNshuti/soma#demand_forecasting_features#3,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_lag_7' is derived from the target or post-outcome data,quantity_lag_7,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        -- Date features
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0",false,false,false,"LAG(daily_quantity,7) reads only earlier rows (demand_forecasting_features.sql:32), so the value is available at prediction time. Same pattern as row 11."
+LNshuti/soma#demand_forecasting_features#4,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_lag_30' is derived from the target or post-outcome data,quantity_lag_30,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) ",false,false,false,"LAG(daily_quantity,30) reads only earlier rows (demand_forecasting_features.sql:33), so the value is available at prediction time. Same pattern as row 11."
+LNshuti/soma#demand_forecasting_features#5,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_ma_7' is derived from the target or post-outcome data,quantity_ma_7,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (",true,true,true,"The window frame ends at CURRENT ROW (demand_forecasting_features.sql:36-40), so quantity_ma_7 averages in the same-day daily_quantity target. It is a documented feature (demand-forecasting.md:32; config/model_config.yml:12). Caveat: the in-repo trainer reads sales_performance_daily rather than this table, but it has the same current-row rolling leak (demand_model.py:91-96)."
+LNshuti/soma#demand_forecasting_features#6,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_ma_30' is derived from the target or post-outcome data,quantity_ma_30,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,",true,true,true,"As row 14: the ROWS 29 PRECEDING AND CURRENT ROW frame includes the same-day target (demand_forecasting_features.sql:42-46). It is not in the documented feature list, but it is a numeric column of the training table."
+LNshuti/soma#demand_forecasting_features#7,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_std_7' is derived from the target or post-outcome data,quantity_std_7,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"As row 14: the stddev frame ends at CURRENT ROW, so the same-day target is included (demand_forecasting_features.sql:49-53). It is a documented feature (demand-forecasting.md:33)."
+LNshuti/soma#demand_forecasting_features#8,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_growth_rate_1d' is derived from the target or post-outcome data,quantity_growth_rate_1d,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"quantity_growth_rate_1d is computed from the current daily_quantity, which is the target (demand_forecasting_features.sql:56-59). Combined with quantity_lag_1 it reconstructs the label exactly."
+LNshuti/soma#demand_forecasting_features#9,LNshuti/soma,round2,demand_forecasting_features,L6,high,feature 'quantity_growth_rate_7d' is derived from the target or post-outcome data,quantity_growth_rate_7d,models/staging/stg_sales.sql,model,1.0,leaky,"{""sources"":[""sales.quantity""]}","-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",true,true,true,"quantity_growth_rate_7d uses the current daily_quantity target (demand_forecasting_features.sql:61-64), so the label can be recovered from it and quantity_lag_7. Near-duplicate of row 17."
+LNshuti/soma#demand_forecasting_features#10,LNshuti/soma,round2,demand_forecasting_features,L6,high,label column 'quantity' is used to compute or select feature rows,sales,models/staging/stg_sales.sql,model,1.0,leaky,"{""expression"":""SUM(\""fact_sales\"".\""quantity\"")""}","-- models/ml_features/demand_forecasting_features.sql
+WITH daily_demand AS (
+    SELECT
+        book_id,
+        sale_date,
+        SUM(quantity) AS daily_quantity,
+        SUM(total_amount) AS daily_revenue,
+        COUNT(*) AS daily_transactions
+    FROM ""memory"".""main"".""fact_sales""
+    GROUP BY book_id, sale_date
+),
+
+time_series_features AS (
+    SELECT
+        book_id,
+        sale_date,
+        daily_quantity,
+        daily_revenue,
+        daily_transactions,
+        
+        -- Date features
+        EXTRACT(YEAR FROM sale_date) AS year,
+        EXTRACT(MONTH FROM sale_date) AS month,
+        EXTRACT(DAY FROM sale_date) AS day,
+        EXTRACT(DOW FROM sale_date) AS day_of_week,
+        EXTRACT(WEEK FROM sale_date) AS week_of_year,
+        EXTRACT(QUARTER FROM sale_date) AS quarter,
+        
+        -- Lag features
+        LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_1,
+        LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_7,
+        LAG(daily_quantity, 30) OVER (PARTITION BY book_id ORDER BY sale_date) AS quantity_lag_30,
+        
+        -- Rolling averages
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_7,
+        
+        AVG(daily_quantity) OVER (",false,false,false,SUM(quantity) per book and sale_date is the label's own definition (demand_forecasting_features.sql:3-12). This aggregation is not a leak. The leaks come from the specific current-row windows flagged in rows 14-18.
+LNshuti/soma#demand_forecasting_features#11,LNshuti/soma,round2,demand_forecasting_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,,"-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",false,false,false,"This CURRENT_TIMESTAMP is metadata: feature_created_at (demand_forecasting_features.sql:79) or dbt_updated_at (stg_sales.sql:23). It is not a numeric feature, the dbt_updated_at columns never reach the training table (daily_demand only sums quantities, lines 3-12), and no business feature uses the run clock. Near-duplicate of rows 21-23."
+LNshuti/soma#demand_forecasting_features#12,LNshuti/soma,round2,demand_forecasting_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,,"-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",false,false,false,"Near-duplicate of row 20: dbt_updated_at/feature_created_at metadata (stg_books.sql:21, demand_forecasting_features.sql:79). Neither is a model feature."
+LNshuti/soma#demand_forecasting_features#13,LNshuti/soma,round2,demand_forecasting_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,,"-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",false,false,false,Near-duplicate of row 20: dbt_updated_at in stg_publishers.sql:20 is metadata that does not reach demand_forecasting_features.
+LNshuti/soma#demand_forecasting_features#14,LNshuti/soma,round2,demand_forecasting_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,"models/ml_features/demand_forecasting_features.sql, models/staging/stg_books.sql, models/staging/stg_publishers.sql, models/staging/stg_sales.sql",candidates,1.0,leaky,,"-- models/ml_features/demand_forecasting_features.sql
+        AVG(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS quantity_ma_30,
+        
+        -- Rolling standard deviation
+        STDDEV(daily_quantity) OVER (
+            PARTITION BY book_id 
+            ORDER BY sale_date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS quantity_std_7,
+        
+        -- Growth rates
+        CASE WHEN LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 1) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_1d,
+             
+        CASE WHEN LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) > 0
+             THEN (daily_quantity - LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date)) 
+                  / LAG(daily_quantity, 7) OVER (PARTITION BY book_id ORDER BY sale_date) * 100
+             ELSE NULL END AS quantity_growth_rate_7d
+             
+    FROM daily_demand
+),
+
+book_context AS (
+    SELECT * FROM ""memory"".""main"".""dim_books""
+)
+
+SELECT 
+    tsf.*,
+    bc.genre,
+    bc.format,
+    bc.price_category,
+    bc.publication_year,
+    CURRENT_TIMESTAMP AS feature_created_at
+FROM time_series_features tsf
+LEFT JOIN book_context bc ON tsf.book_id = bc.book_id",false,false,false,Near-duplicate of row 20: run-clock metadata columns only. No feature is computed from CURRENT_TIMESTAMP in the training lineage.
+sumanoj/hoteliq-analytics#mart_ml_features#3,sumanoj/hoteliq-analytics,round2,mart_ml_features,L6,high,feature 'target_is_canceled' is derived from the target or post-outcome data,target_is_canceled,models/staging/stg_hotel_bookings.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"target_is_canceled is the target, explicitly labelled 'TARGET VARIABLE' (mart_ml_features.sql:17-19; README 'Feature-engineered training dataset'). It is not a feature."
+sumanoj/hoteliq-analytics#mart_ml_features#4,sumanoj/hoteliq-analytics,round2,mart_ml_features,L6,high,label column 'is_canceled' is used to compute or select feature rows,raw_hotel_bookings,models/staging/stg_hotel_bookings.sql,model,0.9999,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"'is_canceled IS NOT NULL' (stg_hotel_bookings.sql:118) only drops unlabelled rows from the training set, which is standard. No label information enters any feature value."
+sumanoj/hoteliq-analytics#mart_ml_features#5,sumanoj/hoteliq-analytics,round2,mart_ml_features,L7,high,"CURRENT_TIMESTAMP depends on when the query runs, not on the prediction time of the row",CURRENT_TIMESTAMP,models/marts/ml/mart_ml_features.sql,model,0.9999,leaky,,(withheld: the project has no license),false,false,false,CURRENT_TIMESTAMP() is the _feature_generated_at column in the METADATA block (mart_ml_features.sql:141-146). It is not a predictive feature.
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#5,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"This ROW_NUMBER over extraction_timestamp desc dedups repeated extractions of the same closed daily bar (stg_asx_stock_prices.sql:52-57; extract.py:136). The kept row holds the final OHLCV of that trading day, which is known at the close. The only effect is a minor yfinance adjustment-revision caveat."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#6,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LEAD(close_price,1) defines the label next_day_return (mart_ml_training_dataset.sql:36-39). train.py uses it only for the target (train.py:114-122), and the target is absent from the feature list (train.py:64-106). Near-duplicate of rows 29-30."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#7,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LEAD(close_price,5) defines the label next_week_return (mart_ml_training_dataset.sql:41-44). It is not in train.py's feature list (train.py:64-106). Near-duplicate of row 28."
+alwyndsouza/asx_stock_analysis_using_ml#mart_ml_training_dataset#8,alwyndsouza/asx_stock_analysis_using_ml,round2,mart_ml_training_dataset,L1,high,window over asx_stock_prices looks at later rows,asx_stock_prices,models/staging/stg_asx_stock_prices.sql,model,1.0,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"LEAD(close_price,21) defines the label next_month_return (mart_ml_training_dataset.sql:46-49). It is not in train.py's feature list (train.py:64-106). Near-duplicate of row 28."
+KZDNguyenThanh/africa-energy-lakehouse#gold_ml_features#1,KZDNguyenThanh/africa-energy-lakehouse,round2,gold_ml_features,L6,high,feature 'target_kwh' is derived from the target or post-outcome data,target_kwh,models/gold/gold_ml_features.sql,model,0.95,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,target_kwh is the target alias of monthly_electricity_kwh (gold_ml_features.sql:56-57). Training drops it from X (ml/benchmark_models.py:58-60; ml/train_model.ipynb TARGET cell).
+gusdiaso/lh_nautical_athena#ml_features_produto_loja_mes#1,gusdiaso/lh_nautical_athena,round2,ml_features_produto_loja_mes,L3,high,aggregate over ml_complete_monthly_demand has no upper bound at cutoff; it sums the whole history,ml_complete_monthly_demand,src/dbt/models/ml/ml_seasonal_trend.sql,model,0.9,leaky,(withheld: the project has no license),(withheld: the project has no license),false,false,false,"totals groups by month (ml_seasonal_trend.sql:40-46), not over all history. Every per-cutoff value is bounded at the cutoff: the running avg runs to the current row with anchor_date <= cutoff (lines 48-95), and the trend windows end at the current row (lines 141-157). The model is joined on cutoff equality (ml_features_produto_loja_mes.sql:116-117), and the cutoff month is included by design (ml_seasonal_trend.yml:5-10)."

@@ -1,0 +1,138 @@
+# Pre-registration of the second, larger search for real-world dbt projects that build ML training
+# or feature tables. Same shape as ../search-prereg.yaml (round 1). Committed before any search below
+# is run. Nothing here changes after the first result is seen; a project that fails a criterion is
+# listed with the reason, never re-admitted by a looser rule.
+#
+# Only one command was run before this commit, to check that `gh search code` works without extra
+# authentication: a code search for the unrelated word "ft_customers". Its output was not kept and
+# no candidate comes from it.
+
+registered_at: "2026-11-07"
+group: round2                  # reported separately from round 1 (groups `new` and `seen`)
+rules: rules-frozen-v3         # the leakage rules every project is checked with (not run in this stage)
+
+# Run in this order, results kept in round2/search-results.json exactly as GitHub returns them.
+# Repository searches rank by stars. Code searches have no sort option (GitHub's "best match");
+# each hit is a file, and the candidate is the repository that holds it. Code searches are
+# interleaved with the repository searches (not put last) so that the screening limit below cannot
+# leave them unread.
+searches:
+  - {id: R1,  kind: repos, command: 'gh search repos "dbt features" --sort stars --limit 20'}
+  - {id: R2,  kind: repos, command: 'gh search repos "dbt ml" --sort stars --limit 20'}
+  - {id: R3,  kind: repos, command: 'gh search repos "dbt churn model" --sort stars --limit 20'}
+  - {id: R4,  kind: repos, command: 'gh search repos "dbt fraud features" --sort stars --limit 20'}
+  - {id: C1,  kind: code,  command: 'gh search code "ml_features" "ref" --extension sql --limit 30'}
+  - {id: R5,  kind: repos, command: 'gh search repos "dbt feature engineering" --sort stars --limit 20'}
+  - {id: R6,  kind: repos, command: 'gh search repos "dbt customer lifetime value" --sort stars --limit 20'}
+  - {id: C2,  kind: code,  command: 'gh search code "training_set" "ref" --extension sql --limit 30'}
+  - {id: R7,  kind: repos, command: 'gh search repos "dbt propensity" --sort stars --limit 20'}
+  - {id: R8,  kind: repos, command: 'gh search repos "dbt training" --sort stars --limit 20'}
+  - {id: C3,  kind: code,  command: 'gh search code "training_data" "ref" --extension sql --limit 30'}
+  - {id: R9,  kind: repos, command: 'gh search repos "dbt recommendation features" --sort stars --limit 20'}
+  - {id: R10, kind: repos, command: 'gh search repos "dbt credit risk" --sort stars --limit 20'}
+  - {id: C4,  kind: code,  command: 'gh search code "churn_features" "ref" --extension sql --limit 30'}
+  - {id: R11, kind: repos, command: 'gh search repos "dbt demand forecasting" --sort stars --limit 20'}
+  - {id: R12, kind: repos, command: 'gh search repos "dbt machine learning" --sort stars --limit 20'}
+  - {id: C5,  kind: code,  command: 'gh search code "fraud_features" "ref" --extension sql --limit 30'}
+  - {id: C6,  kind: code,  command: 'gh search code "prediction_date" "ref" --extension sql --limit 30'}
+# Repository searches are saved with --json fullName,description,license,pushedAt,isFork,
+# stargazersCount,defaultBranch,url,createdAt; code searches with --json repository,path,url.
+
+# A code search that fails (rate limit, error) is retried after a pause with the same command; a
+# search that still fails is recorded as failed and not replaced.
+
+# Never part of the new group.
+excluded:
+  # the 10 projects excluded in round 1 (read during development)
+  - mponsclo/music-streaming-churn-prediction
+  - SarrangTech/fraud-detection-feature-store
+  - manthanshah94/dbt-churn-feature-store
+  - hisato-kawaji/dbt-duckdb-demo
+  - dbt-labs/jaffle_shop_duckdb
+  - dbt-labs/jaffle-shop
+  - dbt-labs/mrr-playbook
+  - fal-ai/dbt_feature_store
+  - heikalazzouna-svg/credit-risk-mlops
+  - omnata-labs/dbt-ml-preprocessing
+  # every repository in ../screening.csv, whatever its verdict there (qualified, rejected, duplicate,
+  # not_screened); a repository that appears in both is listed once in round2/screening.csv with
+  # the verdict `excluded`.
+  - "every repo in bench/realworld/screening.csv"
+
+criteria:                      # all must hold; checked on the default branch at the pinned commit
+  - has a dbt_project.yml
+  - at least one model builds a table meant for training or scoring a model (features keyed by an
+    entity, with a label, a prediction or cutoff time, or a snapshot date), stated in its name,
+    docs or README. A rule-based score that the project says is not ML, and a current-state table
+    with no label, prediction or cutoff time or snapshot date, do not count
+  - compiles with dbt-duckdb without credentials, or ships a manifest.json; seeds or sample data
+    may be absent (only compiled SQL is checked). "Compiles" means dbt writes a manifest in which
+    the candidate training model and every model it reads have compiled SQL (docs/dbt.md says ancestors
+    need `compiled_code`); a project where they do not is rejected here, with the reason
+  - not a fork of an excluded project or of a round 1 project, not a template generated from one,
+    not a tutorial copy of jaffle_shop
+  - any license; a project without a license is checked locally and only aggregate results and
+    our own adjudication notes are published, never its code
+  # Added in round 2, written before searching. Not a criterion for admission:
+  - >-
+    cutoff documentation (flag only): the project has its own documented prediction or cutoff time (a variable,
+    a column, or a sentence in its README, docs, yml descriptions or seed descriptions), OR a label
+    whose timing is documented (when the outcome is observed, or the window it covers). Judged from
+    those documents and not from the model SQL. If neither holds, the project is still admitted and
+    flagged `no_documented_cutoff` (token in the screening note and in projects.yaml `flags`).
+
+selection:
+  order: >-
+    deduplicated union of the searches, in the order above; within a code search, the order
+    in which GitHub returns the files, a repository counted at its first hit
+  stop: >-
+    after 12 projects qualify, or after 150 candidates have been screened, whichever comes first
+  screened: >-
+    a candidate that is not excluded and got a verdict (qualified, rejected, duplicate).
+    Excluded candidates, and candidates not reached because the search stopped, are not counted
+  duplicates: >-
+    copies of the same template or tutorial are counted once, decided at screening. The
+    first one found qualifies (if it does); later copies get the verdict `duplicate` and count as
+    screened but not as qualified. A fork of a qualified project is a copy. Which of two copies is
+    "the same" is judged from identical model files or identical macros, not from the name
+  replacement: >-
+    a project that fails to compile when pinned is recorded with the reason, and the next
+    qualifying candidate in order takes its place; compile is checked while screening so that this
+    is the same rule as criterion 3
+  record: >-
+    every candidate screened, with the criterion it failed, in round2/screening.csv (same
+    columns as ../screening.csv). Committed before any qualifying project's model SQL is read
+    beyond what screening needs (file names, README, yml, the SQL head needed to see what a model
+    builds)
+
+per_project:
+  - pin the commit SHA at screening, before reading any model SQL beyond what screening needs
+  - write the spec (round2/specs/<owner>__<repo>.yaml) from the project's README, docs, sources and
+    seeds only, with the round 1 spec-writing rules (header of ../specs/DobleL2__dbt_churn_prediction.yaml);
+    a choice the project does not document is written as an assumption in a comment in the spec;
+    the project's SQL is never edited
+  - all specs are committed together, before the detector is run on any round 2 project
+  - this stage stops there; the leakage checker is not run on round 2 projects. How they are run
+    (and adjudicated) is a later decision
+
+# Amendments are appended here and committed on their own, each before the work it changes.
+amendments:
+  - date: "2026-11-07"
+    decided: >-
+      by the user, after the first 12 qualifiers had been screened, pinned and given specs, and before
+      the checker was run on any round 2 project
+    reason: >-
+      4 of the 12 qualifiers have a spec marked `applicable: false` (no label table in the project, or
+      no time column in any documented source), so the checker cannot run on them
+    change: >-
+      screening continues from candidate #52 in the registered order, with the same criteria and the
+      same duplicate rule, appending to screening.csv. Each new qualifier is pinned, compiled and
+      given a spec from the project's own documents. It stops when 12 projects have a spec that the
+      checker can run (`applicable` is not false), or after 150 candidates in total have been
+      screened (the 50 already screened count), whichever comes first. Whether a qualifier has a
+      label table is judged when its spec is written; all new specs are committed before the checker
+      runs.
+    unchanged: >-
+      the 4 projects with `applicable: false` (dbt-features, Gamebot, Stage, NexusFlow) stay in
+      screening.csv, projects.yaml and specs/, with their reasons, and are reported as not applicable;
+      none is deleted. Nothing already screened is re-judged

@@ -1,0 +1,111 @@
+# Spec for nathandxn/dbt_credit_risk_model (group: round2, no license) at the pinned commit of
+# ../projects.yaml. Written from the model and column names and the yml of models/1_sources/base and
+# models/2_modeling (the README is empty), before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: none (flag no_documented_cutoff).
+#
+# Assumptions the project does not settle:
+#   - The project has no prose documentation. The case table (source_base__cases) carries the
+#     documented columns is_default (values 0 and 1) and model_group (train or test); the decision
+#     date of the case, decision_date, is taken as the prediction time because the training table
+#     exposes it as the date of each case and nothing else is dated. The project does not call it a
+#     prediction time.
+#   - The static feature table (source_static__0, joined on case_model_group_key) is declared static:
+#     it has no time column. Whether its features were computed as of the decision date is not
+#     documented, so this is an assumption.
+#   - The case table is both the label spine and the only history (single-table case of the round 1
+#     specs).
+#   - The cases and static tables are the project's source-layer models over staged raw tables
+#     (ephemeral staging models), so the source-layer models are the physical tables.
+label_table: source_base__cases
+entity_keys: [case_id]
+prediction_ts: decision_date
+label_columns: [is_default]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+static_tables: [source_static__0]
+
+realworld:
+  training_sets: [modeling_case_default_prediction]
+  meta:
+    "model:source_base__cases": {role: label_spine}
+    "model:source_static__0": {role: static}
+  basis: |
+    - modeling_case_default_prediction is the training table: its name ("case default prediction"), the
+      train/test model_group and the is_default column; it is the only model in models/2_modeling.
+    - source_base__cases.yml: case_id unique and not null; model_group accepted values train, test;
+      is_default accepted values 0 and 1.
+    - column lists: the case model's columns as selected by the training table, and the static model's
+      columns as selected (prefixed static_ in the training table).
+    - no availability column or ingestion delay is documented.
+  not_training:
+    source_base__cases, source_static__0, source_apply_prev__*: source-layer models
+  schema:
+    "model:source_base__cases":
+      case_model_group_key: UNKNOWN
+      case_id: UNKNOWN
+      model_group: UNKNOWN
+      is_default: UNKNOWN
+      decision_date: UNKNOWN
+      decision_month: UNKNOWN
+      week_number: UNKNOWN
+    "model:source_static__0":
+      case_model_group_key: UNKNOWN
+      actual_days_past_due_with_tolerance: UNKNOWN
+      monthly_annuity_amount: UNKNOWN
+      next_month_annuity_amount: UNKNOWN
+      count_apply_same_email: UNKNOWN
+      count_apply_last_30_days: UNKNOWN
+      count_apply_same_phone_number: UNKNOWN
+      count_apply_same_employer: UNKNOWN
+      count_apply_same_employer_last_7_days: UNKNOWN
+      count_apply_same_mobile_phone_number: UNKNOWN
+      avg_days_past_or_before_due_of_paymt_last_24_months: UNKNOWN
+      avg_days_past_or_before_due_of_paymt_last_3_months: UNKNOWN
+      avg_days_past_or_before_due_of_paymt_last_24_months_with_tolerance: UNKNOWN
+      avg_days_past_due_of_paymt_last_24_months_with_tolerance_from_max_close_date: UNKNOWN
+      avg_instals_paid_last_24_months: UNKNOWN
+      avg_loan_amt_last_24_months: UNKNOWN
+      avg_days_past_due_last_9_months: UNKNOWN
+      avg_outstanding_bal_last_6_months: UNKNOWN
+      avg_of_pays_made_last_12_months: UNKNOWN
+      type_of_bank_account: UNKNOWN
+      type_of_credit_card: UNKNOWN
+      count_clients_have_used_same_mobile_number_last_12_months: UNKNOWN
+      count_clients_have_used_same_mobile_number_last_3_months: UNKNOWN
+      count_clients_have_used_same_mobile_number_last_6_months: UNKNOWN
+      count_apply_match_employers_phone_and_clients: UNKNOWN
+      count_clients_share_same_mobile_phone: UNKNOWN
+      count_apply_match_client_alt_phone: UNKNOWN
+      count_apply_client_match_alt_phone: UNKNOWN
+      count_apply_match_client_email: UNKNOWN
+      count_clients_same_phone_number_as_client: UNKNOWN
+      count_clients_share_alt_phone_number: UNKNOWN
+      count_clients_same_phone_number: UNKNOWN
+      count_clients_same_alt_and_employer_phone_number: UNKNOWN
+      count_clients_match_phone_number_and_employer_phone_number: UNKNOWN
+      count_clients_same_phone_number_and_alt_phone_number: UNKNOWN
+      count_clients_same_employers_phone_number: UNKNOWN
+      count_clients_match_mobile_and_employers_phone_number: UNKNOWN
+      count_incoming_payments_last_9_months: UNKNOWN
+      count_months_any_incoming_payments_last_24_months: UNKNOWN
+      count_comms_indicating_low_income_last_6_months: UNKNOWN
+      loan_amount_or_card_limit: UNKNOWN
+      credit_type: UNKNOWN
+      current_client_debt_amount: UNKNOWN
+      current_debt_of_applicant: UNKNOWN
+      count_days_past_due_with_tolerance: UNKNOWN
+      count_deferred_months: UNKNOWN
+      disbursed_credit_amount_after_consolidation: UNKNOWN
+      disbursement_type: UNKNOWN
+      amount_downpayment: UNKNOWN
+      interest_rate: UNKNOWN
+      has_sudden_changes_in_social_demographic_data: UNKNOWN
+      has_sudden_change_in_employment_length: UNKNOWN
+      count_home_phone_numbers: UNKNOWN
+      amount_initial_transaction_of_apply: UNKNOWN
+      type_initial_transaction_of_apply: UNKNOWN
+      interest_rate_of_active_credit_contract: UNKNOWN
+      interest_rate_during_grace_period: UNKNOWN

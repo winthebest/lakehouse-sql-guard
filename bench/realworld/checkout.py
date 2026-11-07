@@ -20,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / ".realworld"
 BUILD_PREFIX = "build_"
 DBT_TIMEOUT_SECONDS = 600
+# `new` and `seen` are the first round (projects.yaml); `round2` is the second search
+# (round2/projects.yaml), loaded with the same function.
+GROUPS = ("new", "seen", "round2")
 
 
 class CheckoutError(RuntimeError):
@@ -77,8 +80,8 @@ def load_projects(path: Path | str) -> list[Project]:
         sha = str(entry["sha"])
         if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
             raise ValueError(f"{entry['repo']}: sha must be a full 40-character commit id")
-        if entry["group"] not in ("new", "seen"):
-            raise ValueError(f"{entry['repo']}: group must be new or seen")
+        if entry["group"] not in GROUPS:
+            raise ValueError(f"{entry['repo']}: group must be one of {', '.join(GROUPS)}")
         projects.append(
             Project(
                 repo=entry["repo"],
@@ -167,8 +170,11 @@ def compile_project(project: Project, deps: bool = True) -> dict[str, Any]:
     still written, and the check reports per training model what it lacks.
     """
     profiles = write_profile(project)
+    # a project may commit only the lock file of its packages (package-lock.yml): dbt deps
+    # installs the locked versions from it
     has_packages = any(
-        (project.dbt_dir / f).is_file() for f in ("packages.yml", "dependencies.yml")
+        (project.dbt_dir / f).is_file()
+        for f in ("packages.yml", "dependencies.yml", "package-lock.yml")
     )
     ran_deps = False
     if deps and has_packages:

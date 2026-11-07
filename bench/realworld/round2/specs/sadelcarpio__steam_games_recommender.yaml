@@ -1,0 +1,20 @@
+# Spec for sadelcarpio/steam_games_recommender, dbt/ subdirectory (group: round2, no license) at the
+# pinned commit of ../projects.yaml. Written from the README and the yml of
+# dbt/models/marts/ml_features, before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (monthly_game_metrics.game_review_month "Cutoff day for score
+# computation"; counts and scores "up to game_review_month").
+#
+# Not applicable: training_features and user_features (tag training) assemble the recommender's
+# training set from reviews, but the project documents neither of them nor any label: the yml covers
+# only monthly_game_metrics and game_features, and the README says only that model training is a later
+# pipeline step. The future interactions of a user (user_features.future_game_ids) look like the
+# label, but nothing in the README or yml says so. The checker needs a documented label table with
+# label columns, so a spec cannot be written without inventing one.
+
+realworld:
+  applicable: false
+  reason: >
+    recommender training tables with a documented cutoff for the game scores but no documented label
+    column or label table (training_features and user_features have no yml), so the leakage spec
+    cannot be written

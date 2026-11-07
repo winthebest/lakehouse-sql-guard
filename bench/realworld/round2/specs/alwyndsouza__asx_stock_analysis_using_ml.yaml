@@ -1,0 +1,49 @@
+# Spec for alwyndsouza/asx_stock_analysis_using_ml, dbt_project/ subdirectory (group: round2, no
+# license) at the pinned commit of ../projects.yaml. Written from the README, models/sources.yml,
+# models/marts/schema.yml and the header comment of the training model, before the checker ran on any
+# round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (labels are the returns over the next trading day, 5 trading days
+# and 21 trading days; one row per symbol and trading date).
+#
+# Assumptions the project does not settle:
+#   - The labels (next_day_return, next_week_return, next_month_return) are computed inside
+#     mart_ml_training_dataset with LEAD over the price history; the only source table is that price
+#     history, so it is both the label table and the history (single-table case of the round 1 specs).
+#     The label columns are not columns of the source.
+#   - The row's trading date (source column `date`, "Trading date with timezone") is the as-of day of
+#     each row, taken as prediction_ts; the project does not call it a prediction time.
+#   - extraction_timestamp ("Timestamp when data was extracted from Yahoo Finance") is a load time of
+#     the whole extraction; it is not declared as an availability column.
+label_table: asx_stock_prices
+entity_keys: [symbol]
+prediction_ts: date
+label_columns: [next_day_return, next_week_return, next_month_return]
+# One table is the spine and the history of every feature: placeholder entry that no model reads
+# (the spec requires one temporal table; it changes no analysis).
+time_columns:
+  unused_placeholder_events: occurred_at
+
+realworld:
+  training_sets: [mart_ml_training_dataset]
+  basis: |
+    - mart_ml_training_dataset is the training table: header "Final feature table ready for ML";
+      README "The final wide table ready for ML. Includes target variables (next_day_return,
+      next_week_return) and pre-defined train/val/test splits"; schema.yml "Final ML training dataset".
+    - labels: schema.yml "Target variable - percentage return for next trading day / next 5 trading
+      days / next 21 trading days".
+    - source columns and descriptions: models/sources.yml (raw_asx_data.asx_stock_prices).
+  not_training:
+    int_ml_features, int_technical_indicators: intermediate features
+    stg_asx_stock_prices: staging
+  schema:
+    "source:raw_asx_data.asx_stock_prices":
+      date: TIMESTAMPTZ
+      symbol: VARCHAR
+      sector: VARCHAR
+      open_price: UNKNOWN
+      high_price: UNKNOWN
+      low_price: UNKNOWN
+      close_price: UNKNOWN
+      volume: UNKNOWN
+      extraction_timestamp: TIMESTAMP

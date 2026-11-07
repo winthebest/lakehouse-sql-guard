@@ -1,0 +1,18 @@
+# Spec for gauthierpiarrette/dbt-features, examples/jaffle_shop_features (group: round2, Apache-2.0)
+# at the pinned commit of ../projects.yaml. Written from the example's README, models/features/_features.yml
+# and the seed header, before the checker ran on any round 2 project.
+# Spec-writing rules: see ../../specs/DobleL2__dbt_churn_prediction.yaml.
+# Cutoff documentation: documented (feature_date, "Date the features are computed for").
+#
+# Not applicable: the example documents two feature tables (customer_features_daily, keyed by
+# customer and feature_date; customer_features_lifetime) and says which models use them
+# (used_by: churn_model_v2, ltv_model_v3), but no label column or table exists in the project and the
+# models that train on the features are not part of it. The checker needs a label table with label
+# columns, so a spec cannot be written (same reading as manthanshah94/dbt-churn-feature-store in round 1).
+
+realworld:
+  applicable: false
+  reason: >
+    feature catalog example: feature tables with a documented feature_date but no label column or
+    label table in the project (the churn and LTV models that use the features are outside it), so
+    the leakage spec cannot be written
