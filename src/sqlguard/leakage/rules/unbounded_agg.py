@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlguard.core.findings import Finding, Severity
 from sqlguard.leakage.analysis import QueryAnalysis
+from sqlguard.leakage.roles import attribute
 from sqlguard.leakage.rules.join_time import future_bounds
 
 
@@ -28,14 +29,13 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
             break
     for issue in analysis.windows:
         if issue.kind == "whole_partition":
-            findings.append(
-                Finding(
-                    "L3",
-                    Severity.HIGH,
-                    f"window aggregate over {issue.ref.describe()} spans the whole partition, "
-                    "including rows after prediction time",
-                    issue.ref.describe(),
-                    {"window": issue.sql, "table": issue.ref.table},
-                )
+            finding = Finding(
+                "L3",
+                Severity.HIGH,
+                f"window aggregate over {issue.ref.describe()} spans the whole partition, "
+                "including rows after prediction time",
+                issue.ref.describe(),
+                {"window": issue.sql, "table": issue.ref.table},
             )
+            findings.append(attribute(analysis, finding, issue.node))
     return findings

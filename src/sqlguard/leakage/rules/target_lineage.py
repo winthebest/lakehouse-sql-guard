@@ -5,7 +5,9 @@ and any use of a label column other than passing it through or filtering the fin
 
 An outcome column is the target wherever it sits. In a table the spec classifies otherwise (the
 label table, a temporal table) only the listed columns are; a table that holds nothing but
-outcome columns is outcome data as a whole.
+outcome columns is outcome data as a whole. Output columns the spec declares as label or
+metadata (or leaves out of a feature list) are not checked for lineage, and a label use that
+feeds only such columns is shown as INFO (see `roles`).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 from sqlguard.core.findings import Finding, Severity
 from sqlguard.core.lineage import LineageError, SourceColumn, full_lineage
 from sqlguard.leakage.analysis import QueryAnalysis
+from sqlguard.leakage.roles import attribute, is_declared_non_feature
 
 
 def _is_passthrough(column: str, sources: set[SourceColumn], analysis: QueryAnalysis) -> bool:
@@ -36,6 +39,8 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
     for column, sources in lineage.items():
         sources = {SourceColumn(s.table.lower(), s.column.lower()) for s in sources}
         if _is_passthrough(column.lower(), sources, analysis):
+            continue
+        if is_declared_non_feature(spec, column):
             continue
         hits = sorted(
             s for s in sources if s in spec.target_sources or s.table in spec.outcome_only_tables
@@ -71,13 +76,12 @@ def check(analysis: QueryAnalysis) -> list[Finding]:
                 )
             )
     for use in analysis.label_uses:
-        findings.append(
-            Finding(
-                "L6",
-                Severity.HIGH,
-                f"label column {use.column!r} is used to compute or select feature rows",
-                use.ref.describe(),
-                {"expression": use.sql},
-            )
+        finding = Finding(
+            "L6",
+            Severity.HIGH,
+            f"label column {use.column!r} is used to compute or select feature rows",
+            use.ref.describe(),
+            {"expression": use.sql},
         )
+        findings.append(attribute(analysis, finding, use.node))
     return findings
