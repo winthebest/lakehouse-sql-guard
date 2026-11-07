@@ -131,6 +131,8 @@ _UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
 # an error or another number: the cast still orders rows like the timestamp does, but its unit is
 # unknown, so it bounds nothing.
 _EPOCH_CAST_DIALECTS = {"spark", "databricks", "hive"}
+# engines where `date - 7` is not "seven days earlier" (MySQL reads the date as a number)
+_NO_DATE_ARITHMETIC = {"mysql", "starrocks", "doris", "tidb", "singlestore"}
 # Only a 64-bit integer holds the epoch: a narrower cast overflows (and wraps, with ANSI mode off).
 _INTEGER_TYPES = {exp.DataType.Type.BIGINT}
 MATURED_LABELS = "__matured_labels"
@@ -831,7 +833,7 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
-            shift = self.pending_seconds(peeled.pending, ref)
+            shift = self.pending_seconds(peeled.pending, ref, column.name)
             if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
             return [
@@ -880,7 +882,7 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
-                shift = self.pending_seconds(peeled.pending, g.ref)
+                shift = self.pending_seconds(peeled.pending, g.ref, g.column)
                 if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
                 resolved.append(
@@ -901,16 +903,31 @@ class _Resolver:
                 )
         return resolved
 
-    def pending_seconds(self, amount: float, ref: TableRef) -> float | None:
-        """Seconds in a bare number added to a time column of `ref`'s table, or None when the
-        table declares no unit for it (then the number means nothing we can use)."""
+    def pending_seconds(self, amount: float, ref: TableRef, column: str) -> float | None:
+        """Seconds in a bare number added to a time column of `ref`'s table: days for a DATE
+        column (where the engine allows it), the declared unit for an integer one, and None when
+        the number means nothing we can use."""
         if not amount:
             return 0.0
+        if self.spec.dialect not in _NO_DATE_ARITHMETIC and self.is_date(ref, column):
+            return amount * 86_400
         factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
         return None if factor is None else amount * factor
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
+
+    def is_date(self, ref: TableRef, column: str) -> bool:
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return False
+        try:
+            return (
+                exp.DataType.build(declared, dialect=self.spec.dialect).this
+                == exp.DataType.Type.DATE
+            )
+        except (ValueError, sqlglot_errors.ParseError):
+            return False
 
     def is_timestamp(self, ref: TableRef, column: str) -> bool:
         """Is the column of `ref`'s table declared a timestamp in the schema? (Unknown: no.)"""
@@ -1470,12 +1487,15 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
-    for node in qualified.find_all(exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between):
+    for node in qualified.find_all(exp.LT, exp.LTE, exp.GT, exp.GTE, exp.EQ, exp.Between):
         context = _conjunctive_filter(node)
         if context is None:
             continue
         scope = resolver.scope_of(node)
-        if isinstance(node, exp.Between):
+        if isinstance(node, exp.EQ):
+            # equal to a time before the prediction is bounded above by it
+            terms = [(node.left, "<=", node.right, 0.0, False, (0.0, 0.0))]
+        elif isinstance(node, exp.Between):
             terms = [
                 (node.this, ">=", node.args["low"], 0.0, False, (0.0, 0.0)),
                 (node.this, "<=", node.args["high"], 0.0, False, (0.0, 0.0)),
@@ -1483,7 +1503,21 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         else:
             terms = _comparison_terms(node)
         for left, op, right, shift, needs_epoch, slack in terms:
-            _record(left, op, right, scope, context, resolver, node, shift, needs_epoch, slack)
+            # an equality is a bound only when it puts the time strictly in the past: the others
+            # (the same instant, a later one) keep the reading they always had
+            _record(
+                left,
+                op,
+                right,
+                scope,
+                context,
+                resolver,
+                node,
+                shift,
+                needs_epoch,
+                slack,
+                isinstance(node, exp.EQ),
+            )
     _record_latest_row(analysis, resolver)
     _record_timelines(analysis, resolver)
     _apply_filter_bounds(analysis, resolver)
@@ -1706,6 +1740,7 @@ def _record(
     shift: float = 0.0,
     needs_epoch: bool = False,
     slack: Slack = (0.0, 0.0),
+    strict_past_only: bool = False,
 ) -> None:
     """Record `left OP right + shift` as a bound when one side is a feature time column and the
     other a label prediction_ts on the spine. `slack` is how far the true shift may lie above and
@@ -1790,6 +1825,8 @@ def _record(
                 post_window=context.kind == "qualify",
                 node=node,
             )
+            if strict_past_only and not (bound.is_strict_past and math.isfinite(bound.slack_up)):
+                continue
             if context.aggregate_filter is not None:
                 resolver.pending.append(
                     (ref, bound, context.aggregate_filter, scope, feature.alias)

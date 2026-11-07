@@ -189,3 +189,104 @@ def test_the_same_condition_in_days_covers_the_delay_it_names():
         events_where("l.label_ts - e.event_ts > INTERVAL 29 DAY"),
         max_ingest_delay={"events": "30 days"},
     )
+
+
+# --- a self-join on an exact offset into the past -----------------------------------------------
+
+from sqlguard.leakage.validator import validate  # noqa: E402
+
+
+def verdict_and_rules(sql: str, spec: dict, schema: dict) -> tuple[str, set[str]]:
+    report = validate(sql, LeakageSpec.from_dict(spec), schema=schema)
+    return report.verdict, {f.rule_id for f in report.findings}
+
+
+BARS_SPEC = {
+    "label_table": "bars",
+    "entity_keys": ["asset"],
+    "prediction_ts": "ts",
+    "label_columns": ["target"],
+    "time_columns": {"bars": "ts"},
+    "time_units": {"bars": "seconds"},
+    "label_known_after": "15 minutes",
+    "static_tables": [],
+}
+BARS_SCHEMA = {"bars": {"asset": "BIGINT", "ts": "BIGINT", "target": "DOUBLE", "close": "DOUBLE"}}
+PRIOR_BAR = """SELECT t.ts, t.asset, t.target, p.{column} AS earlier
+FROM bars AS t LEFT JOIN bars AS p ON p.asset = t.asset AND {condition}"""
+
+
+def prior_bar(condition: str, column: str = "target") -> str:
+    return PRIOR_BAR.format(condition=condition, column=column)
+
+
+def test_a_bar_an_exact_offset_back_is_history_whose_label_is_final():
+    clean = prior_bar("p.ts = t.ts - 960")
+    assert verdict_and_rules(clean, BARS_SPEC, BARS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize(
+    "condition, rule",
+    [
+        ("p.ts = t.ts - 600", "L6"),  # the label of that bar is not final yet
+        ("p.ts = t.ts + 960", "L2"),  # a bar in the future
+        ("p.ts = t.ts - 960 + 1800", "L2"),
+        ("p.ts >= t.ts - 960", "L2"),  # only a lower bound
+    ],
+)
+def test_a_bar_at_another_offset_is_still_flagged(condition, rule):
+    verdict, rules_found = verdict_and_rules(prior_bar(condition), BARS_SPEC, BARS_SCHEMA)
+    assert verdict == "leaky" and rule in rules_found
+
+
+def test_an_exact_offset_needs_the_unit_of_the_column():
+    spec = {k: v for k, v in BARS_SPEC.items() if k != "time_units"}
+    verdict, _ = verdict_and_rules(prior_bar("p.ts = t.ts - 960"), spec, BARS_SCHEMA)
+    assert verdict == "leaky"  # 960 of what?
+
+
+DAYS_SPEC = {
+    "label_table": "sales",
+    "entity_keys": ["store", "item"],
+    "prediction_ts": "day",
+    "label_columns": ["units"],
+    "time_columns": {"sales": "day"},
+    "static_tables": [],
+}
+DAYS_SCHEMA = {
+    "sales": {"store": "BIGINT", "item": "BIGINT", "day": "DATE", "units": "DOUBLE", "promo": "INT"}
+}
+WEEK_AGO = """SELECT t.day, t.store, t.item, t.units, p.promo AS promo_then
+FROM sales AS t LEFT JOIN sales AS p
+  ON p.store = t.store AND p.item = t.item AND p.day = {day}"""
+
+
+def test_a_day_an_exact_number_of_days_back_is_history():
+    clean = WEEK_AGO.format(day="t.day - 7")
+    assert verdict_and_rules(clean, DAYS_SPEC, DAYS_SCHEMA) == ("clean", set())
+    interval = WEEK_AGO.format(day="t.day - INTERVAL 7 DAY")
+    assert verdict_and_rules(interval, DAYS_SPEC, DAYS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("day", ["t.day + 7", "t.day - 7 + 14", "t.day + INTERVAL 7 DAY"])
+def test_a_day_after_the_prediction_day_is_flagged(day):
+    verdict, _ = verdict_and_rules(WEEK_AGO.format(day=day), DAYS_SPEC, DAYS_SCHEMA)
+    assert verdict == "leaky"
+
+
+def test_a_bare_number_means_days_only_for_a_date_column():
+    schema = {"sales": {**DAYS_SCHEMA["sales"], "day": "BIGINT"}}
+    verdict, _ = verdict_and_rules(WEEK_AGO.format(day="t.day - 7"), DAYS_SPEC, schema)
+    assert verdict == "leaky"
+
+
+def test_a_daily_snapshot_joined_on_the_previous_day_is_a_bound():
+    snapshot = f"""SELECT {KEYS}, SUM(s.total_spend) AS spend
+FROM labels l LEFT JOIN user_stats s ON s.user_id = l.user_id
+  AND s.updated_at = l.label_ts - INTERVAL 1 DAY
+GROUP BY 1, 2, 3"""
+    same_instant = snapshot.replace(" - INTERVAL 1 DAY", "")
+    next_day = snapshot.replace("- INTERVAL 1 DAY", "+ INTERVAL 1 DAY")
+    assert rules(snapshot) == set()
+    assert rules(next_day) != set()
+    assert rules(same_instant) != set()  # a fact stamped at the prediction time is not yet known
