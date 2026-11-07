@@ -62,6 +62,7 @@ MODEL_COLUMNS = (
     "score",
     "leak_types",
     "findings",
+    "info_non_feature",
     "unchecked",
     "seconds",
     *ADJUDICATION_COLUMNS,
@@ -295,6 +296,34 @@ def finding_rows(
     return leaks, unchecked
 
 
+def is_info(row: dict[str, Any]) -> bool:
+    """Is this finding row one the checker demoted to INFO because it feeds no feature?
+
+    Such a row (`evidence.non_feature_only`) keeps the rule id of the finding it was, but it has no
+    weight and is not scored: tables count it next to the findings, never among them.
+    """
+    try:
+        evidence = json.loads(row.get("evidence") or "{}")
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(evidence, dict)
+        and evidence.get("non_feature_only") is True
+        and row.get("severity") == "info"
+    )
+
+
+def split_info(
+    found: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(scored findings, demoted INFO findings) of the rows `finding_rows` returned."""
+    scored: list[dict[str, Any]] = []
+    info: list[dict[str, Any]] = []
+    for row in found:
+        (info if is_info(row) else scored).append(row)
+    return scored, info
+
+
 def model_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per checked training model, for judging the verdict itself (clean included)."""
     found = []
@@ -309,6 +338,7 @@ def model_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "score": model.get("score", ""),
                     "leak_types": " ".join(model.get("leak_types", [])),
                     "findings": model["findings"],
+                    "info_non_feature": model.get("info_non_feature", 0),
                     "unchecked": model["unchecked"],
                     "seconds": model["seconds"],
                     **{column: "" for column in ADJUDICATION_COLUMNS},
