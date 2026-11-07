@@ -524,6 +524,25 @@ def test_a_prediction_time_that_is_text_cannot_be_placed(tmp_path):
     assert "is not a time" in replay.reason
 
 
+def test_a_null_prediction_time_is_left_out_of_the_sample(tmp_path):
+    labels = labels_table("timestamp")
+    with_null = pa.concat_tables(
+        [
+            labels,
+            pa.table(
+                {
+                    "user_id": pa.array([99], pa.int64()),
+                    "label_ts": pa.array([None], labels.schema.field("label_ts").type),
+                    "churned": pa.array([0], pa.int64()),
+                }
+            ),
+        ]
+    )
+    catalog = build_catalog(tmp_path, "timestamp", labels=with_null)
+    replay = Replayer(catalog, spec_for("timestamp")).run(count_before("timestamp", leak=False))
+    assert replay.status is ReplayStatus.PASS, replay.reason
+
+
 def test_a_date_spine_and_timestamp_features_do_not_mix_their_keys(tmp_path):
     catalog = build_catalog(tmp_path, "date", events_kind="timestamp")
     sql = COUNT.format(bound="e.event_ts < CAST(l.label_ts AS TIMESTAMP)")

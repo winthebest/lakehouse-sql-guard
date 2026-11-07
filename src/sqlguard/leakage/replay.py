@@ -321,13 +321,14 @@ class Replayer:
         self._time_unit = spec.time_units.get(spec.label_table)
         # why the prediction times cannot be placed in time, when they cannot
         self._time_error = self._unplaceable(stamp_column.type)
-        counts = Counter(stamp_column.to_pylist())
+        counts = Counter(ts for ts in stamp_column.to_pylist() if ts is not None)
         # every label time, in the label column's own representation, by naive-UTC value
         self._label_stamps = {
             instant: ts for ts in counts if (instant := to_instant(ts, self._time_unit))
         }
         # a query-independent sample over all labels (the point set `run` draws from its output)
         self.points: list[datetime] = sample_points(counts, max_points, seed)
+        self._label_clock: pa.ChunkedArray | None = None  # the label times as naive-UTC micros
         self._current: duckdb.DuckDBPyConnection | None = None
         self._pinned: dict[tuple[datetime, bool], duckdb.DuckDBPyConnection | HistoryGap] = {}
         self._pinned_data: dict[tuple[datetime, bool], dict[str, pa.Table]] = {}
@@ -581,7 +582,9 @@ class Replayer:
 
     def _pinned_labels(self, ts: datetime, history: bool, before: datetime) -> pa.Table:
         now = pa.scalar(ts, pa.timestamp("us"))
-        at = self.labels.filter(pc.equal(self._instants(self.labels), now))
+        if self._label_clock is None:
+            self._label_clock = self._instants(self.labels)
+        at = self.labels.filter(pc.equal(self._label_clock, now))
         if not history:
             return at
         source = self._earlier_source(before)

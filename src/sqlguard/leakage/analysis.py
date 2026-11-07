@@ -137,6 +137,18 @@ _CUTOFF_AGGREGATES = (
     exp.Median,
     exp.ApproxQuantile,
 )
+# expressions that turn one row into several: the previous row of a copy is the row itself
+_ROW_MULTIPLIERS = (
+    exp.Unnest,
+    exp.Explode,
+    exp.ExplodeOuter,
+    exp.Posexplode,
+    exp.PosexplodeOuter,
+    exp.Inline,
+    exp.GenerateSeries,
+    exp.GenerateDateArray,
+    exp.Lateral,
+)
 _MAX_PATHS = 256
 _MAX_DEPTH = 32  # hops through nested CTEs / derived tables
 
@@ -255,7 +267,14 @@ class TableRef:
             and bool(paths)
             and all(
                 path not in self.spine_paths
-                and any(b.covers(known_after) and path in b.instances for b in self.bounds)
+                and any(
+                    b.covers(known_after)
+                    # the prediction's own row is stamped at its time: never an earlier label,
+                    # whatever the boundary says about facts stamped at that time
+                    and _strict_past(b.op, b.offset_seconds + b.slack_up, False)
+                    and path in b.instances
+                    for b in self.bounds
+                )
                 for path in paths
             )
         )
@@ -331,6 +350,8 @@ class QueryAnalysis:
     # ids of the scopes whose rows are the output rows: the output scope(s) and every scope on the
     # chain from the output prediction_ts down to the spine label table
     seed_scopes: set[int] = field(default_factory=set)
+    # ids of the SELECT scopes whose rows are the query result (one per UNION branch)
+    output_scopes: set[int] = field(default_factory=set)
     # name resolution over the qualified tree, for callers that rewrite the query
     resolver: _Resolver | None = field(default=None, repr=False)
     # label columns (nodes of `qualified`) read only through a window over earlier rows, whose
@@ -1373,6 +1394,7 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
     _check_spec(analysis)
     root = scopes[-1] if scopes else None
     _spine(analysis, root, resolver)
+    analysis.output_scopes = {id(s) for s in _output_scopes(root, resolver)} if root else set()
     for ref in analysis.refs:
         if ref.kind == "temporal":
             ref.time_column = spec.time_columns[ref.table]
@@ -2203,6 +2225,52 @@ class _PastWindows:
             self._cache[id(window)] = self._accepted(window)
         return self._cache[id(window)]
 
+    def _readers(self, scope: Scope, name: str) -> list[exp.Column] | None:
+        """The columns that read output `name` of `scope`; None when a whole row of the scope is
+        read (`to_json(d)`, `d AS row`), which carries every column."""
+        found = []
+        for node in self.analysis.qualified.find_all(exp.Column, exp.TableColumn):
+            reader_scope = self.resolver.scope_of(node)
+            alias = node.table if isinstance(node, exp.Column) else node.name
+            if reader_scope is None or not alias:
+                continue
+            source = self.resolver._source(reader_scope, alias, local=False)
+            if source is None or source[0] is not scope:
+                continue
+            if isinstance(node, exp.TableColumn):
+                return None
+            if node.name.lower() == name.lower():
+                found.append(node)
+        return found
+
+    def _row_wise(self, node: exp.Expression, depth: int = 0) -> bool:
+        """Is the value of `node` used only row by row from here to the query result?
+
+        An aggregate or window over it, further down, would carry the value of later rows onto
+        earlier ones (the previous label of the next row is this row's label)."""
+        scope = self.resolver.scope_of(node)
+        select = scope.expression if scope is not None else None
+        if not isinstance(select, exp.Select) or depth > 8:
+            return False
+        projection = node
+        while projection.parent is not None and projection.parent is not select:
+            projection = projection.parent
+            if projection is not node and isinstance(projection, exp.AggFunc | exp.Window):
+                return False
+        if projection.parent is not select or projection not in select.expressions:
+            return True  # a filter or ordering decides which rows stay, it computes nothing
+        if id(scope) in self.analysis.output_scopes:
+            return True
+        if not (scope.is_cte or scope.is_derived_table) or isinstance(
+            select.parent, exp.SetOperation
+        ):
+            return False
+        name = projection.alias_or_name
+        if not name:
+            return True
+        readers = self._readers(scope, name)
+        return readers is not None and all(self._row_wise(r, depth + 1) for r in readers)
+
     def only_read_through(self, column: exp.Column, scope: Scope) -> bool:
         """Is this label column summed per (key, time) row into an output that nothing reads
         except through an accepted window?"""
@@ -2216,16 +2284,8 @@ class _PastWindows:
             return False
         if not any(isinstance(a, exp.AggFunc) for a in _ancestors(column, projection)):
             return False
-        readers = [
-            c
-            for c in self.analysis.qualified.find_all(exp.Column)
-            if c.name.lower() == projection.alias.lower() and c.table and self._reads(c, scope)
-        ]
+        readers = self._readers(scope, projection.alias)
         return bool(readers) and all(self.holds(c) for c in readers)
-
-    def _reads(self, column: exp.Column, target: Scope) -> bool:
-        found = self.resolver._source(self.resolver.scope_of(column), column.table, local=False)
-        return found is not None and found[0] is target
 
     def rows_of(self, scope: Scope) -> TableRef | None:
         """The label reference when `scope` is one row per (entity keys, prediction time) of it."""
@@ -2238,7 +2298,7 @@ class _PastWindows:
         group = select.args.get("group") if isinstance(select, exp.Select) else None
         if group is None or any(v for k, v in group.args.items() if k != "expressions"):
             return None
-        if len(scope.selected_sources) != 1 or select.find(exp.Window) is not None:
+        if len(scope.selected_sources) != 1 or select.find(exp.Window, *_ROW_MULTIPLIERS):
             return None
         ((_, source),) = scope.selected_sources.values()
         ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
@@ -2260,7 +2320,7 @@ class _PastWindows:
             return None
         if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
             return None
-        if select.find(exp.Window) is not None:
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
             return None
         ((_, source),) = scope.selected_sources.values()
         ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
@@ -2280,6 +2340,7 @@ class _PastWindows:
             not isinstance(select, exp.Select)
             or len(scope.selected_sources) != 1
             or any(select.args.get(k) for k in ("group", "having", "distinct"))
+            or select.find(*_ROW_MULTIPLIERS) is not None
         ):
             return []
         ((_, source),) = scope.selected_sources.values()
@@ -2309,7 +2370,8 @@ class _PastWindows:
                 return []
         if parts.func.find(exp.Select, exp.Window) is not None:
             return []
-        return [c for c in parts.func.find_all(exp.Column) if holds_label(c, scope, ref, source)]
+        found = [c for c in parts.func.find_all(exp.Column) if holds_label(c, scope, ref, source)]
+        return found if found and self._row_wise(window) else []
 
     def _table_label(self, column: exp.Column, scope: Scope, ref: TableRef, source) -> bool:
         got = self.resolver.resolve(column, scope)
@@ -2345,9 +2407,7 @@ class _PastWindows:
             return (
                 delay == 0
                 and len(order) == 1
-                and steps is not None
-                and steps >= 1
-                and steps == int(steps)
+                and _whole_at_least_one(steps)
                 and (default is None or _is_constant(default))
             )
         if (
@@ -2362,14 +2422,7 @@ class _PastWindows:
         if not isinstance(end, exp.Expression):
             return False
         if kind == "ROWS":
-            steps = _constant(end)
-            return (
-                delay == 0
-                and len(order) == 1
-                and steps is not None
-                and steps >= 1
-                and steps == int(steps)
-            )
+            return delay == 0 and len(order) == 1 and _whole_at_least_one(_constant(end))
         if kind != "RANGE":
             return False
         if isinstance(end, exp.Interval):
@@ -2385,6 +2438,10 @@ class _PastWindows:
         if seconds is None or seconds <= 0:
             return False
         return seconds >= delay if spec.boundary == "inclusive" else seconds > delay
+
+
+def _whole_at_least_one(value: float | None) -> bool:
+    return value is not None and math.isfinite(value) and value >= 1 and value == int(value)
 
 
 def _matured_use(got: Resolved, scope: Scope | None, resolver: _Resolver, after) -> bool:

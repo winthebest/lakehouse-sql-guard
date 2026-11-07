@@ -489,6 +489,140 @@ def test_a_window_that_can_reach_the_row_or_a_later_one_is_still_a_use_of_the_ta
     assert verdict == "leaky" and "L6" in rules
 
 
+PREV = """WITH h AS (SELECT user_id, ts, correct,
+  LAG(correct) OVER (PARTITION BY user_id ORDER BY ts) AS prev FROM plays)
+SELECT user_id, ts, correct, {expr} AS feat FROM h"""
+PREV_DERIVED = """SELECT user_id, ts, correct, {expr} AS feat FROM (
+  SELECT user_id, ts, correct,
+    LAG(correct) OVER (PARTITION BY user_id ORDER BY ts) AS prev FROM plays) h"""
+PREV_CHAINED = """WITH h AS (SELECT user_id, ts, correct,
+  LAG(correct) OVER (PARTITION BY user_id ORDER BY ts) AS prev FROM plays),
+h2 AS (SELECT user_id, ts, correct, prev AS shifted FROM h)
+SELECT user_id, ts, correct, {expr} AS feat FROM h2"""
+
+# the value of an accepted window reaches the output row by row; read across rows it brings the
+# labels of later rows back onto earlier ones
+FED_ON = {
+    "sum over the whole partition beside a running sum": (
+        PREV,
+        "SUM(prev) OVER (PARTITION BY user_id) - SUM(prev) OVER (PARTITION BY user_id ORDER BY ts)",
+    ),
+    "maximum over the partition": (PREV, "MAX(prev) OVER (PARTITION BY user_id)"),
+    "maximum over everything": (PREV, "MAX(prev) OVER ()"),
+    "average over the partition": (PREV, "AVG(prev) OVER (PARTITION BY user_id)"),
+    "rank by the shifted label": (PREV, "RANK() OVER (PARTITION BY user_id ORDER BY prev)"),
+    "quartile by the shifted label": (PREV, "NTILE(4) OVER (PARTITION BY user_id ORDER BY prev)"),
+    "the same through a derived table": (
+        PREV_DERIVED,
+        "SUM(prev) OVER (PARTITION BY user_id) - SUM(prev) OVER (PARTITION BY user_id ORDER BY ts)",
+    ),
+    "the same after a second cte": (
+        PREV_CHAINED,
+        "MAX(shifted) OVER (PARTITION BY user_id)",
+    ),
+}
+FED_ROW_BY_ROW = {
+    "passed through": (PREV, "prev"),
+    "scaled and shifted": (PREV, "prev * 2 + 1"),
+    "through a second cte": (PREV_CHAINED, "shifted"),
+    "in a derived table": (PREV_DERIVED, "COALESCE(prev, 0)"),
+}
+
+
+@pytest.mark.parametrize("name", FED_ON)
+def test_the_value_of_a_window_over_earlier_labels_is_not_read_across_rows(name):
+    template, expr = FED_ON[name]
+    verdict, rules = check(template.format(expr=expr), with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+@pytest.mark.parametrize("name", FED_ROW_BY_ROW)
+def test_the_value_of_a_window_over_earlier_labels_may_be_used_row_by_row(name):
+    template, expr = FED_ROW_BY_ROW[name]
+    sql = template.format(expr=expr)
+    assert check(sql, with_delay("0 seconds"), PLAYS_SCHEMA) == ("clean", set())
+
+
+def test_a_downstream_filter_on_the_value_of_a_window_over_earlier_labels_is_fine():
+    sql = PREV.format(expr="prev") + " WHERE prev = 1 ORDER BY ts"
+    assert check(sql, with_delay("0 seconds"), PLAYS_SCHEMA) == ("clean", set())
+
+
+ROW_MULTIPLIED = {
+    "unnest in a cte": (
+        "WITH c AS (SELECT user_id, ts, correct, UNNEST([1, 2]) AS x FROM plays) "
+        f"{SEL_PLAYS}, {over('LAG(correct)')} AS feat FROM c"
+    ),
+    "unnest of a range": (
+        "WITH c AS (SELECT user_id, ts, correct, UNNEST(range(2)) AS x FROM plays) "
+        f"{SEL_PLAYS}, {over('AVG(correct)', 'ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING')} "
+        "AS feat FROM c"
+    ),
+    "unnest in a derived table": (
+        f"{SEL_PLAYS}, {over('LAG(correct)')} AS feat FROM "
+        "(SELECT user_id, ts, correct, UNNEST([1, 2]) AS x FROM plays) c"
+    ),
+    "unnest beside the grouped sum": (
+        "WITH daily AS (SELECT user_id, ts, SUM(correct) AS total, UNNEST([1, 2]) AS x "
+        "FROM plays GROUP BY user_id, ts) "
+        f"SELECT user_id, ts, {over('LAG(total, 1)')} AS feat FROM daily"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", ROW_MULTIPLIED)
+def test_rows_repeated_by_an_unnest_make_the_previous_row_the_row_itself(name):
+    verdict, rules = check(ROW_MULTIPLIED[name], with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+WHOLE_ROW = {
+    "the row as json": "to_json(d)",
+    "the row as a value": "d",
+    "a field of the row": "struct_extract(d, 'total')",
+}
+
+
+@pytest.mark.parametrize("name", WHOLE_ROW)
+def test_a_whole_row_of_the_grouped_cte_carries_the_summed_label_beside_the_window(name):
+    sql = f"""WITH daily AS (
+  SELECT user_id, ts, SUM(correct) AS total FROM plays GROUP BY user_id, ts)
+SELECT d.user_id, d.ts, {WHOLE_ROW[name]} AS whole,
+  LAG(d.total, 1) OVER (PARTITION BY d.user_id ORDER BY d.ts) AS feat
+FROM daily d"""
+    verdict, rules = check(sql, with_delay("0 seconds"), PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+INCLUSIVE_ZERO = {**PLAYS_SPEC, "label_known_after": "0 seconds", "boundary": "inclusive"}
+
+
+def test_with_an_inclusive_boundary_the_row_itself_is_still_not_an_earlier_label():
+    sql = PRIOR_RATE.format(bound="h.ts <= l.ts")
+    verdict, rules = check(sql, INCLUSIVE_ZERO, PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+    joined = """SELECT l.user_id, l.ts, l.correct, AVG(h.correct) AS prior_rate
+FROM plays l LEFT JOIN plays h ON h.user_id = l.user_id AND h.ts <= l.ts
+GROUP BY l.user_id, l.ts, l.correct"""
+    verdict, rules = check(joined, INCLUSIVE_ZERO, PLAYS_SCHEMA)
+    assert verdict == "leaky" and "L6" in rules
+
+
+def test_with_an_inclusive_boundary_strictly_earlier_labels_are_still_known():
+    sql = PRIOR_RATE.format(bound="h.ts < l.ts")
+    assert check(sql, INCLUSIVE_ZERO, PLAYS_SCHEMA) == ("clean", set())
+    back = PRIOR_RATE.format(bound="h.ts <= l.ts - INTERVAL 1 SECOND")
+    assert check(back, INCLUSIVE_ZERO, PLAYS_SCHEMA) == ("clean", set())
+
+
+@pytest.mark.parametrize("steps", ["1e309", "-1e309"])
+def test_a_lag_offset_that_is_not_a_finite_number_is_not_a_crash(steps):
+    sql = windowed(over(f"LAG(correct, {steps})"))
+    report = validate(sql, LeakageSpec.from_dict(with_delay("0 seconds")), schema=PLAYS_SCHEMA)
+    assert not [f for f in report.findings if f.rule_id == "PARSE"]
+    assert report.verdict == "leaky"
+
+
 @pytest.mark.parametrize("delay", [None, "1 hour", "14 days"])
 @pytest.mark.parametrize("name", ["previous label", "trailing sum that stops two rows before"])
 def test_earlier_labels_are_only_known_when_the_delay_is_zero(name, delay):
