@@ -1344,7 +1344,9 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
             ref.time_column = spec.time_columns[ref.table]
             ref.availability_column = spec.availability_columns.get(ref.table)
         elif ref.kind == "label":
-            ref.time_column = spec.prediction_ts
+            # a label table that doubles as event history is bounded by its own time column
+            ref.time_column = spec.time_columns.get(ref.table, spec.prediction_ts)
+            ref.availability_column = spec.availability_columns.get(ref.table)
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
@@ -1384,6 +1386,10 @@ def _check_spec(analysis: QueryAnalysis) -> None:
                 needed.append(spec.availability_columns[ref.table])
         elif ref.kind == "label":
             needed = [spec.prediction_ts, *spec.label_columns]
+            if ref.table in spec.time_columns:
+                needed.append(spec.time_columns[ref.table])
+            if ref.table in spec.availability_columns:
+                needed.append(spec.availability_columns[ref.table])
         for column in needed:
             if column not in columns:
                 analysis.spec_errors.append(f"spec column {ref.table}.{column} not in schema")
