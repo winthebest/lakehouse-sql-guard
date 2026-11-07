@@ -185,3 +185,24 @@ def test_each_spec_states_its_cutoff_documentation_like_the_pin_does():
         flagged = "no_documented_cutoff" in flags[project.repo]
         assert ("Cutoff documentation: none (flag no_documented_cutoff)" in text) == flagged
         assert ("Cutoff documentation: documented" in text) == (not flagged), project.repo
+
+
+def test_run_summary_has_a_round2_group_only_when_round2_records_exist():
+    from bench.realworld.run import summarise
+
+    record = {
+        "repo": "a/b",
+        "group": "round2",
+        "status": "checked",
+        "models_in_project": 3,
+        "training_models": 1,
+        "findings": 2,
+        "unverifiable": 0,
+        "errors": 0,
+        "seconds": 0.5,
+        "models": [{"verdict": "leaky", "unchecked": 0}],
+    }
+    assert set(summarise([])) == {"new", "seen"}
+    summary = summarise([record, {**record, "status": "not_applicable"}])
+    assert summary["round2"]["projects"] == 2 and summary["round2"]["not_applicable"] == 1
+    assert summary["round2"]["findings"] == 2 and summary["round2"]["leaky_models"] == 1
