@@ -70,6 +70,27 @@ class RelationError(LookupError):
     """A relation name in the query does not map to a table of the catalog."""
 
 
+class ColumnError(LookupError):
+    """A column name of the spec matches more than one column of a table."""
+
+
+def _column(table: pa.Table, name: str) -> str:
+    """The name `table` carries for the spec column `name`.
+
+    A spec stores names lowercase while an Arrow table keeps the case it was created with, so
+    names are matched without regard to case. Two columns that differ just in case raise
+    `ColumnError` rather than a guess. A name the table lacks comes back unchanged, so the callers
+    keep their own handling of an absent column (`column_names` tests, Arrow's `KeyError`).
+    """
+    matches = [c for c in table.column_names if c.lower() == name.lower()]
+    if len(matches) > 1:
+        raise ColumnError(
+            f"column {name!r} matches {matches} in the same table; names that differ only in "
+            "case cannot be told apart by the spec"
+        )
+    return matches[0] if matches else name
+
+
 class ReplayStatus(StrEnum):
     PASS = "pass"
     MISMATCH = "mismatch"
@@ -181,8 +202,8 @@ def flight_scores(
         return {}
     # both columns in one unit (microseconds, naive UTC), whatever their arrow types
     happened_all, loaded_all = (
-        _naive_micros(data.column(time_column)),
-        _naive_micros(data.column(availability)),
+        _naive_micros(data.column(_column(data, time_column))),
+        _naive_micros(data.column(_column(data, availability))),
     )
     order = pc.sort_indices(happened_all)
     happened = happened_all.take(order).combine_chunks()
@@ -198,9 +219,15 @@ def flight_scores(
     )
     if longest <= 0:
         return {}
-    entities = data.column(key).take(order).combine_chunks() if key in data.column_names else None
-    users = labels.column(key) if key in labels.column_names else None
-    label_times = labels.column(prediction_ts)
+    entity_name = _column(data, key) if key else None
+    user_name = _column(labels, key) if key else None
+    entities = (
+        data.column(entity_name).take(order).combine_chunks()
+        if entity_name in data.column_names
+        else None
+    )
+    users = labels.column(user_name) if user_name in labels.column_names else None
+    label_times = labels.column(_column(labels, prediction_ts))
 
     def first_at_or_after(moment: int) -> int:
         return bisect_left(range(len(seconds)), moment, key=lambda i: seconds[i].as_py())
@@ -254,7 +281,7 @@ class Replayer:
         self.min_rows, self.min_points = min_rows, min_points
         self.tables = catalog.table_names()
         self.labels = catalog.read(spec.label_table)
-        counts = Counter(self.labels.column(spec.prediction_ts).to_pylist())
+        counts = Counter(self.labels.column(_column(self.labels, spec.prediction_ts)).to_pylist())
         # every label timestamp, in the label column's own representation, by naive-UTC value
         self._label_stamps = {naive_utc(ts): ts for ts in counts if isinstance(ts, datetime)}
         # a query-independent sample over all labels (the point set `run` draws from its output)
@@ -416,7 +443,7 @@ class Replayer:
                 if (
                     availability
                     and data is not None
-                    and {time_column, availability} <= set(data.column_names)
+                    and {time_column, availability} <= {c.lower() for c in data.column_names}
                 ):
                     scores = self._flight_scores(data, time_column, availability, key)
             except Exception as err:  # noqa: BLE001 - sampling help must never abort a replay
@@ -448,7 +475,7 @@ class Replayer:
         current = self.labels if table == self.spec.label_table else self._current_data(table)
         pinned = self._pinned_data[(ts, True)][table]
         keys = list(self.spec.entity_keys)
-        if entities is None or not all(k in current.column_names for k in keys):
+        if entities is None or not all(_column(current, k) in current.column_names for k in keys):
             return max(current.num_rows - pinned.num_rows, 0)
         now = self._entity_counts(("current", table), current, keys)
         then = self._entity_counts((ts, table), pinned, keys)
@@ -457,22 +484,24 @@ class Replayer:
     def _entity_counts(self, key: tuple, table: pa.Table, keys: list[str]) -> dict[tuple, int]:
         """Rows per entity key tuple, cached by what the table is (current, or pinned at a time)."""
         if key not in self._counts:
-            grouped = table.group_by(keys).aggregate([(keys[0], "count")])
-            rows = zip(*(grouped.column(k).to_pylist() for k in keys), strict=True)
+            names = [_column(table, k) for k in keys]
+            grouped = table.group_by(names).aggregate([(names[0], "count")])
+            rows = zip(*(grouped.column(k).to_pylist() for k in names), strict=True)
             self._counts[key] = dict(
-                zip(rows, grouped.column(f"{keys[0]}_count").to_pylist(), strict=True)
+                zip(rows, grouped.column(f"{names[0]}_count").to_pylist(), strict=True)
             )
         return self._counts[key]
 
     def _pinned_labels(self, ts: datetime, history: bool) -> pa.Table:
-        column = self.labels.column(self.spec.prediction_ts)
+        stamp_name = _column(self.labels, self.spec.prediction_ts)
+        column = self.labels.column(stamp_name)
         at = self.labels.filter(pc.equal(column, pa.scalar(ts, type=column.type)))
         if not history:
             return at
         earlier = self.labels.filter(pc.less(column, pa.scalar(ts, type=column.type)))
         if self.spec.label_known_after:
             cutoff = pa.scalar(ts - timedelta(seconds=self.spec.label_known_after), column.type)
-            stamped = earlier.column(self.spec.prediction_ts)
+            stamped = earlier.column(stamp_name)
             # final once label_ts + known_after is before ts (at ts too, when inclusive)
             inclusive = self.spec.boundary == "inclusive"
             unknown = (
@@ -481,7 +510,7 @@ class Replayer:
         else:
             unknown = pa.scalar(True)
         for name in self.spec.label_columns:
-            index = earlier.schema.get_field_index(name)
+            index = earlier.schema.get_field_index(_column(earlier, name))
             if index >= 0:
                 field_ = earlier.schema.field(index)
                 nulls = pa.scalar(None, field_.type)
