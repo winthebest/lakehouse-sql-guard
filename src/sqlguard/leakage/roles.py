@@ -277,16 +277,22 @@ def is_declared_non_feature(spec: LeakageSpec, column: str) -> bool:
 
 
 def non_feature_only(analysis: QueryAnalysis, node: exp.Expression | None) -> bool:
-    """True only when the node reaches at least one output, every output it reaches is declared
-    not to be a feature, and it decides no row. Anything else is false."""
+    """True only when the trace of the node finished without deciding a row, and every output it
+    reaches is declared not to be a feature. A node that reaches no output at all counts as well,
+    but only for a spec that declares output roles: nothing reads its value, so no feature can."""
     if node is None:
         return False
     got = feeds(analysis, node)
-    return (
-        bool(got.outputs)
-        and not got.row_level
-        and all(is_declared_non_feature(analysis.spec, c) for c in got.outputs)
-    )
+    if got.row_level:
+        return False
+    if not got.outputs:
+        return _declares_roles(analysis.spec)  # read by nothing: dead, once the spec has roles
+    return all(is_declared_non_feature(analysis.spec, c) for c in got.outputs)
+
+
+def _declares_roles(spec: LeakageSpec) -> bool:
+    roles = spec.output_roles
+    return bool(roles.label or roles.metadata or roles.features)
 
 
 def attribute(analysis: QueryAnalysis, finding: Finding, node: exp.Expression | None) -> Finding:
@@ -298,10 +304,11 @@ def attribute(analysis: QueryAnalysis, finding: Finding, node: exp.Expression | 
     spec = analysis.spec
     if non_feature_only(analysis, node):
         columns = sorted(got.outputs)
+        feeds_text = f"feeds only label/metadata columns: {', '.join(columns)}"
         return replace(
             finding,
             severity=Severity.INFO,
-            message=f"{finding.message} (feeds only label/metadata columns: {', '.join(columns)})",
+            message=f"{finding.message} ({feeds_text if columns else 'feeds no output column'})",
             evidence={**finding.evidence, "outputs": columns, "non_feature_only": True},
         )
     columns = sorted(c for c in got.outputs if not is_declared_non_feature(spec, c))

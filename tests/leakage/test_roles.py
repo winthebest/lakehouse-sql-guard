@@ -377,12 +377,14 @@ SELECT user_id, label_ts, churned, now_ts AS dbt_updated_at,
     assert finding.evidence["outputs"] == ["age"]
 
 
-def test_a_clock_in_a_staging_column_that_no_output_reads_stays_flagged():
-    # not provably metadata: the trace ends without reaching any output
+def test_a_clock_in_a_staging_column_that_no_output_reads_is_dead_once_roles_are_declared():
+    # the trace finishes without reaching an output or deciding a row: no feature can read it
     sql = f"""WITH stg AS (SELECT {KEYS}, CURRENT_TIMESTAMP AS loaded_at FROM labels l)
 SELECT user_id, label_ts, churned FROM stg"""
     (finding,) = of_rule(findings(sql, ROLES), "L7")
-    assert finding.severity is Severity.HIGH
+    assert finding.severity is Severity.INFO and finding.evidence["outputs"] == []
+    (kept,) = of_rule(findings(sql), "L7")  # a spec with no roles keeps it
+    assert kept.severity is Severity.HIGH
 
 
 def test_a_clock_in_metadata_that_also_filters_rows_stays_flagged():
