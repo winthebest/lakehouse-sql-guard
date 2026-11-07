@@ -1,0 +1,5379 @@
+{
+  "meta": {
+    "stem": "20261107-6bc64b8",
+    "git_sha": "6bc64b8",
+    "git_dirty": false,
+    "prereg_commit": "93f0876",
+    "created_at": "2026-11-07T03:27:29+00:00",
+    "checker": {
+      "release_tag": "v0.2.0",
+      "src_tree": "5e260ebc75d0a885697a1e46d9d81bd8d1efdebd",
+      "frozen_check": "git diff --quiet rules-frozen-v3 HEAD -- src/sqlguard/leakage src/sqlguard/core src/sqlguard/dbt",
+      "interface": "sqlguard leakage check FILE --spec SPEC --schema SCHEMA [--replay --warehouse DIR] --json",
+      "verdict_threshold": 0.5
+    },
+    "cases_digest": "447490465518759c383f870e887a6f998de882b2a0d787f425cf25e16db30ef0",
+    "thresholds": {
+      "static": 0.425,
+      "replay": 0.003968253968253968,
+      "combined": 0.475
+    },
+    "verdict_threshold": 0.5,
+    "seed": 42,
+    "resamples": 2000,
+    "level": 0.95,
+    "disputed": [
+      "kl05",
+      "kl09",
+      "kl14"
+    ],
+    "environment": {
+      "python": "3.12.13",
+      "sqlglot": "30.29.0",
+      "duckdb": "2.0.0",
+      "pyiceberg": "0.12.0",
+      "uv_lock_sha256": "855a0df3e9761aece2223885ce609ee4c345b157c5f73a1e9d9351b7e267381a"
+    }
+  },
+  "build": {
+    "kl03": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "training": 1560
+      },
+      "commits": {
+        "training": 1
+      }
+    },
+    "kl04": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1193
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl05": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1737
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl06": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2364
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl07": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 2762
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl08": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 1770
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl09": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train": 4736
+      },
+      "commits": {
+        "train": 1
+      }
+    },
+    "kl10": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_users": 900
+      },
+      "commits": {
+        "train_users": 1
+      }
+    },
+    "kl11": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "accepted_2007_to_2018q4": 1000
+      },
+      "commits": {
+        "accepted_2007_to_2018q4": 1
+      }
+    },
+    "kl12": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "flights": 4470
+      },
+      "commits": {
+        "flights": 1
+      }
+    },
+    "kl14": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "train_transaction": 1492
+      },
+      "commits": {
+        "train_transaction": 1
+      }
+    },
+    "kl15": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "people": 259,
+        "act_train": 1673
+      },
+      "commits": {
+        "people": 1,
+        "act_train": 1
+      }
+    },
+    "kl16": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "data": 1660
+      },
+      "commits": {
+        "data": 1
+      }
+    },
+    "kl17": {
+      "status": "built",
+      "reason": "",
+      "rows": {
+        "page_views": 2297
+      },
+      "commits": {
+        "page_views": 1
+      }
+    }
+  },
+  "all": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl05",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl09",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl14",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 80,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 40,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 40,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 40,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 40,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 40,
+        "n_clean": 40,
+        "recall": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 40,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 10,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 20,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      }
+    }
+  },
+  "without_disputed": {
+    "cases": [
+      "kl03",
+      "kl04",
+      "kl06",
+      "kl07",
+      "kl08",
+      "kl10",
+      "kl11",
+      "kl12",
+      "kl15",
+      "kl16",
+      "kl17"
+    ],
+    "queries": 62,
+    "outcomes": {
+      "static": {
+        "leaky": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 31,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 31,
+          "static_only": 0
+        }
+      },
+      "replay": {
+        "leaky": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 31,
+          "static_only": 0
+        },
+        "clean": {
+          "leaky": 0,
+          "clean": 0,
+          "unverifiable": 0,
+          "error": 31,
+          "static_only": 0
+        }
+      }
+    },
+    "rules": {
+      "verdict:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "verdict:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:static": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:replay": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      },
+      "threshold:combined": {
+        "n_leaky": 31,
+        "n_clean": 31,
+        "recall": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "fpr": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "recall_ci95": [
+          0.0,
+          0.0
+        ],
+        "fpr_ci95": [
+          0.0,
+          0.0
+        ],
+        "recall_strict": {
+          "k": 0,
+          "n": 31,
+          "rate": 0.0
+        },
+        "block_rate_clean": {
+          "k": 31,
+          "n": 31,
+          "rate": 1.0
+        },
+        "recall_strict_ci95": [
+          0.0,
+          0.0
+        ],
+        "block_rate_clean_ci95": [
+          1.0,
+          1.0
+        ],
+        "recall_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "fpr_decided": {
+          "k": 0,
+          "n": 0,
+          "rate": null
+        },
+        "by_leak_type": {
+          "L1": {
+            "as_scored": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 6,
+              "rate": 0.0
+            }
+          },
+          "L3": {
+            "as_scored": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "L5": {
+            "as_scored": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "L6": {
+            "as_scored": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            },
+            "strict": {
+              "k": 0,
+              "n": 19,
+              "rate": 0.0
+            }
+          }
+        },
+        "attribution": {
+          "detected": 0,
+          "primary_type": 0,
+          "primary_or_also_matches": 0
+        }
+      }
+    }
+  },
+  "per_case": {
+    "kl03": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl04": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl05": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl06": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl07": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl08": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl09": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl10": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl11": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl12": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl14": {
+      "disputed": true,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl15": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl16": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 3,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 3,
+            "rate": 0.0
+          }
+        }
+      }
+    },
+    "kl17": {
+      "disputed": false,
+      "outcomes": {
+        "static": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          }
+        },
+        "replay": {
+          "leaky": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          },
+          "clean": {
+            "leaky": 0,
+            "clean": 0,
+            "unverifiable": 0,
+            "error": 2,
+            "static_only": 0
+          }
+        }
+      },
+      "flagged": {
+        "verdict:static": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "verdict:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:static": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:replay": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        },
+        "threshold:combined": {
+          "leaky": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          },
+          "clean": {
+            "k": 0,
+            "n": 2,
+            "rate": 0.0
+          }
+        }
+      }
+    }
+  },
+  "problems": [
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "error: LeakageSpec is missing required fields: entity_keys",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl03",
+        "kl16"
+      ]
+    },
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl06",
+        "kl07"
+      ]
+    },
+    {
+      "mode": "replay",
+      "class": "error",
+      "message": "error: label_table must not also be declared temporal or static",
+      "queries": 56,
+      "leaky": 28,
+      "clean": 28,
+      "cases": [
+        "kl04",
+        "kl05",
+        "kl08",
+        "kl09",
+        "kl10",
+        "kl11",
+        "kl12",
+        "kl14",
+        "kl15",
+        "kl17"
+      ]
+    },
+    {
+      "mode": "static",
+      "class": "error",
+      "message": "error: LeakageSpec is missing required fields: entity_keys",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl03",
+        "kl16"
+      ]
+    },
+    {
+      "mode": "static",
+      "class": "error",
+      "message": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'",
+      "queries": 12,
+      "leaky": 6,
+      "clean": 6,
+      "cases": [
+        "kl06",
+        "kl07"
+      ]
+    },
+    {
+      "mode": "static",
+      "class": "error",
+      "message": "error: label_table must not also be declared temporal or static",
+      "queries": 56,
+      "leaky": 28,
+      "clean": 28,
+      "cases": [
+        "kl04",
+        "kl05",
+        "kl08",
+        "kl09",
+        "kl10",
+        "kl11",
+        "kl12",
+        "kl14",
+        "kl15",
+        "kl17"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl03",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl04",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl05",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl06",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl07",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl08",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl09",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl10",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl11",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl12",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L3",
+      "also_matches": "L1",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl14",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 1,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L5",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L1",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl15",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "leaky_3.sql",
+      "label": "leaky",
+      "leak_type": "L5",
+      "also_matches": "L6",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl16",
+      "file": "clean_3.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: LeakageSpec is missing required fields: entity_keys"
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_1.sql",
+      "label": "leaky",
+      "leak_type": "L6",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "clean_1.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "leaky_2.sql",
+      "label": "leaky",
+      "leak_type": "L1",
+      "also_matches": "L3",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "static",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    },
+    {
+      "case": "kl17",
+      "file": "clean_2.sql",
+      "label": "clean",
+      "leak_type": "",
+      "also_matches": "",
+      "disputed": 0,
+      "mode": "replay",
+      "class": "error",
+      "score": "",
+      "leak_types": "",
+      "replay_status": "",
+      "rows_compared": 0,
+      "rows_mismatched": 0,
+      "detail": "error: label_table must not also be declared temporal or static"
+    }
+  ]
+}

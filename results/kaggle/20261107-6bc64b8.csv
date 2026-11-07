@@ -1,0 +1,161 @@
+case,file,label,leak_type,also_matches,disputed,mode,class,score,leak_types,replay_status,rows_compared,rows_mismatched,detail
+kl03,leaky_1.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_1.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_1.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_2.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_2.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_2.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_3.sql,leaky,L1,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,leaky_3.sql,leaky,L1,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_3.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl03,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl04,leaky_1.sql,leaky,L1,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,leaky_1.sql,leaky,L1,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,leaky_2.sql,leaky,L1,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,leaky_2.sql,leaky,L1,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,leaky_3.sql,leaky,L3,L1,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,leaky_3.sql,leaky,L3,L1,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_3.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl04,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_1.sql,leaky,L1,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_1.sql,leaky,L1,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_1.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_1.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_2.sql,leaky,L1,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_2.sql,leaky,L1,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_2.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_2.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_3.sql,leaky,L3,L1,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,leaky_3.sql,leaky,L3,L1,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_3.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl05,clean_3.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl06,leaky_1.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_1.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_1.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_1.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_2.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_2.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_2.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_2.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_3.sql,leaky,L6,L3,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,leaky_3.sql,leaky,L6,L3,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_3.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl06,clean_3.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_1.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_1.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_1.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_1.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_2.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_2.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_2.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_2.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_3.sql,leaky,L5,L6,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,leaky_3.sql,leaky,L5,L6,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_3.sql,clean,,,0,static,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl07,clean_3.sql,clean,,,0,replay,error,,,,0,0,"error: label_known_after must be a positive duration like '2 days' (seconds, minutes, hours, days or weeks), got '0 seconds'"
+kl08,leaky_1.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,leaky_1.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,leaky_2.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,leaky_2.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,leaky_3.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,leaky_3.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_3.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl08,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_1.sql,leaky,L1,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_1.sql,leaky,L1,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_1.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_1.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_2.sql,leaky,L1,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_2.sql,leaky,L1,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_2.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_2.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_3.sql,leaky,L3,L1,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,leaky_3.sql,leaky,L3,L1,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_3.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl09,clean_3.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_1.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_1.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_2.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_2.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_3.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,leaky_3.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_3.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl10,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_1.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_1.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_2.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_2.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_3.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,leaky_3.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_3.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl11,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_1.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_1.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_2.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_2.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_3.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,leaky_3.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_3.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl12,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_1.sql,leaky,L3,L1,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_1.sql,leaky,L3,L1,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_1.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_1.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_2.sql,leaky,L6,L3,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_2.sql,leaky,L6,L3,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_2.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_2.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_3.sql,leaky,L3,L1,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,leaky_3.sql,leaky,L3,L1,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_3.sql,clean,,,1,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl14,clean_3.sql,clean,,,1,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,leaky_1.sql,leaky,L6,L5,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,leaky_1.sql,leaky,L6,L5,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,leaky_2.sql,leaky,L6,L1,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,leaky_2.sql,leaky,L6,L1,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl15,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl16,leaky_1.sql,leaky,L6,L3,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_1.sql,leaky,L6,L3,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_1.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_2.sql,leaky,L5,L6,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_2.sql,leaky,L5,L6,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_2.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_3.sql,leaky,L5,L6,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,leaky_3.sql,leaky,L5,L6,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_3.sql,clean,,,0,static,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl16,clean_3.sql,clean,,,0,replay,error,,,,0,0,error: LeakageSpec is missing required fields: entity_keys
+kl17,leaky_1.sql,leaky,L6,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,leaky_1.sql,leaky,L6,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,clean_1.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,clean_1.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,leaky_2.sql,leaky,L1,L3,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,leaky_2.sql,leaky,L1,L3,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,clean_2.sql,clean,,,0,static,error,,,,0,0,error: label_table must not also be declared temporal or static
+kl17,clean_2.sql,clean,,,0,replay,error,,,,0,0,error: label_table must not also be declared temporal or static
