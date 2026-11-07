@@ -13,6 +13,11 @@ them. The v1 held-out templates now live in `bench/leakage/templates/dev_v1b`: t
 while the v2 rules were designed, so any later run over them is in-sample tracking, not a
 held-out result.
 
+Since v0.2.0 the [second dbt round](#real-world-dbt-projects-round-2) and the [Kaggle
+cases](#documented-kaggle-leaks) are development data too: their findings are what the next rule
+changes are built from, so a later number on them is in-sample tracking, not a held-out result.
+The manifest `bench/leakage/splits.yaml` marks `holdout_v3` as seen for the same reason.
+
 ## Real-world dbt projects
 
 The v3 rules, unchanged since `rules-frozen-v3`, were run statically on GitHub dbt projects
