@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import exp, lgamma, log, sqrt
+from typing import Literal
+
+# Leak prevalences a deployment may see, as fractions. The held-out sets are close to balanced,
+# so their precision says little about what a user meets at these rates.
+DEPLOYMENT_PREVALENCES: tuple[float, ...] = (0.01, 0.05, 0.10, 0.20)
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,60 @@ def confusion(labels: list[bool], scores: list[float], threshold: float) -> Conf
         else:
             tn += 1
     return Confusion(tp, fp, tn, fn)
+
+
+def mcc(conf: Confusion) -> float:
+    """Matthews correlation coefficient, in [-1, 1]; 0 when a margin of the table is empty."""
+    denominator = sqrt(
+        (conf.tp + conf.fp) * (conf.tp + conf.fn) * (conf.tn + conf.fp) * (conf.tn + conf.fn)
+    )
+    if denominator == 0:
+        return 0.0
+    return (conf.tp * conf.tn - conf.fp * conf.fn) / denominator
+
+
+def youden_j(conf: Confusion) -> float:
+    """Recall + specificity - 1, in [-1, 1]; 0 when either class is absent."""
+    positives, negatives = conf.tp + conf.fn, conf.tn + conf.fp
+    if not positives or not negatives:
+        return 0.0
+    return conf.tp / positives + conf.tn / negatives - 1
+
+
+def precision_at_prevalence(tpr: float, fpr: float, pi: float) -> float:
+    """Precision the detector would have if a fraction `pi` of the queries were leaky.
+
+    tpr * pi / (tpr * pi + fpr * (1 - pi)); 0 when it would flag nothing at all.
+    """
+    if not (0.0 <= tpr <= 1.0 and 0.0 <= fpr <= 1.0):
+        raise ValueError(f"tpr and fpr must lie in [0, 1], got {tpr} and {fpr}")
+    if not 0.0 <= pi <= 1.0:  # also false for nan
+        raise ValueError(f"prevalence must lie in [0, 1], got {pi}")
+    flagged = tpr * pi + fpr * (1 - pi)
+    return tpr * pi / flagged if flagged else 0.0
+
+
+def auprc(labels: list[bool], scores: list[float]) -> float:
+    """Average precision: sum over thresholds of (recall step) x precision at that threshold.
+
+    Tied scores form one threshold, so the order of tied cases does not matter. This is the
+    step-wise area under the precision-recall curve (no trapezoid, which is optimistic); it
+    is nan when there is no positive case.
+    """
+    if len(labels) != len(scores):
+        raise ValueError(f"{len(labels)} labels but {len(scores)} scores")
+    positives = sum(labels)
+    if not positives:
+        return float("nan")
+    tp = seen = 0
+    area = 0.0
+    for threshold in sorted(set(scores), reverse=True):
+        batch = [leaky for leaky, score in zip(labels, scores, strict=True) if score == threshold]
+        hits = sum(batch)
+        tp += hits
+        seen += len(batch)
+        area += hits / positives * (tp / seen)
+    return area
 
 
 def roc_curve(labels: list[bool], scores: list[float]) -> list[tuple[float, float, float]]:
@@ -168,6 +228,55 @@ def clopper_pearson(k: int, n: int, level: float = 0.95) -> tuple[float, float]:
     lower = 0.0 if k == 0 else solve(tail, k, upper=True)
     upper_bound = 1.0 if k == n else solve(tail, k, upper=False)
     return (round(lower, 4), round(upper_bound, 4))
+
+
+def _log_binomial_tail(k: int, n: int, p: float, upper: bool) -> float:
+    """P(X >= k) when `upper`, else P(X <= k), for X ~ Binomial(n, p), 0 < p < 1.
+
+    Summed in log space, so the sample size is not bounded by float overflow.
+    """
+    terms = range(k, n + 1) if upper else range(k + 1)
+    log_p, log_q = log(p), log(1 - p)
+    return sum(
+        exp(lgamma(n + 1) - lgamma(i + 1) - lgamma(n - i + 1) + i * log_p + (n - i) * log_q)
+        for i in terms
+    )
+
+
+def clopper_pearson_one_sided(
+    k: int, n: int, level: float = 0.95, side: Literal["upper", "lower"] = "upper"
+) -> float:
+    """Exact one-sided bound for a proportion of `k` in `n`, not rounded.
+
+    "upper": the true rate is at most this with confidence `level` (used to prove a false
+    positive rate stays under a target). "lower": it is at least this (used for recall and
+    precision). Zero events give an upper bound of 1 - (1 - level)^(1/n), and all events a
+    lower bound of (1 - level)^(1/n). Unlike `clopper_pearson`, the result is not rounded,
+    so a pass/fail comparison against a target is exact (1 in 93 is 0.04999, 1 in 92 is
+    0.0505). Returns nan when `n` is 0.
+    """
+    if side not in ("upper", "lower"):
+        raise ValueError(f"side must be 'upper' or 'lower', got {side!r}")
+    if not 0.0 < level < 1.0:
+        raise ValueError(f"level must lie strictly between 0 and 1, got {level}")
+    if n < 0 or not 0 <= k <= n:
+        raise ValueError(f"need 0 <= k <= n, got k={k}, n={n}")
+    if n == 0:
+        return float("nan")
+    upper = side == "upper"
+    if (k == n) if upper else (k == 0):
+        return 1.0 if upper else 0.0
+    alpha = 1 - level
+    low, high = 0.0, 1.0
+    for _ in range(100):
+        mid = (low + high) / 2
+        # P(X <= k) falls as p grows, P(X >= k) rises
+        above = _log_binomial_tail(k, n, mid, upper=not upper) > alpha
+        if above == upper:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2
 
 
 def template_rates(
