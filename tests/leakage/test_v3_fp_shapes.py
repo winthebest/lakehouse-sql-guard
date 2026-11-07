@@ -854,3 +854,163 @@ GROUP BY 1, 2, 3"""
     short = f"{utc_shown_in('America/New_York')} - INTERVAL 7 DAY"
     assert rules(on_event_time.format(keys=KEYS, expression=exact), **delay) == set()
     assert "L4" in rules(on_event_time.format(keys=KEYS, expression=short), **delay)
+
+
+# --- the ways an accepted shape could be bent into a leak (found by review, each flagged) -------
+
+
+def test_a_row_capped_by_a_shifted_maximum_is_not_bounded():
+    shifted = newest_before(value="MAX(x.updated_at + INTERVAL 1 DAY)")
+    for op in ("<=", "<", "="):
+        assert rules(latest(f"s.updated_at {op} {shifted}")), op
+    assert rules(latest(f"{shifted} >= s.updated_at"))
+    truncated = newest_before(value="MAX(DATE_TRUNC('day', x.updated_at))")
+    assert rules(latest(f"s.updated_at <= {truncated}"))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        # a cast to TIMESTAMPTZ reads the time in the session's zone: the instant is not the time
+        "timezone('Asia/Tokyo', CAST(l.label_ts AS TIMESTAMPTZ))",
+        "timezone('America/New_York', CAST(timezone('UTC', l.label_ts) AS TIMESTAMP))",
+        "CAST(timezone('America/New_York', timezone('UTC', l.label_ts)) AS TIMESTAMPTZ)",
+    ],
+)
+def test_a_cast_between_time_zone_conversions_is_not_followed(expression):
+    assert rules(zoned(expression, feature="e.ingested_at")), expression
+
+
+def test_a_cast_in_a_cte_before_a_time_zone_conversion_is_not_followed():
+    query = f"""WITH sp AS (SELECT user_id, CAST(label_ts AS TIMESTAMPTZ) AS label_ts, churned
+                 FROM labels)
+SELECT {KEYS}, COUNT(e.event_id) AS n
+FROM sp l LEFT JOIN events e ON e.user_id = l.user_id
+  AND e.ingested_at < timezone('Asia/Tokyo', l.label_ts)
+GROUP BY 1, 2, 3"""
+    assert rules(query)
+
+
+def test_the_same_zone_on_both_sides_is_not_a_bound():
+    # around a daylight saving change the two conversions differ by an hour
+    shown = utc_shown_in("America/New_York")
+    assert rules(zoned(shown, feature=shown.replace("l.label_ts", "e.ingested_at")))
+
+
+def test_a_calendar_shift_that_may_lie_on_either_side_of_zero_is_not_a_bound():
+    assert rules(stats_where("s.updated_at + INTERVAL 1 MONTH - INTERVAL 31 DAY < l.label_ts"))
+
+
+@pytest.mark.parametrize("width", ["TINYINT", "SMALLINT", "INT"])
+def test_only_a_64_bit_cast_is_an_epoch_number(width):
+    query = bounded_by(f"CAST(s.updated_at AS {width})", f"CAST(l.label_ts AS {width})")
+    assert rules(query, **SPARK)
+    assert rules(window_over("ts_unix").replace("BIGINT", width), **SPARK)
+
+
+@pytest.mark.parametrize(
+    "qualify",
+    [
+        # the version is kept only if a later one exists
+        "l.label_ts > s.updated_at AND {lead} IS NOT NULL",
+        "l.label_ts > s.updated_at AND NOT ({lead} IS NULL)",
+        "l.label_ts > s.updated_at AND {lead} >= l.label_ts",
+    ],
+)
+def test_a_validity_test_that_depends_on_a_later_version_existing_is_flagged(qualify):
+    assert rules(as_of(qualify)), qualify
+
+
+def test_the_next_version_must_come_from_the_versions_in_time_order():
+    by_value = as_of(VALID_AT).replace("ORDER BY s.updated_at", "ORDER BY s.total_spend")
+    descending = as_of(VALID_AT).replace("ORDER BY s.updated_at", "ORDER BY s.updated_at DESC")
+    assert rules(by_value)
+    assert rules(descending)
+
+
+def test_a_table_with_a_load_time_needs_the_bound_before_the_window():
+    # the bound on the load time written in QUALIFY lets the window see events loaded later
+    events = f"""SELECT {KEYS}, e.amount
+FROM labels l JOIN events e ON e.user_id = l.user_id
+QUALIFY l.label_ts > e.ingested_at AND COALESCE(LEAD(e.event_ts) OVER (
+    PARTITION BY e.user_id, l.label_ts ORDER BY e.event_ts), TIMESTAMP '9999-12-31') > l.label_ts"""
+    assert rules(events)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # a LEFT JOIN condition zeroes a feature; it does not choose the rows
+        f"""WITH cutoff AS (SELECT {SPLIT_VALUE} AS c FROM labels)
+SELECT {KEYS}, COUNT(e.event_id) AS n FROM labels l CROSS JOIN cutoff
+LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+  AND l.label_ts < cutoff.c
+GROUP BY 1, 2, 3""",
+        f"""SELECT {KEYS}, COUNT(e.event_id) AS n FROM labels l
+LEFT JOIN events e ON e.user_id = l.user_id AND e.ingested_at < l.label_ts
+  AND l.label_ts < (SELECT {SPLIT_VALUE} FROM labels)
+GROUP BY 1, 2, 3""",
+        # a correlated subquery computes a feature
+        f"""WITH cutoff AS (SELECT {SPLIT_VALUE} AS c FROM labels)
+SELECT {KEYS}, (SELECT COUNT(*) FROM events e, cutoff k WHERE e.user_id = l.user_id
+  AND e.ingested_at < l.label_ts AND l.label_ts < k.c) AS n FROM labels l""",
+    ],
+)
+def test_a_cutoff_that_only_changes_a_feature_is_still_flagged(query):
+    assert rules(query), query
+
+
+def test_a_calendar_count_that_is_not_finite_does_not_crash():
+    assert rules(stats_where("date_diff('month', s.updated_at, l.label_ts) > 1e309"))
+    assert rules(stats_where("date_diff('day', s.updated_at, l.label_ts) > 1e309"))
+
+
+def test_a_sentinel_in_the_past_does_not_keep_the_last_version():
+    past = "COALESCE({lead}, TIMESTAMP '1900-01-01') >= l.label_ts"
+    assert rules(as_of("l.label_ts > s.updated_at AND " + past))
+    default = "LEAD(s.updated_at, 1, TIMESTAMP '1900-01-01') OVER (PARTITION BY s.user_id, "
+    default += "l.label_ts ORDER BY s.updated_at) >= l.label_ts"
+    assert rules(as_of("l.label_ts > s.updated_at AND " + default))
+    future = "COALESCE({lead}, TIMESTAMP '9999-12-31') >= l.label_ts"
+    assert rules(as_of("l.label_ts > s.updated_at AND " + future)) == set()
+
+
+@pytest.mark.parametrize(
+    "test",
+    ["({lead} IS NULL) = FALSE", "({lead} IS NULL) IS FALSE", "({lead} IS NULL) <> TRUE"],
+)
+def test_a_null_test_that_is_negated_without_not_does_not_keep_the_last_version(test):
+    assert rules(as_of("l.label_ts > s.updated_at AND (" + test + " OR {lead} >= l.label_ts)"))
+
+
+def test_an_interval_without_a_unit_is_no_bound_in_an_equality_or_a_cap():
+    shifted = "l.label_ts - INTERVAL '10' + INTERVAL 9 DAY"
+    assert rules(stats_where(f"s.updated_at = {shifted}"))
+    capped = newest_before(f"x.updated_at < {shifted}")
+    assert rules(latest(f"s.updated_at <= {capped}"))
+
+
+def test_a_staging_step_read_by_a_subquery_is_not_an_output_row_scope():
+    for tail in (
+        "SELECT x.user_id, x.churned, (SELECT COUNT(*) FROM x x2 WHERE x2.user_id = x.user_id) "
+        "AS n FROM x",
+        "SELECT x.user_id, x.churned FROM x WHERE x.user_id IN "
+        "(SELECT user_id FROM x GROUP BY user_id HAVING COUNT(*) > 2)",
+    ):
+        query = (
+            "WITH source AS (SELECT * FROM labels), "
+            f"x AS (SELECT * FROM source WHERE churned = 1) {tail}"
+        )
+        assert "L6" in rules(query), tail
+
+
+@pytest.mark.parametrize(
+    "test",
+    [
+        "CASE WHEN {lead} IS NULL THEN FALSE ELSE TRUE END",
+        "IF({lead} IS NULL, FALSE, TRUE)",
+        "CASE WHEN {lead} IS NULL THEN 0 ELSE 1 END = 1",
+    ],
+)
+def test_a_null_test_turned_around_by_a_case_does_not_keep_the_last_version(test):
+    assert rules(as_of("l.label_ts > s.updated_at AND (" + test + " OR {lead} >= l.label_ts)"))
