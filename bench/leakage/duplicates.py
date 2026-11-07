@@ -745,36 +745,42 @@ _FIXTURE_SPLIT = "fixtures"
 
 
 def fixture_templates(paths: Iterable[Path], dialect: str = "duckdb") -> list[Template]:
-    """The queries written as string literals in Python test files, as reference templates.
+    """The queries of developer fixtures, as reference templates.
 
-    A held-out author must not rewrite what the rules were tested on. A literal counts when it
-    parses as a SELECT or WITH query; a `{name}` placeholder is filled with `1` first, so a
-    query that a test formats still counts. Identical queries are listed once. A directory is
-    searched for `*.py` recursively.
+    A held-out author must not rewrite what the rules were tested on. Two kinds of file count: a
+    Python test file, whose string literals that parse as a SELECT or WITH query are queries, and
+    a `.sql` file (a case of another set, a template pair), which is one query. A `{name}`
+    placeholder is filled with `1` first, so a query that is formatted before it runs still
+    counts. Identical queries are listed once. A directory is searched recursively.
     """
     files: list[Path] = []
     for path in paths:
-        files += sorted(path.rglob("*.py")) if path.is_dir() else [path]
+        files += sorted([*path.rglob("*.py"), *path.rglob("*.sql")]) if path.is_dir() else [path]
     found: dict[str, Template] = {}
+
+    def add(file: Path, line: int, raw: str) -> None:
+        text = _PLACEHOLDER.sub("1", raw).strip()
+        if len(text) < 20 or not re.match(r"(?is)^\s*(--[^\n]*\n\s*)*(select|with)\b", text):
+            return
+        try:
+            tree = _parse(text, dialect)
+        except ValueError:
+            return
+        if not isinstance(tree, exp.Select | exp.Union | exp.Subquery):
+            return
+        key = normalized_sql(text, dialect)
+        if key not in found:
+            body = text.replace("{", "{{").replace("}", "}}")
+            found[key] = Template(f"{file.name}:{line}", _FIXTURE_SPLIT, "clean", {}, body)
+
     for file in files:
-        for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
-            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
-                continue
-            text = _PLACEHOLDER.sub("1", node.value).strip()
-            if len(text) < 20 or not re.match(r"(?is)^\s*(select|with)\b", text):
-                continue
-            try:
-                tree = _parse(text, dialect)
-            except ValueError:
-                continue
-            if not isinstance(tree, exp.Select | exp.Union | exp.Subquery):
-                continue
-            key = normalized_sql(text, dialect)
-            if key not in found:
-                body = text.replace("{", "{{").replace("}", "}}")
-                found[key] = Template(
-                    f"{file.name}:{node.lineno}", _FIXTURE_SPLIT, "clean", {}, body
-                )
+        source = file.read_text(encoding="utf-8")
+        if file.suffix == ".sql":
+            add(file, 1, source)
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                add(file, node.lineno, node.value)
     return list(found.values())
 
 
@@ -843,7 +849,8 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         type=Path,
         default=[],
-        help="Python test files or directories whose query literals are also reference queries",
+        help="Python test files, .sql files or directories (searched recursively) whose queries "
+        "are also reference queries",
     )
     parser.add_argument(
         "--relations-of",

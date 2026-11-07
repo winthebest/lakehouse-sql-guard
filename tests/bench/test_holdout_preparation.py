@@ -314,3 +314,36 @@ def test_the_freeze_covers_the_new_briefs_specs_and_searches_but_not_the_file_it
     } <= names
     assert "bench/heldout-v4-prereg.yaml" not in names  # it holds the digest of the others
     assert not [n for n in names if n.startswith("bench/leakage/templates/holdout_v4")]
+
+
+def test_sql_files_of_other_sets_are_reference_queries_too(tmp_path):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "leaky_1.sql").write_text(
+        "-- a comment first\n"
+        "SELECT t.shot_id, AVG(t.shot_made_flag) AS accuracy FROM data t GROUP BY 1\n",
+        encoding="utf-8",
+    )
+    (case / "notes.md").write_text("SELECT 1 is not read", encoding="utf-8")
+    found = duplicates.fixture_templates([tmp_path])
+    assert [t.template_id for t in found] == ["leaky_1.sql:1"]
+    copy = Template(
+        "copy",
+        "candidate",
+        "clean",
+        {},
+        "SELECT x.shot_id, AVG(x.shot_made_flag) AS acc FROM data x GROUP BY 1",
+    )
+    hits = duplicates.find_duplicates([copy], {"fixtures": found})
+    assert hits and hits[0].reference_split == "fixtures"
+
+
+def test_the_repository_fixtures_that_matter_are_found():
+    found = duplicates.fixture_templates(
+        [Path("tests/leakage"), Path("tests/bench/data"), Path("bench/kaggle/cases")]
+    )
+    ids = {t.template_id.split(":")[0] for t in found}
+    assert "l1_leaky.sql" in ids  # the event-log pairs
+    assert any(i.startswith("test_") for i in ids)  # the unit tests of the rules
+    assert any(i.startswith(("leaky_", "clean_")) for i in ids)  # the Kaggle cases
+    assert len(found) > 200
