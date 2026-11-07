@@ -520,3 +520,37 @@ def test_the_dialect_argument_is_the_dialect_of_the_query():
     sql = f"{SEL}, SUM(e.amount) a {LEFT} {GROUP}"
     fixes = suggest_fix(sql, spec_with(dialect="duckdb"), None, "spark", schema=SCHEMA)
     assert fixes and fixes[-1].rewrites
+
+
+# --- a finding shown as INFO because it only feeds a declared column is not repaired ----------
+
+NEXT_UPDATE = (
+    f"{SEL}, LEAD(s.updated_at) OVER (PARTITION BY l.user_id ORDER BY s.updated_at) AS next_update "
+    "FROM labels l JOIN user_stats s ON s.user_id = l.user_id AND s.updated_at < l.label_ts"
+)
+
+
+def test_a_finding_that_only_feeds_a_metadata_column_has_nothing_to_fix():
+    spec = spec_with(output_roles={"metadata": ["next_update"]})
+    report = validate(NEXT_UPDATE, spec, schema=SCHEMA)
+    demoted = [f for f in report.findings if f.evidence.get("non_feature_only")]
+    assert demoted and {f.rule_id for f in demoted} == {"L1"}
+    assert report.verdict == "clean"
+    assert suggest_fix(NEXT_UPDATE, spec, report, schema=SCHEMA) == []
+
+
+def test_the_same_window_in_a_feature_column_is_still_repaired():
+    fixes = fixes_of(NEXT_UPDATE)
+    assert fixes and fixes[-1].rewrites and fixes[-1].rule == "L1"
+
+
+def test_a_demoted_finding_next_to_a_real_one_leaves_only_the_real_one_to_repair():
+    sql = (
+        NEXT_UPDATE.replace(" AS next_update", " AS next_update, SUM(e.amount) AS spend").replace(
+            "FROM labels l JOIN", "FROM labels l LEFT JOIN events e ON e.user_id = l.user_id JOIN"
+        )
+        + f" {GROUP}, l.user_id, s.updated_at"
+    )
+    spec = spec_with(output_roles={"metadata": ["next_update"]})
+    fixes = suggest_fix(sql, spec, schema=SCHEMA)
+    assert fixes and not any(f.rule == "L1" for f in fixes)

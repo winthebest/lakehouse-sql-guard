@@ -6,6 +6,8 @@ The world is small and exact. Events of day d happen at 01:00 and are loaded at 
 are stamped at 12:00 or later, so a bound on event time `< label_ts` is exactly what was loaded.
 """
 
+import re
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 
 import pyarrow as pa
@@ -236,6 +238,43 @@ def test_a_label_table_loaded_in_one_commit_keeps_its_history_by_prediction_time
         PRIOR_VISITS.format(bound="h.visit_ts < l.visit_ts")
     )
     assert replay.status is ReplayStatus.PASS, replay.reason
+
+
+def test_the_stand_in_for_missing_label_history_is_reported(seeded):
+    replay = Replayer(seeded, visits_spec()).run(
+        PRIOR_VISITS.format(bound="h.visit_ts < l.visit_ts")
+    )
+    assert replay.status is ReplayStatus.PASS
+    assert "label table 'visits' had no snapshot before" in replay.reason
+    assert "taken by visit_ts instead of load time" in replay.reason
+    assert "late rows of it are not visible" in replay.reason
+    assert "label table" in asdict(replay)["reason"]
+
+
+def test_only_the_times_before_the_first_snapshot_get_the_note(progressive):
+    # the first visits are stamped before anything was loaded; every later time reads a snapshot
+    replay = Replayer(progressive, visits_spec()).run(
+        PRIOR_VISITS.format(bound="h.loaded_at < l.visit_ts")
+    )
+    assert replay.status is ReplayStatus.PASS
+    counted = re.search(r"\(and (\d+) more of the (\d+) point", replay.reason)
+    assert counted and int(counted[1]) + 1 < int(counted[2])
+
+
+def test_a_label_table_that_is_not_history_leaves_the_reason_alone(seeded):
+    spec = LeakageSpec.from_dict(
+        {
+            "label_table": "visits",
+            "entity_keys": ["visitor_id"],
+            "prediction_ts": "visit_ts",
+            "label_columns": ["converted"],
+            "time_columns": {"other": "x"},
+            "static_tables": [],
+        }
+    )
+    replay = Replayer(seeded, spec).run(PRIOR_VISITS.format(bound="h.visit_ts < l.visit_ts"))
+    assert replay.status is ReplayStatus.PASS
+    assert "had no snapshot" not in replay.reason
 
 
 def test_a_label_table_not_listed_as_temporal_is_not_read_from_snapshots(progressive):

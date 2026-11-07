@@ -35,10 +35,15 @@ is never used is ignored; a UNION in a CTE or derived table is traced branch by 
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sqlglot import errors as sqlglot_errors
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
@@ -126,6 +131,18 @@ _CLOCK_FUNCTIONS = {
 }
 # seconds in one unit of an integer time column (`time_units` of the spec)
 _UNIT_FACTOR = {"seconds": 1.0, "milliseconds": 1e-3, "microseconds": 1e-6}
+# Casting a timestamp to an integer gives the epoch in seconds in these engines. In the others it is
+# an error or another number: the cast still orders rows like the timestamp does, but its unit is
+# unknown, so it bounds nothing.
+_EPOCH_CAST_DIALECTS = {"spark", "databricks", "hive"}
+# Engines where `x AT TIME ZONE zone` and `timezone(zone, x)` turn a plain timestamp (read as local
+# time of the zone) into an instant and an instant into the local time of the zone. Elsewhere the
+# same words mean other things (Trino keeps the instant), so they are not read.
+_ZONE_DIALECTS = {"duckdb", "postgres", "redshift"}
+# engines where `date - 7` is not "seven days earlier" (MySQL reads the date as a number)
+_NO_DATE_ARITHMETIC = {"mysql", "starrocks", "doris", "tidb", "singlestore"}
+# Only a 64-bit integer holds the epoch: a narrower cast overflows (and wraps, with ANSI mode off).
+_INTEGER_TYPES = {exp.DataType.Type.BIGINT}
 MATURED_LABELS = "__matured_labels"
 # the only aggregates a time-split cutoff may be made of
 _CUTOFF_AGGREGATES = (
@@ -178,8 +195,11 @@ class TimeBound:
     instances: frozenset[Chain] = frozenset()
     direct: bool = True
     label_refs: frozenset[int] = frozenset()  # id() of the label TableRefs compared against
-    # the true offset is at most offset_seconds + slack_up (month and year lengths vary)
+    # the true offset is at most offset_seconds + slack_up (month and year lengths vary). For an
+    # upper bound the offset already is the largest it can be and this is 0: the rules read the
+    # offset alone. `inexact` says the offset was made so by a shift known only within a range.
     slack_up: float = 0.0
+    inexact: bool = False
     inclusive: bool = False  # the spec lets facts stamped exactly at prediction_ts through
     # written in QUALIFY: window functions of the same query already saw the unfiltered rows
     post_window: bool = False
@@ -606,26 +626,110 @@ class _Peeled:
     epoch: bool = False  # went through epoch(): seconds since 1970
     # a bare number added to the column, in the column's own unit (see `time_units`)
     pending: float = 0.0
+    # seconds in one unit of the epoch number (1e-3 for milliseconds); 0.0 when the unit is unknown
+    epoch_scale: float = 1.0
+    # the conversion (a cast to an integer, unix_timestamp, epoch_ms) means "epoch" only for a
+    # timestamp column: on a number it is something else, so the column's type must be checked
+    stamp_only: bool = False
+    # time zone conversions applied to the column, innermost first (names of zones)
+    zones: tuple[str, ...] = ()
+    # a cast to a timestamp type or DATE was peeled: it can turn a plain timestamp into an instant
+    # (in the session's zone) or the reverse, which the zone arithmetic cannot follow
+    retyped: bool = False
 
 
-def _peel(node: exp.Expression) -> _Peeled | None:
+@lru_cache(maxsize=256)
+def _zone_offsets(zone: str) -> tuple[float, float] | None:
+    """(smallest, largest) offset of a time zone from UTC in seconds, east positive, over the
+    years 1970 to 2040 (weekly samples), or None for a name that is not a zone."""
+    try:
+        info = ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+    start = datetime(1970, 1, 1, tzinfo=UTC)
+    offsets = {
+        (start + timedelta(weeks=week)).astimezone(info).utcoffset().total_seconds()  # type: ignore[union-attr]
+        for week in range(71 * 53)
+    }
+    return min(offsets), max(offsets)
+
+
+def _zone_conversion(node: exp.Expression, dialect: str) -> tuple[exp.Expression, str] | None:
+    """`(inner, zone)` for `inner AT TIME ZONE 'zone'` and `timezone('zone', inner)`."""
+    if dialect not in _ZONE_DIALECTS:
+        return None
+    if isinstance(node, exp.AtTimeZone):
+        zone, inner = node.args.get("zone"), node.this
+    elif (
+        isinstance(node, exp.Anonymous)
+        and str(node.this).lower() == "timezone"
+        and len(node.expressions) == 2
+    ):
+        zone, inner = node.expressions
+    else:
+        return None
+    if isinstance(zone, exp.Literal) and zone.is_string and inner is not None:
+        return inner, zone.name
+    return None
+
+
+def _epoch_form(node: exp.Expression, dialect: str) -> tuple[exp.Expression, float, float] | None:
+    """`(timestamp expression, seconds per unit, truncation seconds)` when `node` converts a
+    timestamp to a number since 1970 in a way only a timestamp column can mean, else None.
+
+    Spark and Databricks: `CAST(ts AS BIGINT)`, `unix_timestamp(ts)`, `unix_seconds(ts)`,
+    `unix_millis(ts)`. DuckDB: `epoch_ms(ts)`. A cast to an integer is seconds only where the
+    engine says so (`_EPOCH_CAST_DIALECTS`); elsewhere its unit is 0.0, unknown.
+    """
+    if isinstance(node, exp.Cast | exp.TryCast):
+        target = node.to.this if node.to else None
+        if target in _INTEGER_TYPES:
+            return node.this, (1.0 if dialect in _EPOCH_CAST_DIALECTS else 0.0), 1.0
+    elif isinstance(node, exp.StrToUnix | exp.UnixSeconds):
+        return node.this, 1.0, 1.0
+    elif isinstance(node, exp.UnixMillis):
+        return node.this, 1e-3, 1e-3
+    elif isinstance(node, exp.UnixToTime) and dialect == "duckdb":
+        scale = node.args.get("scale")
+        if isinstance(scale, exp.Literal) and scale.name == str(exp.UnixToTime.MILLIS):
+            return node.this, 1e-3, 1e-3
+    return None
+
+
+def _peel(node: exp.Expression, dialect: str = "duckdb") -> _Peeled | None:
     """Strip casts, truncation, epoch(), and +/- intervals.
 
     Returns the base column with the net offset and truncation, or None when the expression has
     a shape we cannot reason about (callers then treat it as no bound).
     """
     offset = trunc = up = down = pending = 0.0
-    epoch = False
+    epoch = stamp_only = False
+    scale = 1.0
+    zones: list[str] = []
+    retyped = False
     while True:
         if isinstance(node, exp.Paren):
             node = node.this
+        elif (zone := _zone_conversion(node, dialect)) is not None:
+            node, name = zone
+            zones.append(name)
+        elif (form := _epoch_form(node, dialect)) is not None:
+            if epoch:
+                return None  # an epoch number converted to an epoch number again
+            node, scale, cut = form
+            trunc = max(trunc, cut)
+            epoch = stamp_only = True
+            offset += pending * scale
+            pending = 0.0
         elif isinstance(node, exp.Cast | exp.TryCast):
             target = node.to.this if node.to else None
             if target in _TIMESTAMP_TYPES:
                 node = node.this
+                retyped = True
             elif target == exp.DataType.Type.DATE:
                 trunc = max(trunc, 86_400)
                 node = node.this
+                retyped = True
             else:
                 return None
         elif isinstance(node, exp.DateTrunc | exp.TimestampTrunc):
@@ -663,7 +767,19 @@ def _peel(node: exp.Expression) -> _Peeled | None:
             break
     if not isinstance(node, exp.Column):
         return None
-    return _Peeled(node, offset, trunc, up, down, epoch, 0.0 if epoch else pending)
+    return _Peeled(
+        node,
+        offset,
+        trunc,
+        up,
+        down,
+        epoch,
+        0.0 if epoch else pending,
+        scale,
+        stamp_only,
+        tuple(reversed(zones)),
+        retyped,
+    )
 
 
 def _shift(offset: float, up: float, down: float, seconds: float, slack: float):
@@ -688,6 +804,12 @@ class Resolved:
     up: float = 0.0  # the true offset is at most offset + up (see TimeBound.slack_up)
     down: float = 0.0  # ... and at least offset - down
     epoch: bool = False
+    epoch_scale: float = 1.0  # as in `_Peeled`, when `epoch`
+    # a time zone conversion is on the path: then `aware` says whether the value is an instant
+    # (True) or a plain local timestamp (False)
+    zoned: bool = False
+    aware: bool | None = None
+    retyped: bool = False  # a cast to a timestamp type was peeled on the path
 
     @property
     def exact(self) -> bool:
@@ -703,7 +825,9 @@ class _Resolver:
         spec: LeakageSpec,
         paths: dict[int, list[Chain]],
         dead: set[int],
+        schema: Schema | None = None,
     ) -> None:
+        self.schema = schema or {}
         self.by_expression = {id(s.expression): s for s in scopes}
         self.refs = refs
         self.spec = spec
@@ -764,7 +888,7 @@ class _Resolver:
         With `keyed`, a projection that is a surrogate key of the spine row (see `_row_key`)
         resolves to the prediction_ts it contains: the key stands for the prediction.
         """
-        peeled = _peel(node)
+        peeled = _peel(node, self.spec.dialect)
         if peeled is None or scope is None or depth > _MAX_DEPTH:
             return None
         column = peeled.column
@@ -779,22 +903,37 @@ class _Resolver:
             ref = self.refs.get(id(source))
             if ref is None:
                 return None
-            shift = self.pending_seconds(peeled.pending, ref)
-            if shift is None:
+            shift = self.pending_seconds(peeled.pending, ref, column.name)
+            if shift is None or (peeled.stamp_only and not self.is_timestamp(ref, column.name)):
                 return None
+            offset, up, down = peeled.offset + shift, peeled.up, peeled.down
+            aware = None
+            if peeled.zones:
+                if peeled.retyped:
+                    return None
+                shifted = self._through_zones(
+                    peeled.zones, offset, up, down, self.is_aware(ref, column.name)
+                )
+                if shifted is None:
+                    return None
+                offset, up, down, aware = shifted
             return [
                 Resolved(
                     ref,
                     column.name.lower(),
                     (),
-                    peeled.offset + shift,
+                    offset,
                     peeled.trunc,
                     raw,
                     column.table,
                     id(owner),
-                    peeled.up,
-                    peeled.down,
+                    up,
+                    down,
                     peeled.epoch,
+                    peeled.epoch_scale,
+                    bool(peeled.zones),
+                    aware,
+                    peeled.retyped,
                 )
             ]
         if not isinstance(source, Scope):
@@ -827,36 +966,122 @@ class _Resolver:
             if not got:
                 return None
             for g in got:
-                shift = self.pending_seconds(peeled.pending, g.ref)
-                if shift is None:
+                shift = self.pending_seconds(peeled.pending, g.ref, g.column)
+                if shift is None or (peeled.stamp_only and not self.is_timestamp(g.ref, g.column)):
                     return None
+                offset, up, down = (
+                    peeled.offset + shift + g.offset,
+                    peeled.up + g.up,
+                    peeled.down + g.down,
+                )
+                zoned, aware = g.zoned, g.aware
+                if (peeled.retyped and (peeled.zones or g.zoned)) or (peeled.zones and g.retyped):
+                    return None  # a cast changed what the value is between two conversions
+                if peeled.zones:
+                    start = g.aware if g.zoned else self.is_aware(g.ref, g.column)
+                    shifted = self._through_zones(peeled.zones, offset, up, down, start)
+                    if shifted is None:
+                        return None
+                    offset, up, down, aware = shifted
+                    zoned = True
                 resolved.append(
                     Resolved(
                         g.ref,
                         g.column,
                         ((id(owner), column.table), *g.chain),
-                        peeled.offset + shift + g.offset,
+                        offset,
                         max(peeled.trunc, g.trunc),
                         raw and g.raw,
                         column.table,
                         id(owner),
-                        peeled.up + g.up,
-                        peeled.down + g.down,
+                        up,
+                        down,
                         peeled.epoch or g.epoch,
+                        peeled.epoch_scale if peeled.epoch else g.epoch_scale,
+                        zoned,
+                        aware,
+                        peeled.retyped or g.retyped,
                     )
                 )
         return resolved
 
-    def pending_seconds(self, amount: float, ref: TableRef) -> float | None:
-        """Seconds in a bare number added to a time column of `ref`'s table, or None when the
-        table declares no unit for it (then the number means nothing we can use)."""
+    def pending_seconds(self, amount: float, ref: TableRef, column: str) -> float | None:
+        """Seconds in a bare number added to a time column of `ref`'s table: days for a DATE
+        column (where the engine allows it), the declared unit for an integer one, and None when
+        the number means nothing we can use."""
         if not amount:
             return 0.0
+        if self.spec.dialect not in _NO_DATE_ARITHMETIC and self.is_date(ref, column):
+            return amount * 86_400
         factor = _UNIT_FACTOR.get(self.spec.time_units.get(ref.table, ""))
         return None if factor is None else amount * factor
 
     def unit_of(self, ref: TableRef) -> str | None:
         return self.spec.time_units.get(ref.table)
+
+    def is_aware(self, ref: TableRef, column: str) -> bool | None:
+        """Is the column declared a timestamp with a time zone (an instant)? None when unknown."""
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return None
+        try:
+            kind = exp.DataType.build(declared, dialect=self.spec.dialect).this
+        except (ValueError, sqlglot_errors.ParseError):
+            return None
+        if kind in (exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ):
+            return True
+        return False if kind in _TIMESTAMP_TYPES else None
+
+    @staticmethod
+    def _through_zones(
+        zones: tuple[str, ...], offset: float, up: float, down: float, aware: bool | None
+    ) -> tuple[float, float, float, bool] | None:
+        """The shift, as (offset, up, down), after converting through `zones` (innermost first),
+        and whether the result is an instant; None when it is not known or may go either way.
+
+        A plain timestamp is read as local time of the zone (the instant is earlier by the zone's
+        offset), an instant is shown as local time (later by it). The offsets of a zone vary, so
+        the shift is a range; it must lie on one side of zero for the bound to mean anything.
+        """
+        if aware is None:
+            return None
+        low, high = offset - down, offset + up
+        for zone in zones:
+            span = _zone_offsets(zone)
+            if span is None:
+                return None
+            if aware:
+                low, high = low + span[0], high + span[1]
+            else:
+                low, high = low - span[1], high - span[0]
+            aware = not aware
+        if high <= 0:  # never later: the largest magnitude is the nominal shift
+            return low, high - low, 0.0, aware
+        if low >= 0:
+            return high, 0.0, high - low, aware
+        return None
+
+    def is_date(self, ref: TableRef, column: str) -> bool:
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return False
+        try:
+            return (
+                exp.DataType.build(declared, dialect=self.spec.dialect).this
+                == exp.DataType.Type.DATE
+            )
+        except (ValueError, sqlglot_errors.ParseError):
+            return False
+
+    def is_timestamp(self, ref: TableRef, column: str) -> bool:
+        """Is the column of `ref`'s table declared a timestamp in the schema? (Unknown: no.)"""
+        declared = self.schema.get(ref.table, {}).get(column.lower())
+        if not declared:
+            return False
+        try:
+            return exp.DataType.build(declared, dialect=self.spec.dialect).this in _TIMESTAMP_TYPES
+        except (ValueError, sqlglot_errors.ParseError):
+            return False
 
     def _row_key(self, expression: exp.Expression, scope: Scope) -> exp.Column | None:
         """The prediction_ts column of a surrogate key of one label row, or None.
@@ -1389,7 +1614,7 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
         ref.paths = paths[id(ref.scope)]
 
     dead = {id(s) for s in every_scope} - live
-    resolver = _Resolver(every_scope, refs, spec, paths, dead)
+    resolver = _Resolver(every_scope, refs, spec, paths, dead, schema)
     analysis = QueryAnalysis(spec, schema, qualified, list(refs.values()), resolver=resolver)
     _check_spec(analysis)
     root = scopes[-1] if scopes else None
@@ -1406,20 +1631,37 @@ def analyze_tree(tree: exp.Expression, spec: LeakageSpec, schema: Schema) -> Que
             ref.spine_paths = {p for p in ref.paths if (id(ref), p) in resolver.spine}
     analysis.spine = [r for r in analysis.refs if r.on_spine]
 
-    for node in qualified.find_all(exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Between):
+    for node in qualified.find_all(exp.LT, exp.LTE, exp.GT, exp.GTE, exp.EQ, exp.Between):
         context = _conjunctive_filter(node)
         if context is None:
             continue
         scope = resolver.scope_of(node)
-        if isinstance(node, exp.Between):
+        if isinstance(node, exp.EQ):
+            # equal to a time before the prediction is bounded above by it
+            terms = [(node.left, "<=", node.right, 0.0, False, (0.0, 0.0))]
+        elif isinstance(node, exp.Between):
             terms = [
-                (node.this, ">=", node.args["low"], 0.0, False),
-                (node.this, "<=", node.args["high"], 0.0, False),
+                (node.this, ">=", node.args["low"], 0.0, False, (0.0, 0.0)),
+                (node.this, "<=", node.args["high"], 0.0, False, (0.0, 0.0)),
             ]
         else:
             terms = _comparison_terms(node)
-        for left, op, right, shift, needs_epoch in terms:
-            _record(left, op, right, scope, context, resolver, node, shift, needs_epoch)
+        for left, op, right, shift, needs_epoch, slack in terms:
+            # an equality is a bound only when it puts the time strictly in the past: the others
+            # (the same instant, a later one) keep the reading they always had
+            _record(
+                left,
+                op,
+                right,
+                scope,
+                context,
+                resolver,
+                node,
+                shift,
+                needs_epoch,
+                slack,
+                isinstance(node, exp.EQ),
+            )
     _record_latest_row(analysis, resolver)
     _record_timelines(analysis, resolver)
     _apply_filter_bounds(analysis, resolver)
@@ -1500,6 +1742,7 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
             if ref.kind == "label":
                 resolver.spine |= {(id(ref), p) for p in ref.paths}
         analysis.seed_scopes = {id(ref.scope) for ref in analysis.refs if ref.kind == "label"}
+        analysis.seed_scopes |= _rows_passed_on(outputs, resolver)
         return
     spine = resolver.spine
     for scope, terms in seeds:
@@ -1520,22 +1763,80 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
         a = _prediction_terms(node.left, scope, resolver, keyed=True)
         b = _prediction_terms(node.right, scope, resolver, keyed=True)
         if a and b and scope is not None:
-            equalities.append((a, b, context, scope))
+            # a COALESCE is one of its arguments; a column fed by a UNION or EXCEPT is, in each
+            # row, the column of the branch the row came from
+            alternatives = (
+                isinstance(_unparen(node.left), exp.Coalesce),
+                isinstance(_unparen(node.right), exp.Coalesce),
+            )
+            equalities.append((a, b, context, scope, alternatives))
     changed = True
     while changed:
         changed = False
-        for a, b, context, scope in equalities:
-            for known, new in ((a, b), (b, a)):
-                # a single column equal to something already on the spine is on it too — if the
-                # predicate really restricts that column's rows (not the preserved side of a join)
-                if len(new) != 1 or not context.filters(new[0].alias):
+        for a, b, context, scope, (a_either, b_either) in equalities:
+            for known, new, new_either in ((a, b, b_either), (b, a, a_either)):
+                # a column equal to something already on the spine is on it too — if the
+                # predicate really restricts that column's rows (not the preserved side of a join).
+                # Every branch of a UNION that feeds the column is, for the rows that survive.
+                if (len(new) != 1 and new_either) or not all(
+                    context.filters(term.alias) for term in new
+                ):
                     continue
                 for instance in resolver.paths[id(scope)]:
                     if all(resolver.on_spine(k, instance) for k in known):
-                        for p in resolver.full_paths(new[0], instance):
-                            if (id(new[0].ref), p) not in spine:
-                                spine.add((id(new[0].ref), p))
-                                changed = True
+                        for term in new:
+                            for p in resolver.full_paths(term, instance):
+                                if (id(term.ref), p) not in spine:
+                                    spine.add((id(term.ref), p))
+                                    changed = True
+
+
+def _only_projects_and_filters(scope: Scope) -> bool:
+    """Does the SELECT take the rows of its single source and keep some of them, unchanged?
+    No join, grouping, aggregate, window, DISTINCT, LIMIT or set operation in between."""
+    select = scope.expression
+    return (
+        isinstance(select, exp.Select)
+        and len(scope.selected_sources) == 1
+        and not any(
+            select.args.get(part) for part in ("group", "distinct", "limit", "offset", "windows")
+        )
+        and not any(
+            _innermost_select(node) is select
+            for node in select.find_all(exp.AggFunc, exp.Window, *_ROW_MULTIPLIERS)
+        )
+    )
+
+
+def _rows_passed_on(outputs: list[Scope], resolver: _Resolver) -> set[int]:
+    """The output SELECTs and the scopes below them whose rows reach the output as they are:
+    each takes the rows of its single source and keeps some of them.
+
+    Used when the output does not say which label rows it holds: a filter on a label column in
+    such a scope still only chooses output rows, as in the scope that reads the label table. A
+    scope the output reads through a join, a subquery or a second use is not one of them."""
+    found: set[int] = set()
+    pending = list(outputs)
+    while pending:
+        scope = pending.pop()
+        if id(scope) in found:
+            continue
+        found.add(id(scope))
+        if _only_projects_and_filters(scope):
+            ((_, source),) = scope.selected_sources.values()
+            if isinstance(source, Scope) and _read_once(source, resolver):
+                pending.append(source)
+    return found
+
+
+def _read_once(source: Scope, resolver: _Resolver) -> bool:
+    """Is `source` read by exactly one FROM item in the whole query (a subquery counts)?"""
+    readers = 0
+    for scope in resolver.scope_by_id.values():
+        if id(scope) in resolver.dead:
+            continue
+        readers += sum(1 for s in scope.sources.values() if s is source)
+    return readers == 1
 
 
 def _output(scope: Scope, name: str) -> exp.Expression:
@@ -1556,20 +1857,32 @@ def _unparen(node: exp.Expression) -> exp.Expression:
     return node
 
 
-def _difference_seconds(bound: exp.Expression) -> tuple[float, bool] | None:
-    """(seconds, needs_epoch) of the constant a difference is compared with.
+Slack = tuple[float, float]  # (up, down): the true shift is at most / at least this far from it
 
-    An INTERVAL is exact. A bare number only means seconds when both sides went through epoch();
-    zero is the same in every unit.
+
+def _slack_sides(seconds: float, slack: float) -> Slack:
+    """The calendar slack of a shift of `seconds` (`_amount_seconds`: the real length may be
+    `slack` shorter), as how far above and below the nominal shift the true one can lie."""
+    return (slack, 0.0) if seconds <= 0 else (0.0, slack)
+
+
+def _difference_seconds(bound: exp.Expression) -> tuple[float, bool, Slack] | None:
+    """(seconds, needs_epoch, slack) of the constant a difference is compared with.
+
+    An INTERVAL is exact for fixed units; a month, quarter or year counts as its longest length
+    with the shortest as slack (a unitless one has no known length). A bare number only means
+    seconds when both sides went through epoch(); zero is the same in every unit.
     """
     bound = _unparen(bound)
     if isinstance(bound, exp.Interval):
         got = _amount_seconds(bound, None)
-        return (got[0], False) if got is not None and got[1] == 0 else None
+        if got is None or not math.isfinite(got[1]):
+            return None
+        return got[0], False, _slack_sides(*got)
     value = _constant(bound)
     if value is None:
         return None
-    return (0.0, False) if value == 0 else (value, True)
+    return (0.0, False, (0.0, 0.0)) if value == 0 else (value, True, (0.0, 0.0))
 
 
 def _datediff_terms(diff: exp.Expression, bound: exp.Expression, op: str) -> list:
@@ -1577,49 +1890,67 @@ def _datediff_terms(diff: exp.Expression, bound: exp.Expression, op: str) -> lis
 
     d = number of unit boundaries between start and end, so d > k means start lies before the
     unit that started k units before `end`: start < end - k*unit, and so on for the other three.
+    A calendar unit counts as its longest length, with the shortest as slack.
     """
     name = _unit_name(diff.args.get("unit"))
     k = _constant(_unparen(bound))
-    if name not in _FIXED_UNITS or k is None or k != int(k):
+    if (name not in _FIXED_UNITS and name not in _UNIT_SLACK) or k is None:
         return []
-    unit = _UNIT_SECONDS[name]
-    start, end = diff.expression, diff.this
+    if not math.isfinite(k) or k != int(k):
+        return []
+    unit, start, end = _UNIT_SECONDS[name], diff.expression, diff.this
     if op == ">":
-        return [(start, "<", end, -k * unit, False)]
-    if op == ">=":
-        return [(start, "<", end, (1 - k) * unit, False)]
-    if op == "<":
-        return [(start, ">", end, -k * unit, False)]
-    return [(start, ">", end, -(k + 1) * unit, False)]
+        units, flipped = -k, "<"
+    elif op == ">=":
+        units, flipped = 1 - k, "<"
+    elif op == "<":
+        units, flipped = -k, ">"
+    else:
+        units, flipped = -(k + 1), ">"
+    seconds = units * unit
+    slack = abs(units) * _UNIT_SLACK.get(name, 0.0)
+    return [(start, flipped, end, seconds, False, _slack_sides(seconds, slack))]
 
 
 def _comparison_terms(node: exp.Expression) -> list:
-    """Readings `(left, op, right, shift, needs_epoch)` of a comparison: `left OP right + shift`.
+    """Readings `(left, op, right, shift, needs_epoch, slack)` of a comparison:
+    `left OP right + shift`.
 
     The comparison itself, and when one side is a difference of two time expressions or a
     date_diff, the equivalent comparison of the two expressions.
     """
     op = _OPS[type(node)]
-    terms = [(node.left, op, node.right, 0.0, False)]
+    terms = [(node.left, op, node.right, 0.0, False, (0.0, 0.0))]
     for diff, other, flipped in ((node.left, node.right, op), (node.right, node.left, _FLIP[op])):
         diff = _unparen(diff)
         if isinstance(diff, exp.Sub) and not isinstance(diff.expression, exp.Interval):
             got = _difference_seconds(other)
             if got is not None:  # X - Y OP c  ->  X OP Y + c
-                terms.append((diff.this, flipped, diff.expression, got[0], got[1]))
+                terms.append((diff.this, flipped, diff.expression, got[0], got[1], got[2]))
         elif isinstance(diff, exp.DateDiff | exp.TsOrDsDiff):
             terms += _datediff_terms(diff, other, flipped)
     return terms
 
 
 def _record(
-    left, op, right, scope, context, resolver, node, shift: float = 0.0, needs_epoch: bool = False
+    left,
+    op,
+    right,
+    scope,
+    context,
+    resolver,
+    node,
+    shift: float = 0.0,
+    needs_epoch: bool = False,
+    slack: Slack = (0.0, 0.0),
+    strict_past_only: bool = False,
 ) -> None:
     """Record `left OP right + shift` as a bound when one side is a feature time column and the
-    other a label prediction_ts on the spine."""
+    other a label prediction_ts on the spine. `slack` is how far the true shift may lie above and
+    below `shift` (the length of a month is not fixed); turned around with the shift."""
     spec = resolver.spec
-    orientations = ((left, right, op, shift), (right, left, _FLIP[op], -shift))
-    for feature_node, label_node, normalized, signed in orientations:
+    orientations = ((left, right, op, shift, slack[0]), (right, left, _FLIP[op], -shift, slack[1]))
+    for feature_node, label_node, normalized, signed, extra_up in orientations:
         features = resolver.resolve_all(feature_node, scope, local=True)
         if not features:
             features = resolver.equated_times(feature_node, scope)
@@ -1630,8 +1961,17 @@ def _record(
             continue
         scale = 1.0
         resolved = features + labels
+        if any(r.zoned for r in resolved):
+            # a converted time is only comparable with a column of the same kind (a plain
+            # timestamp against an instant is read in the session's zone, which we do not know)
+            kinds = {r.aware if r.zoned else resolver.is_aware(r.ref, r.column) for r in resolved}
+            if len(kinds) != 1 or None in kinds:
+                continue
+        scales = {r.epoch_scale for r in resolved if r.epoch}
+        if len(scales) > 1 or 0.0 in scales:
+            continue  # numbers in different or unknown units (seconds, milliseconds) say nothing
         if needs_epoch and all(r.epoch for r in resolved):
-            pass  # both sides went through epoch(): the constant is in seconds
+            scale = scales.pop()  # both sides are epoch numbers: the constant is in their unit
         elif not any(r.epoch for r in resolved) or needs_epoch:
             # integer columns are compared in their own unit: columns of different units do not
             # bound each other, and a bare constant means that unit
@@ -1670,6 +2010,14 @@ def _record(
             label_trunc = min(lab.trunc for lab in labels)
             if upper and feature.trunc > label_trunc:
                 offset += feature.trunc  # truncating only the feature side admits later facts
+            slack_up = max(lab.up for lab in labels) + feature.down + extra_up
+            inexact = False
+            if upper and slack_up:
+                inexact = True
+                if math.isfinite(slack_up):
+                    # the rules see the offset alone: it must be the largest the true one can be
+                    offset, slack_up = offset + slack_up, 0.0
+                # else the size is unknown (a unitless interval): the bound covers no delay
             bound = TimeBound(
                 feature.column,
                 role,
@@ -1680,11 +2028,14 @@ def _record(
                 instances=instances,
                 direct=not feature.chain,
                 label_refs=frozenset(id(lab.ref) for lab in labels),
-                slack_up=max(lab.up for lab in labels) + feature.down,
+                slack_up=slack_up,
+                inexact=inexact,
                 inclusive=spec.boundary == "inclusive",
                 post_window=context.kind == "qualify",
                 node=node,
             )
+            if strict_past_only and not (bound.is_strict_past and math.isfinite(bound.slack_up)):
+                continue
             if context.aggregate_filter is not None:
                 resolver.pending.append(
                     (ref, bound, context.aggregate_filter, scope, feature.alias)
@@ -1701,33 +2052,52 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
 
     The equality keeps only the row holding the subquery's maximum (or minimum), which is at or
     below every upper bound the subquery applies to its own rows. `col IN (SELECT MAX(col) ...
-    GROUP BY entity)` keeps rows holding one of those per-group maxima: the same.
+    GROUP BY entity)` and `col = ANY (SELECT col ...)` keep rows holding one of those values, and
+    `col <= (SELECT MAX(col) ...)` (or `<`, or the same turned around) keeps rows that are not
+    later than it: all capped by the subquery's own bound. `>=`, `ALL` (true for an empty set) and
+    `NOT IN` do not cap the row and bound nothing.
     """
     spec = analysis.spec
-    for node in analysis.qualified.find_all(exp.EQ, exp.In):
+    for node in analysis.qualified.find_all(exp.EQ, exp.In, exp.LT, exp.LTE, exp.GT, exp.GTE):
         context = _row_filter(node)
         if context is None:
             continue
         scope = resolver.scope_of(node)
+        strict = False  # a comparison that excludes the newest bounded row itself
         if isinstance(node, exp.EQ):
             sides, grouped = [(node.left, node.right), (node.right, node.left)], False
-        else:
+        elif isinstance(node, exp.In):
             sides, grouped = [(node.this, node.args.get("query"))], True
+        elif isinstance(node, exp.LT | exp.LTE):
+            sides, grouped, strict = [(node.left, node.right)], False, isinstance(node, exp.LT)
+        else:
+            sides, grouped = [(node.right, node.left)], False
+            strict = isinstance(node, exp.GT)
         for feature_node, other in sides:
+            many = grouped or isinstance(other, exp.Any)  # the subquery may give several rows
+            if isinstance(other, exp.Any):
+                other = other.this
             if not isinstance(other, exp.Subquery) or not isinstance(other.this, exp.Select):
                 continue
             inner = other.this
             inner_scope = resolver.by_expression.get(id(inner))
             if len(inner.selects) != 1 or inner_scope is None or id(inner_scope) in resolver.dead:
                 continue
-            if inner.args.get("group") and not grouped:
+            if inner.args.get("group") and not many:
                 continue
             peak = inner.selects[0].unalias()
-            if not isinstance(peak, exp.Max | exp.Min):
+            if isinstance(peak, exp.Max | exp.Min):
+                value = peak.this
+            elif isinstance(peak, exp.Column) and many:
+                value = peak  # the set of bounded values itself
+            else:
                 continue
-            sub = resolver.resolve_time(peak.this, inner_scope, local=True)
+            sub = resolver.resolve_time(value, inner_scope, local=True)
             feature = resolver.resolve_time(feature_node, scope, local=True)
-            if not sub or not feature or not feature.exact or feature.ref.time_column is None:
+            # the cap is the value itself: `MAX(col + INTERVAL 1 DAY)` caps the row a day later
+            if not sub or not sub.exact or not feature or not feature.exact:
+                continue
+            if feature.ref.time_column is None:
                 continue
             ref = feature.ref
             if ref.table != sub.ref.table or feature.column != sub.column:
@@ -1738,6 +2108,8 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
             for bound in sub.ref.bounds:
                 if not (bound.is_upper and bound.column == sub.column) or bound.post_window:
                     continue
+                if not math.isfinite(bound.slack_up):
+                    continue  # its size is unknown (a unitless interval)
                 # written in the subquery itself (the table may be reached through a CTE)
                 if not (bound.direct or resolver.scope_of(bound.node) is inner_scope):
                     continue
@@ -1752,7 +2124,7 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                         TimeBound(
                             feature.column,
                             role,
-                            bound.op,
+                            "<" if strict else bound.op,
                             bound.offset_seconds,
                             node.sql(spec.dialect),
                             raw=False,
@@ -1760,10 +2132,16 @@ def _record_latest_row(analysis: QueryAnalysis, resolver: _Resolver) -> None:
                             direct=not feature.chain,
                             label_refs=bound.label_refs,
                             slack_up=bound.slack_up,
+                            inexact=bound.inexact,
                             inclusive=bound.inclusive,
                             node=node,
                         )
                     )
+
+
+def _is_definition(window: exp.Window) -> bool:
+    """Is this node the definition in a WINDOW clause rather than a function evaluated over one?"""
+    return isinstance(window.this, exp.Identifier)
 
 
 def _frame_stops_at_current_row(frame: exp.Expression | None, func: exp.Expression) -> bool:
@@ -1850,7 +2228,8 @@ def _record_timelines(analysis: QueryAnalysis, resolver: _Resolver) -> None:
     is a constant that sorts the spine first, otherwise inclusively (`<=`, which L5 reports).
     """
     spec = analysis.spec
-    windows = list(analysis.qualified.find_all(exp.Window))
+    # `WINDOW w AS (...)` defines a window; only the functions that use it (`SUM(x) OVER w`) run
+    windows = [w for w in analysis.qualified.find_all(exp.Window) if not _is_definition(w)]
     earning = []
     for window in windows:
         parts = _window_parts(window)
@@ -1942,6 +2321,8 @@ def _timeline_is_only_carried(
                 continue
             if isinstance(node, exp.AggFunc) and node.find_ancestor(exp.Window) is not None:
                 continue  # the function of a window, judged with the window
+            if isinstance(node, exp.Window) and _is_definition(node):
+                continue  # a WINDOW clause only names a frame
             if not (other is scope and any(node is w for w in mine)):
                 return False
     return True
@@ -2045,37 +2426,55 @@ def _preserves_rows(alias: str, select: exp.Select) -> bool:
     return not select.args.get("group")  # a grouping-free aggregate always yields one row
 
 
+def _cutoff_aggregate(projection: exp.Expression) -> exp.Expression | None:
+    """The aggregate a cutoff projection is made of: itself, or with a constant interval or number
+    added or subtracted (`MAX(label_ts) - INTERVAL 30 DAY`), else None."""
+    node = projection.unalias()
+    while isinstance(node, exp.Paren | exp.Cast | exp.Add | exp.Sub):
+        if isinstance(node, exp.Add | exp.Sub):
+            offset = node.expression
+            if not isinstance(offset, exp.Interval) and _constant(offset) is None:
+                return None
+        node = node.this
+    return node if isinstance(node, _CUTOFF_AGGREGATES) else None
+
+
 def _global_scans(analysis: QueryAnalysis, resolver: _Resolver) -> None:
     """Uncorrelated `(SELECT MAX(label_ts) FROM labels)` used as a time-split cutoff.
 
     The scan yields one number computed from prediction times only and is compared with the
     spine's prediction_ts to choose which rows to train on; it is not a feature and not a
-    per-row temporal join, so it needs no bound of its own.
+    per-row temporal join, so it needs no bound of its own. The number may be shifted by a
+    constant, and may be held in a CTE or derived table (`cutoff.c`) instead of a scalar
+    subquery, as long as every read of it is such a comparison.
     """
     spec = analysis.spec
     for ref in analysis.refs:
         if ref.kind != "label" or ref.on_spine:
             continue
         scope, select = ref.scope, ref.scope.expression
-        if not scope.is_subquery or not isinstance(select, exp.Select) or scope.external_columns:
+        if (
+            not (scope.is_subquery or scope.is_cte or scope.is_derived_table)
+            or not isinstance(select, exp.Select)
+            or scope.external_columns
+        ):
             continue
         shapes_ok = (
             len(scope.selected_sources) == 1
             and not any(select.args.get(k) for k in ("joins", "group", "having", "qualify"))
             and not select.find(exp.Window)
-            and all(isinstance(p.unalias(), _CUTOFF_AGGREGATES) for p in select.selects)
+            and all(_cutoff_aggregate(p) is not None for p in select.selects)
             and sum(1 for _ in select.find_all(exp.Select)) == 1
         )
         if not shapes_ok:
             continue
-        columns = list(select.find_all(exp.Column))
         reads_time_only = all(
             (got := resolver.resolve(c, scope)) is not None
             and got.ref is ref
             and got.column == spec.prediction_ts
-            for c in columns
+            for c in select.find_all(exp.Column)
         )
-        if reads_time_only and _used_as_spine_cutoff(select, resolver):
+        if reads_time_only and _used_as_spine_cutoff(analysis, scope, resolver):
             ref.global_scan = True
             ref.time_column = None
             analysis.global_scans.append(ref)
@@ -2096,18 +2495,59 @@ def _anchored_at_maximum(aggregate: exp.Expression) -> bool:
     return value is None or value >= 1
 
 
-def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
-    """Is the scan compared, in a row filter, with nothing but spine prediction times?
+def _readers_of(analysis: QueryAnalysis, scope: Scope, resolver: _Resolver) -> list | None:
+    """The columns that read a CTE or derived table, or None when a whole row of it is read."""
+    found = []
+    for node in analysis.qualified.find_all(exp.Column, exp.TableColumn):
+        reader = resolver.scope_of(node)
+        alias = node.table if isinstance(node, exp.Column) else node.name
+        if reader is None or not alias:
+            continue
+        source = resolver._source(reader, alias, local=False)
+        if source is None or source[0] is not scope:
+            continue
+        if isinstance(node, exp.TableColumn):
+            return None
+        found.append(node)
+    return found
+
+
+def _used_as_spine_cutoff(analysis: QueryAnalysis, scope: Scope, resolver: _Resolver) -> bool:
+    """Is every read of the scan compared, in a row filter, with nothing but spine prediction times?
 
     As an upper bound (`label_ts < cutoff`) it picks the training rows. As a lower bound anchored
     at the global maximum (`label_ts >= cutoff`, `BETWEEN cutoff AND ...`) it keeps only the
     latest rows, so which rows exist depends on later predictions: not accepted. Equality and
     IN are the same thing and are not accepted either.
     """
-    subquery = select.parent
-    if not isinstance(subquery, exp.Subquery):
-        return False
-    child, node = subquery, subquery.parent
+    select = scope.expression
+    if scope.is_subquery:
+        sites = [select.parent] if isinstance(select.parent, exp.Subquery) else []
+    else:
+        sites = [_scalar_site(c) for c in _readers_of(analysis, scope, resolver) or []]
+    return bool(sites) and all(_is_cutoff_read(site, select, analysis, resolver) for site in sites)
+
+
+def _scalar_site(column: exp.Column) -> exp.Expression:
+    """`(SELECT c FROM cutoff)` stands for the value of `c`: the scalar subquery is the read."""
+    inner = column.parent
+    if isinstance(inner, exp.Alias):
+        inner = inner.parent
+    if (
+        isinstance(inner, exp.Select)
+        and len(inner.expressions) == 1
+        and inner.expressions[0].unalias() is column
+        and not any(inner.args.get(k) for k in ("where", "group", "having", "joins", "limit"))
+        and isinstance(inner.parent, exp.Subquery)
+    ):
+        return inner.parent
+    return column
+
+
+def _is_cutoff_read(
+    site: exp.Expression, select: exp.Select, analysis: QueryAnalysis, resolver: _Resolver
+) -> bool:
+    child, node = site, site.parent
     while isinstance(node, exp.Paren | exp.Add | exp.Sub | exp.Cast):
         if isinstance(node, exp.Sub) and node.this is not child:
             return False
@@ -2122,15 +2562,24 @@ def _used_as_spine_cutoff(select: exp.Select, resolver: _Resolver) -> bool:
         lower = child is node.args["low"]
     else:
         return False
-    if lower and any(_anchored_at_maximum(p.unalias()) for p in select.selects):
+    if lower and any(_anchored_at_maximum(_cutoff_aggregate(p)) for p in select.selects):
         return False
     context = _row_filter(node)
-    if context is None:
-        return False
     scope = resolver.scope_of(node)
+    # it must choose which rows are trained on: a WHERE or HAVING of the SELECT that produces the
+    # spine rows. A join condition or a subquery only decides what a feature holds.
+    if (
+        context is None
+        or context.kind == "on"
+        or scope is None
+        or not _produces_spine_rows(scope, analysis)
+    ):
+        return False
     others = [
-        c for c in node.find_all(exp.Column) if not any(a is subquery for a in _ancestors(c, node))
+        c for c in node.find_all(exp.Column) if not any(a is site for a in _ancestors(c, node))
     ]
+    if site in others:
+        others.remove(site)
     if not others:
         return False
     return all(resolver.is_spine_time(column, scope) for column in others)
@@ -2196,8 +2645,14 @@ class _PastWindows:
       (all of them, as the series has none);
     * its frame ends before the current row: `LAG` with a constant offset of at least 1, or a ROWS
       frame whose end is `n PRECEDING` with n >= 1, both only when the labels are final the moment
-      they are stamped (`label_known_after: 0`); or a RANGE frame ending an offset before the row
-      that is longer than `label_known_after` (as long, with an inclusive boundary).
+      they are stamped (`label_known_after: 0`) or, for LAG, when the value is read only in a CASE
+      branch whose condition says the previous row was stamped longer than `label_known_after`
+      before the current one; or a RANGE frame ending an offset before the row that is longer
+      than `label_known_after` (as long, with an inclusive boundary).
+
+    A RANGE frame holds every row of its partition stamped that long before the current one,
+    whichever entity it belongs to, so its partition may be coarser than the entity keys (a
+    cohort), and its rows may come from the label table joined to static tables.
 
     A label column that is summed per row first (`daily AS (SELECT key, ts, SUM(label) AS total
     ... GROUP BY key, ts)`) is not a use of the target when every read of `total` is in such a
@@ -2326,6 +2781,37 @@ class _PastWindows:
         ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
         return ref if ref is not None and self._spine_only(ref) else None
 
+    def _static_joined(self, scope: Scope) -> TableRef | None:
+        """The label reference when `scope` selects (and filters) its rows, beside tables of
+        static attributes, without regrouping. A join may repeat or drop a row, which a frame that
+        stops long enough before the current row does not mind: every row in it is final."""
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            return None
+        if any(select.args.get(k) for k in ("group", "having", "distinct", "qualify")):
+            return None
+        if select.find(exp.Window, *_ROW_MULTIPLIERS) is not None:
+            return None
+        refs = []
+        for _, source in scope.selected_sources.values():
+            ref = self.resolver.refs.get(id(source)) if isinstance(source, exp.Table) else None
+            if ref is None:
+                return None
+            refs.append(ref)
+        spine = [r for r in refs if r.kind == "label"]
+        if len(spine) != 1 or not self._spine_only(spine[0]):
+            return None
+        return spine[0] if all(r.kind in ("label", "static") for r in refs) else None
+
+    def _by_value(self, parts: _WindowParts) -> bool:
+        """Is this a RANGE frame, which holds rows by how far back they are stamped?"""
+        frame = parts.spec
+        return (
+            isinstance(frame, exp.WindowSpec)
+            and str(frame.args.get("kind") or "").upper() == "RANGE"
+            and isinstance(parts.func, exp.AggFunc | exp.FirstValue | exp.LastValue | exp.NthValue)
+        )
+
     def _spine_only(self, ref: TableRef) -> bool:
         return ref.kind == "label" and ref.on_spine and not ref.temporal_paths
 
@@ -2333,7 +2819,7 @@ class _PastWindows:
         spec, resolver = self.spec, self.resolver
         parts = _window_parts(window)
         scope = resolver.scope_of(window)
-        if scope is None or not self._earlier_rows_only(parts):
+        if scope is None:
             return []
         select = scope.expression
         if (
@@ -2344,6 +2830,7 @@ class _PastWindows:
         ):
             return []
         ((_, source),) = scope.selected_sources.values()
+        cohort = self._by_value(parts)
         if isinstance(source, exp.Table):
             ref = resolver.refs.get(id(source))
             if ref is None or not self._spine_only(ref):
@@ -2353,6 +2840,8 @@ class _PastWindows:
             holds_label = self._grouped_label
         elif isinstance(source, Scope) and (ref := self._plain_rows(source)) is not None:
             holds_label = self._table_label  # a CTE that only selects and filters the label rows
+        elif cohort and isinstance(source, Scope) and (ref := self._static_joined(source)):
+            holds_label = self._table_label  # ... or also reads static tables beside them
         else:
             return []
 
@@ -2362,10 +2851,14 @@ class _PastWindows:
                 g.ref is ref and g.exact and (name is None or g.column == name) for g in got
             )
 
+        if not self._earlier_rows_only(
+            window, parts, lambda node: same_row_column(node, spec.prediction_ts)
+        ):
+            return []
         first = parts.order[0].this
         if parts.order[0].args.get("desc") or not same_row_column(first, spec.prediction_ts):
             return []
-        for key in spec.entity_keys:
+        for key in () if cohort else spec.entity_keys:
             if not any(same_row_column(p, key) for p in parts.partition_by):
                 return []
         if parts.func.find(exp.Select, exp.Window) is not None:
@@ -2393,9 +2886,92 @@ class _PastWindows:
             for inner in projection.find_all(exp.Column)
         )
 
-    def _earlier_rows_only(self, parts: _WindowParts) -> bool:
+    def _guarded(self, window: exp.Window, parts: _WindowParts, steps: float, is_stamp) -> bool:
+        """Is the window read only in a CASE branch whose condition says that the row it reads was
+        stamped long enough before the current one for its label to be final?
+
+        The condition is `LAG(ts) + I < ts` and its spellings, with `LAG(ts)` over the very window
+        of the label, `ts` the current row's prediction time, and `I` at least `label_known_after`
+        (longer than it when the comparison is not strict and the boundary is).
+        """
+        node = window
+        while node.parent is not None and not isinstance(node.parent, exp.Select):
+            parent = node.parent
+            if isinstance(parent, exp.If) and parent.args.get("true") is node:
+                for term in _conjuncts(parent.this):
+                    if self._says_final(term, parts, steps, is_stamp):
+                        return True
+            node = parent
+        return False
+
+    def _says_final(
+        self, term: exp.Expression, parts: _WindowParts, steps: float, is_stamp
+    ) -> bool:
+        """Does the comparison say that LAG(ts) lies at least `label_known_after` before ts?"""
+        if not isinstance(term, _COMPARISONS):
+            return False
+        left = self._linear(term.left, parts, steps, is_stamp)
+        right = self._linear(term.right, parts, steps, is_stamp)
+        if left is None or right is None:
+            return False
+        before, stamp, seconds = (left[0] - right[0], left[1] - right[1], left[2] - right[2])
+        op = _OPS[type(term)]
+        # before * LAG(ts) + stamp * ts + seconds  OP  0
+        if (before, stamp) == (1, -1):  # LAG(ts) - ts + seconds OP 0  ->  LAG(ts) OP ts - seconds
+            upper, margin = op, seconds
+        elif (before, stamp) == (-1, 1):  # ts - LAG(ts) + seconds OP 0 -> LAG(ts) OP' ts + seconds
+            upper, margin = _FLIP[op], -seconds
+        else:
+            return False
+        if upper not in ("<", "<="):
+            return False  # a lower bound on the earlier row's time says nothing
+        delay = self.spec.label_known_after
+        if delay is None or margin <= 0:
+            return False
+        return (
+            margin >= delay if upper == "<" or self.spec.boundary == "inclusive" else margin > delay
+        )
+
+    def _linear(
+        self, node: exp.Expression, parts: _WindowParts, steps: float, is_stamp
+    ) -> tuple[int, int, float] | None:
+        """`node` as (times LAG(ts), times ts, seconds): the sums and differences of the previous
+        row's prediction time, the current one and fixed intervals; None for anything else."""
+        node = _unparen(node)
+        if isinstance(node, exp.Window):
+            return (1, 0, 0.0) if self._same_lag(node, parts, steps, is_stamp) else None
+        if isinstance(node, exp.Column):
+            return (0, 1, 0.0) if is_stamp(node) else None
+        if isinstance(node, exp.Interval):
+            got = _amount_seconds(node, None)
+            return (0, 0, got[0]) if got is not None and got[1] == 0 else None
+        if isinstance(node, exp.Add | exp.Sub):
+            a = self._linear(node.this, parts, steps, is_stamp)
+            b = self._linear(node.expression, parts, steps, is_stamp)
+            if a is None or b is None:
+                return None
+            sign = 1 if isinstance(node, exp.Add) else -1
+            return (a[0] + sign * b[0], a[1] + sign * b[1], a[2] + sign * b[2])
+        return None
+
+    def _same_lag(self, node: exp.Expression, parts: _WindowParts, steps: float, is_stamp) -> bool:
+        """Is `node` `LAG(prediction_ts [, steps]) OVER` the window of the label?"""
+        if not isinstance(node, exp.Window):
+            return False
+        other = _window_parts(node)
+        if not isinstance(other.func, exp.Lag) or not is_stamp(other.func.this):
+            return False
+        offset = other.func.args.get("offset")
+        if (1.0 if offset is None else _constant(offset)) != steps:
+            return False
+        return [p.sql() for p in other.partition_by] == [p.sql() for p in parts.partition_by] and [
+            o.sql() for o in other.order
+        ] == [o.sql() for o in parts.order]
+
+    def _earlier_rows_only(self, window: exp.Window, parts: _WindowParts, is_stamp) -> bool:
         """Do the function, ordering and frame keep the window to rows stamped strictly before
-        the current one, whose labels are final?"""
+        the current one, whose labels are final? `is_stamp` says whether a node is the prediction
+        time of the rows the window reads."""
         spec = self.spec
         delay, func, frame, order = spec.label_known_after, parts.func, parts.spec, parts.order
         if delay is None or not order:
@@ -2404,12 +2980,13 @@ class _PastWindows:
             offset = func.args.get("offset")
             steps = 1.0 if offset is None else _constant(offset)
             default = func.args.get("default")
-            return (
-                delay == 0
-                and len(order) == 1
-                and _whole_at_least_one(steps)
-                and (default is None or _is_constant(default))
-            )
+            if (
+                len(order) != 1
+                or not _whole_at_least_one(steps)
+                or not (default is None or _is_constant(default))
+            ):
+                return False
+            return delay == 0 or self._guarded(window, parts, steps, is_stamp)
         if (
             not isinstance(func, exp.AggFunc | exp.FirstValue | exp.LastValue | exp.NthValue)
             or frame is None
@@ -2726,21 +3303,45 @@ def _validity_interval(window, scope, ref, analysis, resolver) -> bool:
 
     The next version's timestamp is compared with prediction_ts (or tested for NULL, or
     defaulted with a constant first) and never reaches an output, and the table's rows are also
-    bounded strictly before prediction time.
+    bounded strictly before prediction time. The window orders the versions by their own time,
+    ascending.
+
+    The same test written straight into a QUALIFY (no `valid_to` column) is accepted when the
+    window runs per prediction (it partitions by the prediction time, so it never reads another
+    prediction's rows) and the test cannot drop the last version, which has no next one (the
+    window has a constant default, sits in `COALESCE(window, constant)`, or is one side of an OR
+    with its own NULL test). The bound may then be written in that QUALIFY too, when the table's
+    time is also when it became known: the window only decides which version rows stay.
     """
     func, alias = window.this, window.parent
     if not isinstance(func, exp.Lead | exp.Lag):
         return False
-    if not isinstance(alias, exp.Alias) or not isinstance(alias.parent, exp.Select):
-        return False
+    projected = isinstance(alias, exp.Alias) and isinstance(alias.parent, exp.Select)
     arg = resolver.resolve_time(func.this, scope, local=True)
     if not arg or arg.ref is not ref or not arg.exact or arg.column not in ref.time_columns:
         return False
+    if not _ordered_by_time(_window_parts(window).order, scope, ref, resolver):
+        return False  # the next version in some other order can be a later one
+    inline = not projected
+    after_window = inline and ref.availability_column is None
     if not all(
-        any(b.is_strict_past and not b.post_window and b.earned_by is None for b in g)
+        any(
+            b.is_strict_past and (after_window or not b.post_window) and b.earned_by is None
+            for b in g
+        )
         for g in ref.bound_groups()
     ):
         return False
+    if inline:
+        return (
+            window.find_ancestor(exp.Qualify) is not None
+            and any(
+                resolver.is_spine_time(item, scope, keyed=True)
+                for item in _window_parts(window).partition_by
+            )
+            and _null_safe(window)
+            and _validity_use(window, resolver)
+        )
     owner = resolver.by_expression.get(id(alias.parent))
     uses = [
         column
@@ -2748,6 +3349,56 @@ def _validity_interval(window, scope, ref, analysis, resolver) -> bool:
         if column.name.lower() == alias.alias.lower() and _reads_scope(column, owner, resolver)
     ]
     return bool(uses) and all(_validity_use(c, resolver) for c in uses)
+
+
+_FAR_FUTURE_YEAR = 2100
+
+
+def _far_future(node: exp.Expression) -> bool:
+    """Is this constant a date or timestamp at or after every prediction time (year 2100 or
+    later), so that a test against it is true for the row that has no next version?"""
+    node = _unparen(node)
+    while isinstance(node, exp.Cast | exp.TryCast):
+        node = _unparen(node.this)
+    if not isinstance(node, exp.Literal) or not node.is_string:
+        return False
+    match = re.match(r"\s*(\d{4})-\d{2}-\d{2}", node.name)
+    return bool(match) and int(match.group(1)) >= _FAR_FUTURE_YEAR
+
+
+def _plain_null_test(test: exp.Is) -> bool:
+    """Is `x IS NULL` a plain condition? Not negated through NOT, `= FALSE`, IS FALSE, or a CASE
+    or IF that swaps the answer."""
+    parent = test.parent
+    while isinstance(parent, exp.Paren):
+        parent = parent.parent
+    return isinstance(parent, exp.Or | exp.And | exp.Qualify | exp.Where | exp.Having)
+
+
+def _null_safe(window: exp.Window) -> bool:
+    """Does a test on this LEAD/LAG keep the row that has no next version (the last one)?
+
+    The window has a default, or sits in COALESCE, that stands for a time after every prediction
+    (a sentinel in the past would drop the last version), or one side of an OR is its own
+    plain IS NULL test."""
+    default = window.this.args.get("default")
+    if default is not None:
+        return _far_future(default)
+    node = window
+    while isinstance(node.parent, exp.Paren):
+        node = node.parent
+    parent = node.parent
+    if isinstance(parent, exp.Coalesce) and parent.this is node:
+        return all(_far_future(e) for e in parent.expressions)
+    term = window
+    while term.parent is not None and not isinstance(term.parent, exp.And | exp.Qualify):
+        term = term.parent
+    term = _unparen(term)
+    sql = window.sql()
+    return isinstance(term, exp.Or) and any(
+        isinstance(test.expression, exp.Null) and _plain_null_test(test) and test.this.sql() == sql
+        for test in term.find_all(exp.Is)
+    )
 
 
 def _reads_scope(column: exp.Column, target: Scope | None, resolver: _Resolver) -> bool:
@@ -2770,8 +3421,8 @@ def _validity_use(column: exp.Column, resolver: _Resolver) -> bool:
         node, parent = parent, parent.parent
     if not _in_filter(column):
         return False
-    if isinstance(parent, exp.Is):
-        return isinstance(parent.expression, exp.Null)
+    if isinstance(parent, exp.Is):  # IS NULL, not IS NOT NULL (which needs a later version)
+        return isinstance(parent.expression, exp.Null) and _plain_null_test(parent)
     if not isinstance(parent, _COMPARISONS):
         return False
     other = parent.right if parent.left is node else parent.left

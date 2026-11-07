@@ -58,6 +58,13 @@ CLEAN = {
     ),
     "bound only in qualify": (f"{SEL}, e.amount {INNER} QUALIFY e.ingested_at < l.label_ts"),
     # 3: spellings of the same inequality
+    "date_diff in months": (
+        f"{SEL}, SUM(e.amount) a {INNER} "
+        f"AND date_diff('month', e.ingested_at, l.label_ts) > 0 {GROUP}"
+    ),
+    "difference of at least a month": (
+        f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > INTERVAL 1 MONTH {GROUP}"
+    ),
     "difference compared with a zero interval": (
         f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > INTERVAL 0 DAY {GROUP}"
     ),
@@ -290,11 +297,6 @@ LEAKY = {
         f"AND date_diff('day', l.label_ts, e.ingested_at) > 0 {GROUP}",
         "L1",
     ),
-    "date_diff in months is not read": (
-        f"{SEL}, SUM(e.amount) a {INNER} "
-        f"AND date_diff('month', e.ingested_at, l.label_ts) > 0 {GROUP}",
-        "L3",
-    ),
     "epoch non-strict": (
         f"{SEL}, SUM(e.amount) a {INNER} AND epoch(e.ingested_at) <= epoch(l.label_ts) {GROUP}",
         "L5",
@@ -307,10 +309,6 @@ LEAKY = {
     "epoch difference reversed": (
         f"{SEL}, SUM(e.amount) a {INNER} AND epoch(e.ingested_at) - epoch(l.label_ts) > 60 {GROUP}",
         "L1",
-    ),
-    "difference in months has no exact length": (
-        f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > INTERVAL 1 MONTH {GROUP}",
-        "L3",
     ),
     "bare number against a difference of timestamps": (
         f"{SEL}, SUM(e.amount) a {INNER} AND l.label_ts - e.ingested_at > 60 {GROUP}",

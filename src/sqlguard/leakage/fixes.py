@@ -135,6 +135,12 @@ def _key(finding: Finding) -> tuple[str, str]:
     return finding.rule_id, finding.location
 
 
+def _is_leak(finding: Finding) -> bool:
+    """A finding that decides the verdict. One shown as INFO because it only feeds a declared
+    label or metadata column keeps its rule id but is nothing to repair."""
+    return finding.rule_id in LEAK_RULES and not finding.evidence.get("non_feature_only")
+
+
 def _explanation(finding: Finding, spec: LeakageSpec) -> str:
     if finding.rule_id in ("L2", "L3") and finding.location.split(" AS ")[0] == spec.label_table:
         return (
@@ -203,7 +209,11 @@ def _repair(
         except Exception:  # noqa: BLE001 - nothing can be repaired that cannot be analyzed
             return steps, findings
         todo = sorted(
-            (f for f in findings if f.rule_id in _PRIORITY and _key(f) not in skipped),
+            (
+                f
+                for f in findings
+                if _is_leak(f) and f.rule_id in _PRIORITY and _key(f) not in skipped
+            ),
             key=lambda f: (-_depth(analysis, f), _PRIORITY[f.rule_id]),
         )
         applied = None
@@ -232,8 +242,8 @@ def _repair(
             if reason:
                 edit.not_shown(reason, finding.location.split(" AS ")[0])
         checked = static_findings(after, spec, schema)
-        before_keys = Counter(_key(f) for f in findings)
-        after_keys = Counter(_key(f) for f in checked)
+        before_keys = Counter(_key(f) for f in findings if _is_leak(f))
+        after_keys = Counter(_key(f) for f in checked if _is_leak(f))
         # the same table can be read twice under one name: one finding fewer is progress
         resolved = after_keys[_key(finding)] < before_keys[_key(finding)]
         added = sorted(
@@ -327,7 +337,7 @@ def suggest_fix(
         report = validate(
             sql, spec, schema=schema, catalog=catalog, replay=replayer or False, weights=weights
         )
-    leaks = [f for f in report.findings if f.rule_id in LEAK_RULES]
+    leaks = [f for f in report.findings if _is_leak(f)]
     if not leaks:
         return []
     try:
@@ -346,7 +356,7 @@ def suggest_fix(
     if steps and all(s.verified for s in steps):
         # replay can only vouch for a query nothing static is still reporting (the L4 hint aside:
         # settling it is what replay is for)
-        settled = not any(f.rule_id in LEAK_RULES and f.rule_id != "L4" for f in final_findings)
+        settled = not any(_is_leak(f) and f.rule_id != "L4" for f in final_findings)
         if replayer is not None and settled:
             level, extra, rows_changed = _replay_level(
                 steps[-1].after, original, spec, schema, replayer, weights
@@ -374,7 +384,7 @@ def suggest_fix(
                 semantics,
             )
         )
-    remaining = {_key(f) for f in final_findings}
+    remaining = {_key(f) for f in final_findings if _is_leak(f)}
     for finding in leaks:
         if _key(finding) not in remaining and steps:
             continue  # repaired, by its own edit or as a side effect of another
