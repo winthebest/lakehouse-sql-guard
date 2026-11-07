@@ -1,0 +1,9 @@
+# TalkingData: every click is a prediction row and history for later clicks.
+label_table: train
+entity_keys: [ip]                 # features group by ip plus app/device/os
+prediction_ts: click_time
+label_columns: [is_attributed]
+time_columns: {train: click_time}
+static_tables: []
+outcome_columns:
+  - train.attributed_time         # data page: the download time, only exists after a download

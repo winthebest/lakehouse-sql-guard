@@ -1,0 +1,17 @@
+# LendingClub accepted loans: one row per loan, predicted at origination.
+label_table: accepted_2007_to_2018q4
+entity_keys: [id]
+prediction_ts: issue_d            # month funded (both blogs treat application time as the cut)
+label_columns: [loan_status]
+time_columns: {accepted_2007_to_2018q4: issue_d}
+static_tables: []
+# Both blogs drop these as not available at application time (LendingClub data dictionary:
+# "payments received to date", "post charge off gross recovery", ...).
+outcome_columns:
+  - accepted_2007_to_2018q4.total_pymnt
+  - accepted_2007_to_2018q4.total_rec_prncp
+  - accepted_2007_to_2018q4.recoveries
+  - accepted_2007_to_2018q4.last_pymnt_d
+  - accepted_2007_to_2018q4.last_pymnt_amnt
+  - accepted_2007_to_2018q4.last_credit_pull_d
+  - accepted_2007_to_2018q4.debt_settlement_flag

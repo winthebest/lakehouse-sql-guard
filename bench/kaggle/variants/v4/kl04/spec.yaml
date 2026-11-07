@@ -1,0 +1,11 @@
+# GA Customer Revenue: each visit is a prediction row and history for the visitor's later visits.
+label_table: train
+entity_keys: [fullVisitorId]
+prediction_ts: visitStartTime     # BIGINT, POSIX seconds
+label_columns: [totals_transactionRevenue]
+time_columns: {train: visitStartTime}
+static_tables: []
+outcome_columns: []
+# Assumption: the prediction is made at the start of the visit; the thread does not say more.
+# added for the v4 variant: the unit of each integer time column (schema.yaml)
+time_units: {train: seconds}
