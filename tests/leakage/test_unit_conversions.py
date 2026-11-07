@@ -243,3 +243,55 @@ def test_a_floor_that_leaves_room_for_it_stays_clean():
 )
 def test_a_factor_must_be_the_unit_exactly(bound):
     assert rules(bound), bound
+
+
+# --- third attack: float rounding, chained floors, overflow ------------------------------------
+
+SELF = (
+    "SELECT s.user_id, s.ts_ms, s.correct, AVG(h.correct) AS past FROM interactions s "
+    "LEFT JOIN interactions h ON h.user_id = s.user_id AND {c} GROUP BY ALL"
+)
+HISTORY = {
+    "label_known_after": "0 seconds",
+    "time_columns": {"interactions": "ts_ms"},
+    "time_units": {"interactions": "milliseconds"},
+}
+
+
+def self_rules(condition: str) -> set[str]:
+    spec = LeakageSpec.from_dict({**SPEC, **HISTORY})
+    return {f.rule_id for f in static_findings(SELF.format(c=condition), spec, SCHEMA)}
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        # a factor that is not exact in a double: the two sides round differently at run time
+        "h.ts_ms * 0.001 < CAST(s.ts_ms AS DOUBLE) * 0.001",
+        "h.ts_ms * 0.001 < s.ts_ms * 1e-3",
+        "h.ts_ms < s.ts_ms * 1e-3 * 1e3",
+        "h.ts_ms * 0.1 < s.ts_ms * 1e-1",
+        # two floors in a row drop a unit each
+        "h.ts_ms // 1000 * 1000 // 1001 * 1001 < s.ts_ms - 1001",
+        # a factor so large or small that both sides saturate
+        "h.ts_ms * 1e300 <= (s.ts_ms - 1) * 1e300",
+        "h.ts_ms / 1e-300 <= (s.ts_ms - 1) / 1e-300",
+        "h.ts_ms * 1e-300 * 1e-300 <= (s.ts_ms - 1) * 1e-300 * 1e-300",
+        "h.ts_ms * 1e-400 < s.ts_ms * 1e-400",
+    ],
+)
+def test_a_conversion_that_only_looks_exact_bounds_nothing(condition):
+    assert self_rules(condition), condition
+
+
+def test_a_chain_of_floors_adds_up_their_steps():
+    assert ev_rules("p.ts_ms // 1000 * 1000 // 1001 * 1001 < s.ts_ms - 1001")
+    assert ev_rules("p.ts_ms // 1000 * 1000 // 1001 * 1001 < s.ts_ms - 2001") == set()
+
+
+def test_a_literal_of_a_million_digits_does_not_stall_the_check():
+    import time
+
+    started = time.perf_counter()
+    assert self_rules("h.ts_ms * 1e10000000 < s.ts_ms * 1e10000000")
+    assert time.perf_counter() - started < 5

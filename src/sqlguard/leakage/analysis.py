@@ -827,6 +827,9 @@ _NATIVE_SCALE = {
 _NUMBER_TYPES = {exp.DataType.Type.DOUBLE}
 
 
+_PLAIN_NUMBER = re.compile(r"\d+(?:\.\d*)?(?:[eE](?P<exponent>[+-]?\d+))?")
+
+
 def _as_float(value: Fraction) -> float:
     """`value` as a float; infinity when it is too large for one (a bound with an infinite
     truncation admits everything, so it is flagged)."""
@@ -842,6 +845,9 @@ def _exact(node: exp.Expression) -> Fraction | None:
     if isinstance(node, exp.Paren):
         return _exact(node.this)
     if isinstance(node, exp.Literal) and not node.is_string:
+        match = _PLAIN_NUMBER.fullmatch(node.name)
+        if match is None or abs(int(match["exponent"] or 0)) > 30 or len(node.name) > 40:
+            return None  # exact arithmetic on a huge exponent would stall the check
         try:
             return Fraction(node.name)
         except (ValueError, ZeroDivisionError):
@@ -854,16 +860,28 @@ def _exact(node: exp.Expression) -> Fraction | None:
     return None
 
 
+_FACTOR_RANGE = (Fraction(1, 10**12), Fraction(10**12))
+
+
+def _usable(k: Fraction | None) -> bool:
+    """Is `k` a factor a unit conversion can rest on? Positive, in a sane range (one that cannot
+    overflow or underflow a column of epoch values), and exact in a double: `0.001` is not, and a
+    product with it rounds differently from the quotient by 1000."""
+    if k is None or not _FACTOR_RANGE[0] <= k <= _FACTOR_RANGE[1]:
+        return False
+    return Fraction(float(k)) == k
+
+
 def _factor(node: exp.Mul | exp.Div | exp.IntDiv) -> tuple[exp.Expression, Fraction] | None:
     """(the operand that is not a constant, the constant) of `x * k`, `k * x`, `x / k`, `x // k`.
 
-    Only a positive constant: a negative factor turns every comparison round."""
+    Only a usable positive constant: a negative factor turns every comparison round."""
     k = _exact(node.expression)
-    if k is not None and k > 0:
+    if _usable(k):
         return node.this, k
     if isinstance(node, exp.Mul):
         k = _exact(node.this)
-        if k is not None and k > 0:
+        if _usable(k):
             return node.expression, k
     return None
 
@@ -912,9 +930,12 @@ def _peel_number(node: exp.Expression, dialect: str = "duckdb") -> _Number | Non
             if isinstance(node, exp.Mul):
                 mult, pending = mult * k, pending / _as_float(k)
             else:
-                # the result moves in steps of `mult`, what multiplies it further out
-                cut = max(cut, mult)
+                # the result moves in steps of `mult`, what multiplies it further out; the steps
+                # of several divisions add up
+                cut += mult
                 mult, pending = mult / k, pending * _as_float(k)
+            if not _FACTOR_RANGE[0] <= mult <= _FACTOR_RANGE[1]:
+                return None  # the factors together overflow or underflow
             new, node = True, operand
         elif isinstance(node, exp.Cast | exp.TryCast) and node.to and node.to.this in _NUMBER_TYPES:
             node = node.this
@@ -1249,7 +1270,7 @@ class _Resolver:
                 column.name.lower() if inner is None else inner.column,
                 chain,
                 number.offset + seconds + earlier[0],
-                max(cut, earlier[3]),
+                cut + earlier[3],
                 False,
                 column.table,
                 owner,
@@ -1262,7 +1283,7 @@ class _Resolver:
             column.name.lower() if inner is None else inner.column,
             chain,
             seconds + earlier[0],
-            max(cut, earlier[3]),
+            cut + earlier[3],
             False,
             column.table,
             owner,

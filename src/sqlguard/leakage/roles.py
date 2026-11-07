@@ -114,7 +114,9 @@ class _Trace:
             self.projection(scope, select, child)
         elif key == "order":
             # an order cuts rows when the select is bounded, or when a later scope can bound it
-            if _bounded(select) or scope.scope_type is not ScopeType.ROOT:
+            distinct = select.args.get("distinct")
+            keeps_first = distinct is not None and distinct.args.get("on")  # DISTINCT ON (..)
+            if _bounded(select) or keeps_first or scope.scope_type is not ScopeType.ROOT:
                 self.row_level = True
         else:
             self.row_level = True  # where / having / qualify / join / group / from / ...

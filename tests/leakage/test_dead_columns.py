@@ -135,3 +135,19 @@ def test_rows_picked_by_order_by_all_are_picked_by_every_column(tail):
         f"(SELECT nx, user_id, label_ts, churned FROM st {tail}) z"
     )
     assert scored(sql, **ROLES) & {"L1", "L6"}, sql
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "ORDER BY user_id, nx DESC, label_ts DESC",
+        "ORDER BY user_id, nx DESC NULLS FIRST, label_ts",
+    ],
+)
+def test_distinct_on_keeps_the_row_the_order_puts_first(tail):
+    sql = (
+        "WITH st AS (SELECT user_id, label_ts, churned, "
+        "LEAD(churned) OVER (PARTITION BY user_id ORDER BY label_ts) AS nx FROM labels) "
+        f"SELECT DISTINCT ON (user_id) user_id, label_ts, churned FROM st {tail}"
+    )
+    assert scored(sql, **ROLES) & {"L1", "L6"}, sql
