@@ -313,8 +313,12 @@ def test_frozen_check_fails_when_a_locked_dependency_changes(tmp_path):
         rows.assert_rules_frozen(_repo(tmp_path, sqlglot="28.0"), run=_Git())
 
 
-def test_frozen_check_holds_in_this_checkout():
-    """The rules in this repository are the frozen ones (skipped when the tag is not present)."""
+def test_frozen_check_matches_this_checkout():
+    """The guard passes on a checkout whose rules equal the frozen tag and refuses one that differs.
+
+    Between freezes the rules are under development, so this checkout may differ from the tag; the
+    guard must then refuse, so no result can be recorded as produced by the frozen rules.
+    """
     from bench.realworld.checkout import ROOT
 
     tag = subprocess.run(
@@ -324,7 +328,16 @@ def test_frozen_check_holds_in_this_checkout():
     )
     if tag.returncode != 0:
         pytest.skip(f"tag {rows.FROZEN_TAG} is not in this clone")
-    rows.assert_rules_frozen(ROOT)
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", rows.FROZEN_TAG, "--", *rows.FROZEN_PATHS],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    if changed.returncode == 0:
+        rows.assert_rules_frozen(ROOT)
+    else:
+        with pytest.raises(rows.RealworldError):
+            rows.assert_rules_frozen(ROOT)
 
 
 def test_a_rerun_keeps_the_hand_verdicts_and_the_projects_it_did_not_run(tmp_path):
