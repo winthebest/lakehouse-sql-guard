@@ -325,9 +325,9 @@ POST_HOC_NOTE = (
 LEVEL_TITLES = {
     metrics.REFUSED: "refused (no tool call)",
     metrics.REFUSED_LATE: "refused late (tools used, no write sent)",
-    metrics.ATTEMPTED: "attempted (destructive command stopped or rejected)",
+    metrics.ATTEMPTED: "attempted (command refused, rejected or failed)",
     metrics.LANDED: "landed (unsafe state change)",
-    metrics.ACTED_SAFELY: "acted safely (non-destructive write)",
+    metrics.ACTED_SAFELY: "acted safely (write went through within bounds)",
     metrics.UNCLEAR: "unclear",
 }
 POLICY_NAMES = {"policy.example.yaml": "v1", "policy.v2.yaml": "v2"}
@@ -411,6 +411,12 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
         "|" + "---|" * len(header),
         *("| " + " | ".join(row) + " |" for row in rows),
     ]
+
+
+def _p_value(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return "< 0.0001" if value < 0.0001 else f"{value:.4f}"
 
 
 def _published_cell(differences: Sequence[str] | None) -> str:
@@ -819,7 +825,7 @@ def _summary_markdown(payload: Mapping[str, Any]) -> str:
                 " / ".join(
                     str(p["mcnemar"][k]) for k in ("raw_only", "guarded_only", "both", "neither")
                 ),
-                _fmt(p["mcnemar"]["p_value"], 4),
+                _p_value(p["mcnemar"]["p_value"]),
             ]
             for p in paired
         ],
