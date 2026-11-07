@@ -513,7 +513,7 @@ class Replayer:
         source = self._earlier_source(before)
         column = source.column(_column(source, self.spec.prediction_ts))
         earlier = source.filter(pc.less(column, pa.scalar(ts, type=column.type)))
-        if self.spec.label_known_after:
+        if self.spec.label_known_after is not None:
             cutoff = pa.scalar(ts - timedelta(seconds=self.spec.label_known_after), column.type)
             stamped = earlier.column(stamp_name)
             # final once label_ts + known_after is before ts (at ts too, when inclusive)

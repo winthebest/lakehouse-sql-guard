@@ -279,3 +279,71 @@ def test_a_temporal_table_with_an_outcome_column_is_replayed_like_any_temporal_t
     assert declared.rows_compared == plain.rows_compared
 
 
+# --- labels that are final the moment they are stamped ----------------------------------------
+
+
+def plays_table() -> pa.Table:
+    rows = [
+        (u, START + timedelta(days=d, hours=12), (u + d) % 2)
+        for u in range(1, USERS + 1)
+        for d in range(DAYS)
+    ]
+    users, moments, correct = zip(*rows, strict=True)
+    return pa.table(
+        {
+            "user_id": pa.array(users, pa.int64()),
+            "ts": pa.array(moments, pa.timestamp("us")),
+            "correct": pa.array(correct, pa.int64()),
+        }
+    )
+
+
+def plays_spec(**extra) -> LeakageSpec:
+    return LeakageSpec.from_dict(
+        {
+            "label_table": "plays",
+            "entity_keys": ["user_id"],
+            "prediction_ts": "ts",
+            "label_columns": ["correct"],
+            "time_columns": {"plays": "ts"},
+            "static_tables": [],
+            **extra,
+        }
+    )
+
+
+PRIOR_RATE = """SELECT l.user_id, l.ts, l.correct,
+  (SELECT AVG(h.correct) FROM plays h WHERE h.user_id = l.user_id AND h.ts < l.ts) AS prior_rate
+FROM plays l"""
+
+
+@pytest.fixture(scope="module")
+def plays(tmp_path_factory):
+    catalog = LakehouseCatalog.local(tmp_path_factory.mktemp("plays"))
+    catalog.create_table("plays", plays_table())
+    return catalog
+
+
+def test_labels_known_at_once_stay_visible_to_the_rows_after_them(plays):
+    replay = Replayer(plays, plays_spec(label_known_after="0 seconds")).run(PRIOR_RATE)
+    assert replay.status is ReplayStatus.PASS, replay.reason
+    assert replay.rows_compared == USERS * DAYS
+
+
+def test_a_delay_written_as_the_number_zero_is_the_same_as_zero_seconds(plays):
+    replay = Replayer(plays, plays_spec(label_known_after=0)).run(PRIOR_RATE)
+    assert replay.status is ReplayStatus.PASS, replay.reason
+
+
+def test_without_a_declared_delay_the_earlier_labels_are_hidden(plays):
+    replay = Replayer(plays, plays_spec()).run(PRIOR_RATE)
+    assert replay.status is ReplayStatus.MISMATCH
+    assert set(replay.mismatched_columns) == {"prior_rate"}
+
+
+def test_a_positive_delay_hides_the_labels_stamped_inside_it(plays):
+    replay = Replayer(plays, plays_spec(label_known_after="2 days")).run(PRIOR_RATE)
+    assert replay.status is ReplayStatus.MISMATCH
+    assert set(replay.mismatched_columns) == {"prior_rate"}
+
+
