@@ -286,6 +286,8 @@ class LabelUse:
     ref: TableRef
     column: str
     sql: str
+    # the column reference in the qualified tree, so a caller can find the output it feeds
+    node: exp.Expression | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -301,6 +303,8 @@ class ClockUse:
     """A wall-clock function (`now()`, `current_date`, ...) that is not a plain spine filter."""
 
     sql: str
+    # the function in the qualified tree, so a caller can find the output it feeds
+    node: exp.Expression | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass
@@ -2096,7 +2100,9 @@ def _label_uses(analysis: QueryAnalysis, resolver: _Resolver):
             continue  # passthrough projection
         if scope is not None and _filters_final_rows(column, got, scope, analysis, resolver):
             continue
-        uses.append(LabelUse(got.ref, got.column, (column.parent or column).sql(spec.dialect)))
+        uses.append(
+            LabelUse(got.ref, got.column, (column.parent or column).sql(spec.dialect), column)
+        )
     return uses
 
 
@@ -2459,7 +2465,7 @@ def _clock_uses(analysis: QueryAnalysis, resolver: _Resolver) -> list[ClockUse]:
         scope = resolver.scope_of(node)
         if scope is None or _only_spine_filter(node, scope, analysis, resolver):
             continue
-        uses.append(ClockUse(node.sql(spec.dialect)))
+        uses.append(ClockUse(node.sql(spec.dialect), node))
     return uses
 
 

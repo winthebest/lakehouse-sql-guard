@@ -2,8 +2,15 @@
 
 Nothing is inferred from column names. Every table the query reads must be classified as
 the label table, a temporal table (with its event-time column), a static table, or an
-outcome table; otherwise the validator reports it as unclassified. Names are compared
+outcome table; otherwise the validator reports it as unclassified. The label table may also be
+listed in `time_columns` (with its own availability column, ingest delay and time unit) when it
+doubles as event history, as an interaction log does; it may never be static. Names are compared
 case-insensitively (stored lowercase), matching how unquoted SQL identifiers resolve.
+
+Optional fields: `entity_keys: []` for a single series (the key must still be written out),
+`time_units` for integer time columns, `label_known_after: 0` for labels final the moment the
+row is stamped, and `output_roles` to say which output columns of the query are labels,
+run metadata, or (when `features` is given) the only features.
 """
 
 from __future__ import annotations
@@ -28,26 +35,44 @@ def _name(value: Any, key: str) -> str:
     return value.strip().lower()
 
 
-def _names(value: Any, key: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value:
-        raise SpecError(f"{key} must be a non-empty list, got {value!r}")
+def _names(value: Any, key: str, *, allow_empty: bool = False) -> tuple[str, ...]:
+    if not isinstance(value, list) or not (value or allow_empty):
+        raise SpecError(
+            f"{key} must be a {'list' if allow_empty else 'non-empty list'}, got {value!r}"
+        )
     return tuple(_name(v, key) for v in value)
 
 
 _DURATION = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(second|minute|hour|day|week)s?\s*$", re.IGNORECASE)
 _DURATION_SECONDS = {"second": 1, "minute": 60, "hour": 3600, "day": 86_400, "week": 604_800}
+_UNIT_FREE_ZERO = re.compile(r"^\s*0(?:\.0+)?\s*$")
 BOUNDARIES = ("strict", "inclusive")
+TIME_UNITS = ("seconds", "milliseconds", "microseconds")
+OUTPUT_ROLES = ("label", "metadata", "features")
 
 
-def parse_duration(value: Any, key: str) -> float:
-    """Seconds in a duration such as `2 days`, `36 hours` or `1 week` (fixed-length units only)."""
+def parse_duration(value: Any, key: str, *, allow_zero: bool = False) -> float:
+    """Seconds in a duration such as `2 days`, `36 hours` or `1 week` (fixed-length units only).
+
+    With `allow_zero`, `0` (a number or a string) is a duration with no unit, and `0 <unit>` is
+    accepted too; negative values never are.
+    """
+    if allow_zero and not isinstance(value, bool):
+        if isinstance(value, int | float) and value == 0:
+            return 0.0
+        if isinstance(value, str) and _UNIT_FREE_ZERO.match(value):
+            return 0.0
     match = _DURATION.match(value) if isinstance(value, str) else None
-    if match is None or float(match.group(1)) <= 0:
+    seconds = None
+    if match is not None:
+        seconds = float(match.group(1)) * _DURATION_SECONDS[match.group(2).lower()]
+    if seconds is None or (seconds == 0 and not allow_zero):
+        kind, zero = ("non-negative", " or 0") if allow_zero else ("positive", "")
         raise SpecError(
-            f"{key} must be a positive duration like '2 days' (seconds, minutes, hours, days or "
-            f"weeks), got {value!r}"
+            f"{key} must be a {kind} duration like '2 days'{zero} (seconds, minutes, hours, days "
+            f"or weeks), got {value!r}"
         )
-    return float(match.group(1)) * _DURATION_SECONDS[match.group(2).lower()]
+    return seconds
 
 
 def relation_key(name: str) -> str:
@@ -95,6 +120,54 @@ def _mapping(value: Any, key: str) -> dict[str, str]:
     return {_name(t, key): _name(c, key) for t, c in value.items()}
 
 
+def _time_units(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SpecError(f"time_units must be a mapping of table -> unit, got {value!r}")
+    found = {}
+    for table, unit in value.items():
+        found[_name(table, "time_units")] = (
+            _name(unit, "time_units") if isinstance(unit, str) else unit
+        )
+    return found
+
+
+@dataclass(frozen=True)
+class OutputRoles:
+    """What the output columns of a query are, as far as the spec author documented them.
+
+    `label` and `metadata` columns are not features. When `features` is given it is the complete
+    list of feature columns: every other output column is not a feature.
+    """
+
+    label: tuple[str, ...] = ()
+    metadata: tuple[str, ...] = ()
+    features: tuple[str, ...] | None = None
+
+    @classmethod
+    def from_value(cls, value: Any) -> OutputRoles:
+        if value is None:
+            return cls()
+        if not isinstance(value, dict):
+            raise SpecError(f"output_roles must be a mapping of role -> columns, got {value!r}")
+        unknown = set(value) - set(OUTPUT_ROLES)
+        if unknown:
+            raise SpecError(
+                f"output_roles has unknown roles {sorted(map(str, unknown))}: use {OUTPUT_ROLES}"
+            )
+        roles = {
+            role: _names(value[role], f"output_roles.{role}", allow_empty=True)
+            for role in OUTPUT_ROLES
+            if value.get(role) is not None
+        }
+        if "features" in roles and not roles["features"]:
+            raise SpecError(
+                "output_roles.features must not be empty: leave it out to declare no feature list"
+            )
+        return cls(**roles)
+
+
 @dataclass(frozen=True)
 class LeakageSpec:
     label_table: str
@@ -119,6 +192,10 @@ class LeakageSpec:
     label_known_after: float | None = None
     # SQL relation name (`table`, `schema.table`, `catalog.schema.table`) -> catalog table
     relations: dict[str, str] = field(default_factory=dict)
+    # table -> unit of its time column when that column is an integer (epoch seconds, ms, us)
+    time_units: dict[str, str] = field(default_factory=dict)
+    # which output columns of the query are labels, run metadata, or the only features
+    output_roles: OutputRoles = field(default_factory=OutputRoles)
 
     def __post_init__(self) -> None:
         if self.boundary not in BOUNDARIES:
@@ -129,20 +206,79 @@ class LeakageSpec:
         unknown = set(self.availability_columns) - set(self.time_columns)
         if unknown:
             raise SpecError(f"availability_columns for tables without a time column: {unknown}")
+        if self.label_table in self.static_tables:
+            raise SpecError(
+                "label_table must not also be declared static (it may be temporal, with a "
+                "time_columns entry, when it doubles as history)"
+            )
         overlap = set(self.static_tables) & set(self.time_columns)
         if overlap:
             raise SpecError(f"tables declared both static and temporal: {overlap}")
-        if self.label_table in self.time_columns or self.label_table in self.static_tables:
-            raise SpecError("label_table must not also be declared temporal or static")
+        unknown_unit = set(self.time_units) - set(self.time_columns)
+        if unknown_unit:
+            raise SpecError(f"time_units names tables without a time column: {unknown_unit}")
+        bad_unit = {t: u for t, u in self.time_units.items() if u not in TIME_UNITS}
+        if bad_unit:
+            raise SpecError(
+                f"time_units must be one of {', '.join(TIME_UNITS[:-1])} or {TIME_UNITS[-1]}, "
+                f"got {bad_unit}"
+            )
+        if not (self.label_columns or self.output_roles.label):
+            raise SpecError("name the label: label_columns or output_roles.label (or both)")
+        self._check_output_roles()
+
+    def _check_output_roles(self) -> None:
+        roles = self.output_roles
+        lists = {"label": roles.label, "metadata": roles.metadata, "features": roles.features or ()}
+        seen: set[str] = set()
+        for column in (c for names in lists.values() for c in names):
+            if column in seen:
+                raise SpecError(f"output_roles lists {column!r} in more than one role")
+            seen.add(column)
+        identity = {*self.entity_keys, self.prediction_ts} & seen
+        if identity:
+            raise SpecError(
+                "output_roles may not name the entity key or the prediction time: "
+                f"{sorted(identity)}"
+            )
 
     @property
     def outcome_tables(self) -> set[str]:
         return {c.table for c in self.outcome_columns}
 
     @property
+    def outcome_only_tables(self) -> set[str]:
+        """Tables that hold outcome columns and nothing else the spec classifies.
+
+        A label, temporal or static table with an outcome column is still read for its other
+        columns, so only the outcome columns themselves are the target there.
+        """
+        classified = {self.label_table, *self.time_columns, *self.static_tables}
+        return self.outcome_tables - classified
+
+    @property
     def passthrough_columns(self) -> set[str]:
         """Output columns that identify the row or carry the target, not features."""
-        return {*self.entity_keys, self.prediction_ts, *self.label_columns}
+        return {
+            *self.entity_keys,
+            self.prediction_ts,
+            *self.label_columns,
+            *self.output_roles.label,
+        }
+
+    @property
+    def non_feature_outputs(self) -> set[str]:
+        """Output columns declared as label or metadata (see `is_non_feature_output`)."""
+        return {*self.output_roles.label, *self.output_roles.metadata}
+
+    def is_non_feature_output(self, column: str) -> bool:
+        """Whether the spec says this output column is not a feature: declared as label or
+        metadata, or absent from the `features` list when one is given."""
+        column = column.lower()
+        if column in self.non_feature_outputs:
+            return True
+        features = self.output_roles.features
+        return features is not None and column not in features
 
     @property
     def key_columns(self) -> list[str]:
@@ -169,8 +305,14 @@ class LeakageSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LeakageSpec:
-        required = ["label_table", "entity_keys", "prediction_ts", "label_columns", "time_columns"]
-        missing = [key for key in required if not data.get(key)]
+        roles = OutputRoles.from_value(data.get("output_roles"))
+        missing = [key for key in ("label_table", "prediction_ts") if not data.get(key)]
+        if data.get("entity_keys") is None:
+            missing.append("entity_keys (write [] for a single series)")
+        if not data.get("label_columns") and not roles.label:
+            missing.append("label_columns (or output_roles.label)")
+        if not data.get("time_columns"):
+            missing.append("time_columns")
         if missing:
             raise SpecError(f"LeakageSpec is missing required fields: {', '.join(missing)}")
         outcome = []
@@ -183,9 +325,11 @@ class LeakageSpec:
         times = _mapping(data["time_columns"], "time_columns")
         return cls(
             label_table=_name(data["label_table"], "label_table"),
-            entity_keys=_names(data["entity_keys"], "entity_keys"),
+            entity_keys=_names(data["entity_keys"], "entity_keys", allow_empty=True),
             prediction_ts=_name(data["prediction_ts"], "prediction_ts"),
-            label_columns=_names(data["label_columns"], "label_columns"),
+            label_columns=_names(
+                data.get("label_columns") or [], "label_columns", allow_empty=True
+            ),
             time_columns=times,
             availability_columns=_mapping(data.get("availability_columns"), "availability"),
             static_tables=_names(static, "static_tables") if static else (),
@@ -196,9 +340,11 @@ class LeakageSpec:
             label_known_after=(
                 None
                 if data.get("label_known_after") is None
-                else parse_duration(data["label_known_after"], "label_known_after")
+                else parse_duration(data["label_known_after"], "label_known_after", allow_zero=True)
             ),
             relations=_relations(data.get("relations")),
+            time_units=_time_units(data.get("time_units")),
+            output_roles=roles,
         )
 
     @classmethod

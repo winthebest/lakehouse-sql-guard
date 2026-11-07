@@ -8,19 +8,12 @@ import yaml
 
 from bench.kaggle import evaluate as ev
 from bench.kaggle.evaluate import ModeResult, Query, Record
-from sqlguard.leakage.spec import LeakageSpec, SpecError
 
 ROOT = Path(__file__).resolve().parents[2]
 PREREG = yaml.safe_load((ROOT / "bench/kaggle/eval-prereg.yaml").read_text())
 CASE_IDS = PREREG["inputs"]["cases"]
 PLACEHOLDER = {"unused_placeholder_events": "occurred_at"}
 LOADABLE = ["kl04", "kl05", "kl08", "kl09", "kl10", "kl11", "kl12", "kl14", "kl15", "kl17"]
-REJECTED = {
-    "kl03": "missing required fields",
-    "kl16": "missing required fields",
-    "kl06": "positive duration",
-    "kl07": "positive duration",
-}
 
 
 def case_spec(case):
@@ -72,16 +65,13 @@ def test_only_time_columns_differ_for_every_case(case):
     assert yaml.safe_load(yaml.safe_dump(rewritten, sort_keys=False)) == rewritten
 
 
-def test_no_case_spec_loads_as_authored():
-    assert ev.loadable_cases({case: case_spec(case) for case in CASE_IDS}) == []
+def test_every_case_spec_loads_as_authored():
+    assert ev.loadable_cases({case: case_spec(case) for case in CASE_IDS}) == CASE_IDS
 
 
-def test_the_registered_cases_load_after_the_rewrite_and_four_stay_rejected():
+def test_every_case_still_loads_after_the_rewrite():
     specs = {case: ev.variant_spec(case_spec(case)) for case in CASE_IDS}
-    assert ev.loadable_cases(specs) == LOADABLE
-    for case, reason in REJECTED.items():
-        with pytest.raises(SpecError, match=reason):
-            LeakageSpec.from_dict(specs[case])
+    assert ev.loadable_cases(specs) == CASE_IDS
     registered = PREREG["variant_spec_workaround"]["metrics"]
     assert all(case in registered for case in LOADABLE)
 

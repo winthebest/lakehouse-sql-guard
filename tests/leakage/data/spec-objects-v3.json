@@ -1,0 +1,605 @@
+{
+ "bench/leakage/real_spec.yaml": {
+  "availability_columns": {
+   "invoices": "ingested_at"
+  },
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "customer_id"
+  ],
+  "label_columns": [
+   "churned"
+  ],
+  "label_known_after": null,
+  "label_table": "churn_labels",
+  "max_ingest_delay": {},
+  "outcome_columns": [
+   {
+    "column": "next_90d_spend",
+    "table": "customer_outcomes"
+   }
+  ],
+  "prediction_ts": "cutoff_ts",
+  "relations": {},
+  "static_tables": [
+   "customers"
+  ],
+  "time_columns": {
+   "invoices": "invoice_ts"
+  }
+ },
+ "bench/leakage/spec.yaml": {
+  "availability_columns": {
+   "events": "ingested_at"
+  },
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "user_id"
+  ],
+  "label_columns": [
+   "churned"
+  ],
+  "label_known_after": 1209600.0,
+  "label_table": "labels",
+  "max_ingest_delay": {
+   "events": 691200.0
+  },
+  "outcome_columns": [
+   {
+    "column": "refund_after_churn",
+    "table": "user_outcomes"
+   },
+   {
+    "column": "days_to_churn",
+    "table": "user_outcomes"
+   }
+  ],
+  "prediction_ts": "label_ts",
+  "relations": {},
+  "static_tables": [
+   "entities"
+  ],
+  "time_columns": {
+   "events": "event_ts",
+   "user_stats": "updated_at"
+  }
+ },
+ "bench/leakage/spec_holdout_v2.yaml": {
+  "availability_columns": {
+   "events": "ingested_at",
+   "plan_history": "ingested_at"
+  },
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "user_id"
+  ],
+  "label_columns": [
+   "churned"
+  ],
+  "label_known_after": 1209600.0,
+  "label_table": "labels",
+  "max_ingest_delay": {
+   "events": 691200.0,
+   "plan_history": 691200.0
+  },
+  "outcome_columns": [
+   {
+    "column": "refund_after_churn",
+    "table": "user_outcomes"
+   },
+   {
+    "column": "days_to_churn",
+    "table": "user_outcomes"
+   }
+  ],
+  "prediction_ts": "label_ts",
+  "relations": {
+   "analytics.marts.fct_training_spine": "labels",
+   "analytics.snapshots.plan_history_snapshot": "plan_history",
+   "analytics.staging.stg_entities": "entities",
+   "analytics.staging.stg_events": "events",
+   "analytics.staging.stg_user_outcomes": "user_outcomes",
+   "analytics.staging.stg_user_stats": "user_stats",
+   "marts.fct_training_spine": "labels",
+   "snapshots.plan_history_snapshot": "plan_history",
+   "staging.stg_entities": "entities",
+   "staging.stg_events": "events",
+   "staging.stg_user_outcomes": "user_outcomes",
+   "staging.stg_user_stats": "user_stats"
+  },
+  "static_tables": [
+   "entities"
+  ],
+  "time_columns": {
+   "events": "event_ts",
+   "plan_history": "valid_from",
+   "user_stats": "updated_at"
+  }
+ },
+ "bench/leakage/spec_holdout_v3.yaml": {
+  "availability_columns": {
+   "events": "ingested_at",
+   "plan_history": "ingested_at"
+  },
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "user_id"
+  ],
+  "label_columns": [
+   "churned"
+  ],
+  "label_known_after": 1209600.0,
+  "label_table": "labels",
+  "max_ingest_delay": {
+   "events": 691200.0,
+   "plan_history": 691200.0
+  },
+  "outcome_columns": [
+   {
+    "column": "refund_after_churn",
+    "table": "user_outcomes"
+   },
+   {
+    "column": "days_to_churn",
+    "table": "user_outcomes"
+   }
+  ],
+  "prediction_ts": "label_ts",
+  "relations": {
+   "analytics.marts.fct_training_spine": "labels",
+   "analytics.snapshots.plan_history_snapshot": "plan_history",
+   "analytics.staging.stg_entities": "entities",
+   "analytics.staging.stg_events": "events",
+   "analytics.staging.stg_user_outcomes": "user_outcomes",
+   "analytics.staging.stg_user_stats": "user_stats",
+   "marts.fct_training_spine": "labels",
+   "snapshots.plan_history_snapshot": "plan_history",
+   "staging.stg_entities": "entities",
+   "staging.stg_events": "events",
+   "staging.stg_user_outcomes": "user_outcomes",
+   "staging.stg_user_stats": "user_stats"
+  },
+  "static_tables": [
+   "entities"
+  ],
+  "time_columns": {
+   "events": "event_ts",
+   "plan_history": "valid_from",
+   "user_stats": "updated_at"
+  }
+ },
+ "bench/realworld/round2/specs/Helooeverybody__AI-thuc-chien.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "ticket_id"
+  ],
+  "label_columns": [
+   "label_resolved"
+  ],
+  "label_known_after": null,
+  "label_table": "silver_tickets",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "prediction_ts",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/KZDNguyenThanh__africa-energy-lakehouse.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "household_id"
+  ],
+  "label_columns": [
+   "monthly_electricity_kwh"
+  ],
+  "label_known_after": null,
+  "label_table": "silver_households",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "year",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/KenImade__fpl-data-platform.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "player_id",
+   "match_id"
+  ],
+  "label_columns": [
+   "did_appear",
+   "gw_points",
+   "gw_bonus",
+   "gw_bps"
+  ],
+  "label_known_after": null,
+  "label_table": "feat_player_fixture_spine",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "deadline_utc",
+  "relations": {},
+  "static_tables": [
+   "stg_gameweeks",
+   "stg_players",
+   "stg_teams"
+  ],
+  "time_columns": {
+   "fct_player_gw": "kickoff_utc",
+   "fct_player_snapshot": "snapshot_at",
+   "fct_team_fixture": "kickoff_utc",
+   "stg_fpl_players": "captured_at"
+  }
+ },
+ "bench/realworld/round2/specs/LNshuti__soma.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "book_id"
+  ],
+  "label_columns": [
+   "quantity"
+  ],
+  "label_known_after": null,
+  "label_table": "sales",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "sale_date",
+  "relations": {},
+  "static_tables": [
+   "books",
+   "publishers"
+  ],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/PHALMenghak__car-price-prediction.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "listing_id"
+  ],
+  "label_columns": [
+   "price"
+  ],
+  "label_known_after": null,
+  "label_table": "stg_khmer24_cars",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "scrape_date",
+  "relations": {},
+  "static_tables": [
+   "seed_brand_mapping",
+   "seed_model_alias",
+   "seed_location_mapping",
+   "seed_fuel_mapping",
+   "seed_transmission_mapping",
+   "seed_tax_mapping",
+   "seed_color_mapping",
+   "seed_condition_mapping",
+   "seed_body_type_mapping"
+  ],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/alwyndsouza__asx_stock_analysis_using_ml.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "symbol"
+  ],
+  "label_columns": [
+   "next_day_return",
+   "next_week_return",
+   "next_month_return"
+  ],
+  "label_known_after": null,
+  "label_table": "asx_stock_prices",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "date",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/clementlemon02__crypto-macd-screener.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "symbol",
+   "interval"
+  ],
+  "label_columns": [
+   "forward_return",
+   "label_up"
+  ],
+  "label_known_after": null,
+  "label_table": "gold_ml_labels",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "open_time",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "candles": "open_time",
+   "candles_macd": "open_time"
+  }
+ },
+ "bench/realworld/round2/specs/gusdiaso__lh_nautical_athena.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "sk_product",
+   "sk_location"
+  ],
+  "label_columns": [
+   "target_3m"
+  ],
+  "label_known_after": null,
+  "label_table": "ml_cutoff_panel",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "cutoff",
+  "relations": {},
+  "static_tables": [
+   "dim_products",
+   "dim_locations"
+  ],
+  "time_columns": {
+   "ml_complete_monthly_demand": "month_start_date"
+  }
+ },
+ "bench/realworld/round2/specs/nathandxn__dbt_credit_risk_model.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "case_id"
+  ],
+  "label_columns": [
+   "is_default"
+  ],
+  "label_known_after": null,
+  "label_table": "source_base__cases",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "decision_date",
+  "relations": {},
+  "static_tables": [
+   "source_static__0"
+  ],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/ritulchitra__customer-conversion-dbt-ml.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "customer_id"
+  ],
+  "label_columns": [
+   "converted"
+  ],
+  "label_known_after": null,
+  "label_table": "stg_orders",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "prediction_ts",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/sumanoj__hoteliq-analytics.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "_row_number"
+  ],
+  "label_columns": [
+   "is_canceled"
+  ],
+  "label_known_after": null,
+  "label_table": "raw_hotel_bookings",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "prediction_ts",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/round2/specs/theo-lyd__predictive-ltv-survival-pipeline.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "customer_id"
+  ],
+  "label_columns": [
+   "is_churned"
+  ],
+  "label_known_after": null,
+  "label_table": "stg_customers",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "churn_ts",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "stg_billing": "invoice_ts",
+   "stg_promotions": "promotion_start_ts"
+  }
+ },
+ "bench/realworld/specs/ChuquEmeka__DBT-Fraud-Detection-Data-Pipeline.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "transactionid"
+  ],
+  "label_columns": [
+   "isfraud"
+  ],
+  "label_known_after": null,
+  "label_table": "transactions_staging",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "transactiondate",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/specs/DobleL2__dbt_churn_prediction.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "user_id"
+  ],
+  "label_columns": [
+   "is_churned"
+  ],
+  "label_known_after": null,
+  "label_table": "stg_users",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "churn_date",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "app_events": "event_timestamp",
+   "billing": "billing_date",
+   "marketing": "campaign_date",
+   "support_tickets": "created_date"
+  }
+ },
+ "bench/realworld/specs/SarrangTech__fraud-detection-feature-store.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "transaction_id"
+  ],
+  "label_columns": [
+   "is_fraud"
+  ],
+  "label_known_after": null,
+  "label_table": "bronze_transactions",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "event_time",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "bench/realworld/specs/mponsclo__music-streaming-churn-prediction.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "msno"
+  ],
+  "label_columns": [
+   "is_churn"
+  ],
+  "label_known_after": null,
+  "label_table": "stg_train",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "prediction_ts",
+  "relations": {},
+  "static_tables": [
+   "stg_members"
+  ],
+  "time_columns": {
+   "stg_transactions": "transaction_date",
+   "stg_user_logs": "date"
+  }
+ },
+ "bench/realworld/specs/novarz__dbt-feature-store.yaml": {
+  "availability_columns": {},
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "customer_id"
+  ],
+  "label_columns": [
+   "tx_fraud"
+  ],
+  "label_known_after": null,
+  "label_table": "fraud_transactions",
+  "max_ingest_delay": {},
+  "outcome_columns": [],
+  "prediction_ts": "tx_datetime",
+  "relations": {},
+  "static_tables": [],
+  "time_columns": {
+   "unused_placeholder_events": "occurred_at"
+  }
+ },
+ "examples/leakage/spec.yaml": {
+  "availability_columns": {
+   "orders": "loaded_at"
+  },
+  "boundary": "strict",
+  "dialect": "duckdb",
+  "entity_keys": [
+   "customer_id"
+  ],
+  "label_columns": [
+   "churned"
+  ],
+  "label_known_after": null,
+  "label_table": "churn_labels",
+  "max_ingest_delay": {},
+  "outcome_columns": [
+   {
+    "column": "refund_amount",
+    "table": "refunds"
+   }
+  ],
+  "prediction_ts": "cutoff_ts",
+  "relations": {},
+  "static_tables": [
+   "customers"
+  ],
+  "time_columns": {
+   "orders": "order_ts",
+   "support_tickets": "opened_at"
+  }
+ }
+}
