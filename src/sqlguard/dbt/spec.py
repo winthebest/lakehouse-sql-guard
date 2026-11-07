@@ -3,10 +3,13 @@
 The settings come from `meta.leakage` of the nodes the inlined query reads:
 
 - the training model (`role: training_set`) and the label spine (`role: label_spine`) give
-  `entity_keys`, `prediction_ts`, `label_columns` (the training model wins, then the spine) and
-  the optional `boundary` and `label_known_after`;
+  `entity_keys` (`[]` for a single series), `prediction_ts`, `label_columns` and `output_roles`
+  (the training model wins, then the spine) and the optional `boundary` and `label_known_after`
+  (`0` when labels are final as soon as they are stamped);
 - a physical table declares what it is: `role: static`, `time_column` (+ `availability_column`,
-  `max_ingest_delay`) for a temporal table, `outcome_columns` for facts known after the outcome.
+  `max_ingest_delay`, `time_unit` for an integer time column) for a temporal table,
+  `outcome_columns` for facts known after the outcome. A label spine with a `time_column` is the
+  label table and also event history.
 
 Tables are named as the catalog names them: a relation `"db"."raw"."orders"` is the table `orders`
 (or the table `iceberg_table` names), and the spec's `relations` maps the SQL name to it, so the
@@ -28,8 +31,21 @@ from sqlguard.leakage.spec import LeakageSpec, SpecError
 from sqlguard.leakage.spec import relation_key as spec_relation_key
 
 UNKNOWN_TYPE = "UNKNOWN"
-_SPINE_KEYS = ("entity_keys", "prediction_ts", "label_columns", "boundary", "label_known_after")
-_MAPPING_KEYS = ("time_columns", "availability_columns", "max_ingest_delay", "relations")
+_SPINE_KEYS = (
+    "entity_keys",
+    "prediction_ts",
+    "label_columns",
+    "boundary",
+    "label_known_after",
+    "output_roles",
+)
+_MAPPING_KEYS = (
+    "time_columns",
+    "availability_columns",
+    "max_ingest_delay",
+    "time_units",
+    "relations",
+)
 # --spec fields that can only make a check more lenient than the dbt meta alone
 _RELAXING = (
     "max_ingest_delay",
@@ -38,6 +54,7 @@ _RELAXING = (
     "static_tables",
     "label_table",
     "relations",
+    "output_roles",
 )
 
 
@@ -152,6 +169,7 @@ def derive_spec(
     times: dict[str, str] = {}
     available: dict[str, str] = {}
     delay: dict[str, Any] = {}
+    units: dict[str, Any] = {}
     static: list[str] = []
     outcomes: list[str] = []
     for node in boundaries:
@@ -167,6 +185,10 @@ def derive_spec(
             raise SpecError(
                 f"{node.unique_id}: availability_column and max_ingest_delay need a time_column"
             )
+        if "time_unit" in leak:
+            if "time_column" not in leak:
+                raise SpecError(f"{node.unique_id}: time_unit needs a time_column")
+            units[name] = leak["time_unit"]
         if leak.get("role") == "static":
             static.append(name)
         columns = leak.get("outcome_columns") or []
@@ -177,6 +199,7 @@ def derive_spec(
         ("time_columns", times),
         ("availability_columns", available),
         ("max_ingest_delay", delay),
+        ("time_units", units),
         ("relations", relations),
     ):
         if value:
@@ -199,8 +222,8 @@ def merge_spec(
 
     A value the file changes is warned about. So is every field of the file that can relax a rule
     (`boundary: inclusive`, `max_ingest_delay`, `label_known_after`, `availability_columns`,
-    `static_tables`, `label_table`, `relations`) even when the dbt meta sets nothing there: the
-    file is a deliberate loosening and the run should say so.
+    `static_tables`, `label_table`, `relations`, `output_roles`) even when the dbt meta sets
+    nothing there: the file is a deliberate loosening and the run should say so.
     """
     merged = dict(derived)
     warnings = []
@@ -234,9 +257,25 @@ def merge_spec(
                     for name in value
                     if str(name).lower() not in map(str.lower, old)
                 ]
+            if key == "output_roles" and isinstance(value, dict) and isinstance(old, dict):
+                warnings += _new_roles(old, value)
             warnings.append(f"--spec changes {key} from dbt meta: {old} -> {value}")
         merged[key] = value
     return merged, warnings
+
+
+def _new_roles(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    """A warning for every column the file puts in a role that the meta did not."""
+    warnings = []
+    for role, columns in new.items():
+        if not isinstance(columns, list):
+            continue
+        before = old.get(role)
+        have = {str(c).lower() for c in before} if isinstance(before, list) else set()
+        warnings += [
+            _relaxes(f"output_roles[{role}]", c) for c in columns if str(c).lower() not in have
+        ]
+    return warnings
 
 
 def _relaxes(field_name: str, value: Any) -> str:
