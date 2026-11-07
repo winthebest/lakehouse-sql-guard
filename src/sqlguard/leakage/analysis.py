@@ -1598,6 +1598,7 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
             if ref.kind == "label":
                 resolver.spine |= {(id(ref), p) for p in ref.paths}
         analysis.seed_scopes = {id(ref.scope) for ref in analysis.refs if ref.kind == "label"}
+        analysis.seed_scopes |= _rows_passed_on(outputs, resolver)
         return
     spine = resolver.spine
     for scope, terms in seeds:
@@ -1634,6 +1635,54 @@ def _spine(analysis: QueryAnalysis, root: Scope | None, resolver: _Resolver) -> 
                             if (id(new[0].ref), p) not in spine:
                                 spine.add((id(new[0].ref), p))
                                 changed = True
+
+
+def _only_projects_and_filters(scope: Scope) -> bool:
+    """Does the SELECT take the rows of its single source and keep some of them, unchanged?
+    No join, grouping, aggregate, window, DISTINCT, LIMIT or set operation in between."""
+    select = scope.expression
+    return (
+        isinstance(select, exp.Select)
+        and len(scope.selected_sources) == 1
+        and not any(
+            select.args.get(part) for part in ("group", "distinct", "limit", "offset", "windows")
+        )
+        and not any(
+            _innermost_select(node) is select
+            for node in select.find_all(exp.AggFunc, exp.Window, *_ROW_MULTIPLIERS)
+        )
+    )
+
+
+def _rows_passed_on(outputs: list[Scope], resolver: _Resolver) -> set[int]:
+    """The output SELECTs and the scopes below them whose rows reach the output as they are:
+    each takes the rows of its single source and keeps some of them.
+
+    Used when the output does not say which label rows it holds: a filter on a label column in
+    such a scope still only chooses output rows, as in the scope that reads the label table. A
+    scope the output reads through a join, a subquery or a second use is not one of them."""
+    found: set[int] = set()
+    pending = list(outputs)
+    while pending:
+        scope = pending.pop()
+        if id(scope) in found:
+            continue
+        found.add(id(scope))
+        if _only_projects_and_filters(scope):
+            ((_, source),) = scope.selected_sources.values()
+            if isinstance(source, Scope) and _read_once(source, resolver):
+                pending.append(source)
+    return found
+
+
+def _read_once(source: Scope, resolver: _Resolver) -> bool:
+    """Is `source` read by exactly one FROM item in the whole query (a subquery counts)?"""
+    readers = 0
+    for scope in resolver.scope_by_id.values():
+        if id(scope) in resolver.dead:
+            continue
+        readers += sum(1 for s in scope.sources.values() if s is source)
+    return readers == 1
 
 
 def _output(scope: Scope, name: str) -> exp.Expression:

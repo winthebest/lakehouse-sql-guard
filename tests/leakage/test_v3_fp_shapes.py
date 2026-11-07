@@ -290,3 +290,67 @@ GROUP BY 1, 2, 3"""
     assert rules(snapshot) == set()
     assert rules(next_day) != set()
     assert rules(same_instant) != set()  # a fact stamped at the prediction time is not yet known
+
+
+# --- the label filter of a staging step when the output does not carry the prediction time ------
+
+
+def staged(filter_sql: str, tail: str = "SELECT user_id, churned FROM cleaned") -> str:
+    return f"""WITH source AS (SELECT * FROM labels),
+cleaned AS (SELECT * FROM source WHERE {filter_sql})
+{tail}"""
+
+
+def test_a_label_filter_in_a_staging_step_is_not_a_use_when_the_spec_error_is_reported():
+    # the output has no prediction time, which is reported as a spec error; the filter still only
+    # chooses which rows are the output rows, as it does when the prediction time is there
+    found = rules(staged("user_id IS NOT NULL AND churned IS NOT NULL"))
+    assert found == {"SPEC"}
+    with_time = staged(
+        "user_id IS NOT NULL AND churned IS NOT NULL",
+        "SELECT user_id, label_ts, churned FROM cleaned",
+    )
+    assert rules(with_time) == set()
+
+
+def staged_after_a_join(filter_sql: str) -> str:
+    return f"""WITH source AS (SELECT * FROM labels),
+joined AS (SELECT s.user_id, s.churned, e.amount FROM source s LEFT JOIN events e
+           ON e.user_id = s.user_id),
+cleaned AS (SELECT * FROM joined WHERE {filter_sql})
+SELECT user_id, churned, amount FROM cleaned"""
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # the filter mixes the label with a feature
+        staged_after_a_join("churned IS NOT NULL OR amount > 0"),
+        # the filtered rows feed a feature (they are joined back, or read twice), not the output
+        """WITH source AS (SELECT * FROM labels),
+cleaned AS (SELECT * FROM source WHERE churned = 1)
+SELECT s.user_id, s.churned, c.user_id IS NOT NULL AS ever_churned
+FROM source s LEFT JOIN cleaned c ON c.user_id = s.user_id""",
+        """WITH source AS (SELECT * FROM labels),
+cleaned AS (SELECT * FROM source WHERE churned = 1)
+SELECT s.user_id, s.churned,
+       (SELECT COUNT(*) FROM cleaned c WHERE c.user_id = s.user_id) AS n
+FROM source s""",
+        # rows were grouped or ranked before the filter
+        """WITH source AS (SELECT * FROM labels),
+grouped AS (SELECT user_id, MAX(churned) AS m FROM source GROUP BY user_id)
+SELECT user_id, m FROM grouped""",
+        """WITH source AS (SELECT * FROM labels),
+ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY churned) AS rn FROM source),
+cleaned AS (SELECT * FROM ranked WHERE rn = 1 AND churned IS NOT NULL)
+SELECT user_id, churned FROM cleaned""",
+        # the label chooses rows through a subquery, which is not an output row scope
+        """WITH source AS (SELECT * FROM labels), cleaned AS (SELECT * FROM source)
+SELECT user_id, churned FROM labels l
+WHERE user_id IN (SELECT user_id FROM cleaned WHERE churned = 1)""",
+        # the label feeds a column
+        staged("churned IS NOT NULL", "SELECT user_id, churned * 2 AS doubled FROM cleaned"),
+    ],
+)
+def test_a_label_filter_that_is_not_a_plain_filter_of_the_output_rows_is_still_a_use(query):
+    assert "L6" in rules(query)
