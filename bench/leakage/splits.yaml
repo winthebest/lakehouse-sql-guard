@@ -16,8 +16,8 @@ splits:
   holdout_v2:
     spec: spec_holdout_v2.yaml
     seen: true
-  # The next held-out set: written by new authors who never see holdout_v2. Its templates arrive
-  # after the rules are frozen again; until then the directory is empty.
+  # Written by new authors who never saw holdout_v2, after the v3 rules were frozen. Read after
+  # the v3 result; the v4 rules were developed with it in view.
   holdout_v3:
     spec: spec_holdout_v3.yaml
-    seen: false
+    seen: true

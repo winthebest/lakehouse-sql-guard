@@ -26,22 +26,21 @@ def warehouse_of(catalog) -> Path:
 # --- split manifest -------------------------------------------------------------------------
 
 
-def test_the_manifest_marks_every_split_but_the_newest_seen():
+def test_the_manifest_marks_every_split_seen():
     assert SPLITS == ("dev", "dev_v1b", "holdout_v2", "holdout_v3")
-    assert DEFAULT_SPLITS == ("dev", "dev_v1b", "holdout_v2")
-    assert splits.seen_splits() == {"dev", "dev_v1b", "holdout_v2"}
+    assert DEFAULT_SPLITS == SPLITS
+    assert splits.seen_splits() == set(SPLITS)
     manifest = splits.load_splits()
     assert manifest["holdout_v2"].spec.name == "spec_holdout_v2.yaml"
     assert (
-        manifest["holdout_v3"].spec.name == "spec_holdout_v3.yaml"
-        and not manifest["holdout_v3"].seen
+        manifest["holdout_v3"].spec.name == "spec_holdout_v3.yaml" and manifest["holdout_v3"].seen
     )
     assert manifest["dev"].spec == manifest["dev_v1b"].spec
 
 
 def test_a_preregistration_can_only_add_to_what_was_seen():
-    seen = {"dev", "dev_v1b", "holdout_v2"}
-    assert splits.seen_splits({"seen_splits": ["holdout_v3"]}) == {*seen, "holdout_v3"}
+    seen = {"dev", "dev_v1b", "holdout_v2", "holdout_v3"}
+    assert splits.seen_splits({"seen_splits": ["holdout_v4"]}) == {*seen, "holdout_v4"}
     assert splits.seen_splits({"seen_splits": []}) == seen  # old files lack it
     assert splits.seen_splits({"splits_seen": ["dev"]}) == seen
 
